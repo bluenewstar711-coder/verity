@@ -2,7 +2,9 @@
 
 Status: **the actual imported wrapper and captured native arithmetic body have
 kernel-checked successful return-byte equivalence; whole-dispatcher and
-failure-inclusive translation equivalence is not implemented**.
+failure-inclusive translation equivalence is not implemented**. An explicitly
+specified `memoryguard` dialect extension now has a kernel-checked conservative
+lowering theorem; it does not add a builtin to pinned EVMYulLean.
 This experiment does not change the importer, its acceptance criteria, the trust
 boundary, or any existing theorem. In particular, it does not remove the Solidity
 frontend from the trusted computing base.
@@ -387,17 +389,73 @@ reproduces the missing-native-constructor diagnostic; and checks that changing
 the quoted callee invalidates the precise rejection theorem. Its receipt uses
 only the standard Lean axioms. Existing successful-body checks are unchanged.
 
-A future route is to extend the pinned native Yul dialect with an explicit
-`memoryguard` operation and justified semantics, then prove how solc's actual
-handling of that operation relates to it. An alternative is a separately
-specified preprocessing transformation with a proved preservation theorem.
-Neither route is implemented here; replacing this node with literal 128 now
-would silently add an unproved frontend boundary. The native interpreter does
-support `CALLDATALOAD`, and existing aligned-word decoding lemmas provide useful
-next ingredients once the prologue boundary is resolved. This attempt does not
-derive any dispatcher/ABI premise or claim whole-function equivalence. The
-failure-payload issue below is independent and would remain after adding
-`memoryguard`.
+The original decoder/native-boundary rejection remains valid and is preserved
+as a regression. The bounded extension below takes a separately specified route;
+it does not silently delete the captured node or claim that the pinned native
+interpreter already supports it.
+
+## Explicit `memoryguard` extension at `6e275b4d`
+
+[`MemoryGuardExtension.lean`](../experiments/solidity-translation-validation/MemoryGuardExtension.lean)
+adds an experimental `Statement.memoryguardDeclaration name literal` constructor,
+separate from native statements and sequence blocks. Its strict decoder checks
+all declaration/callee/literal fields and rejects dynamic arguments, incorrect
+arity, unknown fields, multiple bindings and out-of-word numbers. The real
+captured JSON declaration is decoded to this constructor, not rewritten to a
+literal by the JSON decoder. `decode_captured_memoryguard` proves that binding.
+
+The extension specifies that this post-optimization numeric-literal builtin
+binds its literal and leaves shared state unchanged. The rationale is direct
+inspection of the matching solc commit
+`80d5c5362b5d41697fd62ef36cf6abd8d5a68cc4`:
+[`memoryguardBuiltin` in EVMBuiltins.cpp](https://github.com/argotorg/solidity/blob/80d5c5362b5d41697fd62ef36cf6abd8d5a68cc4/libyul/backends/evm/EVMBuiltins.cpp#L93-L109)
+accepts a numeric literal and emits that constant. Its declaration records no
+side effects. The full source hash and inspected function span are recorded in
+[`solc-memoryguard-evidence.json`](../experiments/solidity-translation-validation/solc-memoryguard-evidence.json).
+**This source-to-extension correspondence is reviewed evidence, not a
+kernel-checked proof of the C++ generator or optimizer.** In particular the
+extension describes the literal present in the final optimized AST; it does not
+claim a pre-optimization literal survives every optimizer unchanged.
+
+The six checked theorem statements cover:
+
+* `native_conservative`: embedding any existing native statement preserves its
+  interpreter result for every state, code override and fuel.
+* `lowering_preserves_execution`: the named lowering of extended declarations
+  to native literal declarations preserves complete results for arbitrary
+  extended statements and blocks, including state, errors and fuel exhaustion.
+* `decode_captured_memoryguard`: the unchanged actual captured declaration
+  decodes successfully in this explicitly named extension.
+* `captured_node_executes`: composing that exact JSON decode with extension
+  execution yields the state with `_1` bound to 128.
+* `captured_pointer_binding`: that successor satisfies the pointer lookup
+  premise without assuming the desired lookup result.
+* `captured_pointer_frame`: shared state and every other local binding are
+  preserved.
+
+These are theorems about the specified extension and its translation into
+pinned native semantics. The lowering step is explicit and proved relative to
+that extension; it is not a claimed equivalence to an unavailable native
+`MEMORYGUARD` operation. The original byte-level body theorem still requires its
+pointer premise in native execution; composing the extended prologue with the
+remaining captured dispatcher, calldata loads and selector/value/length guards
+is pending. Gas and C++ compiler correctness are not covered.
+
+`check_memoryguard_extension.py` runs all prior proof, decoder, mutation and
+artifact checks before the new checks. It audits six new standard-only axiom
+receipts, checks ten strict decoder rejection equations and rejects three new
+semantic mutations: wrong memoryguard value, wrong lowered literal, and altered
+native fuel. The prior captured Yul/AST, quoted nodes and golden files are
+unchanged. This experiment uses an isolated worktree/private cache at
+`6e275b4d3d4aef7be0f115365f2d1f629da162f8`; its normal prerequisite build and
+new checker are recorded separately in `memoryguard-environment.json`.
+
+The next proof obligation is to compose this explicit extended node with the
+actual remaining prologue and derive the three argument bindings from ABI
+calldata, preserving the shared-state frame. A complete compiler-independent
+certificate additionally needs a justified semantics link to solc's treatment
+of the builtin; the C++ source inspection alone does not supply that theorem.
+The native failure-payload obstruction below is independent and remains.
 
 ## Blocking issue: the native result loses revert bytes
 
@@ -517,8 +575,9 @@ only `propext`, `Classical.choice`, `Quot.sound`. Whole-Yul translation
 equivalence is still not claimed.
 
 Recommendation: keep this work below importer measurement and stateful
-differential validation. Next resolve the explicit `memoryguard` semantics
-boundary and establish the body's dispatcher-entry assumptions. Fix the payload-preserving native
+differential validation. Next compose the explicit `memoryguard` extension
+with the remaining dispatcher and establish the body's ABI input assumptions;
+the source-to-extension semantics boundary remains explicit. Fix the payload-preserving native
 observation boundary separately, with panic-byte and rollback regressions, before
 claiming an all-input function certificate. The exact failure-inclusive theorem
 remains blocked by the current native result surface.
