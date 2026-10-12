@@ -553,6 +553,20 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
             raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
         print(f'pass {mutant} exact rejection guard')
     # Quotation corruption is rejected before an executable model exists.
+    deployment_output = Path(tempfile.mkdtemp(prefix="deployment-world-mutations-", dir=WORK)) / "cases"
+    deployment_launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                           'runpy.run_module("solidity_differential.check_deployment_world_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", deployment_launcher, "--output", str(deployment_output)],
+                   cwd=ROOT, check=True, timeout=2400)
+    deployment_results = json.loads((deployment_output / "mutation-results.json").read_text())
+    deployment_names = {"denote-create2-drop-nonce", "denote-create2-empty-code",
+                        "denote-create2-drop-value", "denote-create2-drop-deposit",
+                        "denote-create2-ignore-collision"}
+    if ({row['mutant'] for row in deployment_results} != deployment_names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] for row in deployment_results)):
+        raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
+    print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)")
     quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                     "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],

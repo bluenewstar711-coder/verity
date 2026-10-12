@@ -894,3 +894,12 @@ payload. Byte-copy frame lemmas preserve reads outside the destination range.
 This is deployment proof infrastructure: it adds no supported Solidity or Yul
 construct to the importer. `CREATE2` remains rejected until exact object-memory
 provenance, account-world transitions and full A/B/C checks are integrated.
+
+The account-world prerequisite now stores bounded nonces, balances, exact code
+bytes and finite storage in `ContractState.accountWorld`. `DenoteCreate2`
+executes the checked initcode templates and handles transfers, nonce increments,
+collisions, deposit rules and child gas. Account frames and existing transaction
+rollback include this metadata. The source-storage/account-storage bridge,
+parent opcode charging, ABI/events, compiled-model route and importer lowering
+remain required before CREATE2 is supported. Unsupported initcode is an
+instrument error, never a fabricated successful deployment or Solidity revert.

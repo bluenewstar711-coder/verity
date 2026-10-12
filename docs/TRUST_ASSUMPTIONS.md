@@ -1598,5 +1598,27 @@ it does not prove equivalence with the full EVM or complete deployment semantics
 The EVM/Lean instrument tests actual runtime bytes and a semantically identical
 PUSH1-zero variant. It is not an A/B/C campaign and does not extend the import
 trust boundary. Gas, call depth, size/deposit/prefix checks, collisions, nonce
-changes and rollback must still be modeled by the deployment transition before
-source admission. CODECOPY with zero size preserves memory without expansion.
+changes and rollback are separate deployment-transition obligations. The new
+transition below addresses them as a prerequisite; its integration is still
+required before source admission. CODECOPY with zero size preserves memory
+without expansion.
+
+`DenoteCreate2` now supplies a concrete account transition using typed
+`ContractState.accountWorld` metadata. Its byte-hash parameter is instantiated
+with the actual Keccak implementation; runtime code and successful deployment
+are computed, not supplied by an adversary. The calibration derives child gas
+from actual CREATE2 opcode stack/memory/gas and validates the EIP-150 allowance,
+including prechecks without a traced child frame. It threads the model from the
+same initial ledger and compares code, nonce, balance, sampled storage, status,
+returned address and observed child gas with the real EVM. It does not yet
+compare fixture ABI revert bytes/events or a model-compiled C route. Parent
+opcode charging and the source-storage/account-storage representation bridge
+remain explicit integration obligations; no CREATE2 importer admission is made.
+
+The pinned Foundry 1.5.0 Osaka EVM permits creation at an address with nonzero
+storage and empty code/nonce, then clears its storage. EVMYulLean at
+`f7e4ee0dc8f8d5265ce822a937ab5be771f182e9` instead applies the EIP-7610
+storage-collision rule in its creation semantics. This measured fork mismatch
+prevents reusing that creation rule as an Osaka translation-validation target
+without a fork-correct refinement. The account transition follows the pinned
+real Osaka EVM and rejects only nonzero nonce/code as collisions.
