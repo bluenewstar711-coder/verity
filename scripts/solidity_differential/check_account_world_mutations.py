@@ -62,7 +62,8 @@ def main():
     transactions, plans = campaign['transactions'], campaign['slots']
     ids = [tx['id'] for tx in transactions]
     work = out / 'work'
-    command(['git', 'clone', '--shared', '--no-hardlinks', repo, work])
+    # A transported shallow snapshot avoids growing transferred alternate-store chains.
+    command(['git', 'clone', '--no-local', '--depth', '1', '--no-checkout', repo, work])
     command(['git', '-C', work, 'checkout', '--detach', head])
     (work / '.lake').mkdir()
     command(['cp', '-a', '--reflink=auto', repo / '.lake/build', work / '.lake/build'])
