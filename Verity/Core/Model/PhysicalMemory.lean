@@ -89,6 +89,18 @@ theorem writePhysicalMemoryValue_at (world : Verity.ContractState) (offset : Nat
   unfold Verity.ContractState.writePhysicalMemoryValue
   rw [writePhysicalMemoryWord_at, wordValue_valueWord]
 
+theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
+    (byte : Byte) :
+    (world.writePhysicalMemoryByte offset byte).byteMemory.readByte offset = byte := by
+  unfold Verity.ContractState.writePhysicalMemoryByte
+    Verity.ContractState.installPhysicalMemory
+  have hcover := expandedLength_covers (offset + 1)
+  have hsize : expandedLength (offset + 1) ≤
+      (world.byteMemory.expand (offset + 1)).size := by
+    exact Nat.le_max_right _ _
+  simp [Memory.readByte, Memory.writeByte]
+  omega
+
 theorem writePhysicalMemoryValue_coherent (world : Verity.ContractState) (offset : Nat)
     (value : Uint256) : Coherent (world.writePhysicalMemoryValue offset value) :=
   writePhysicalMemoryWord_coherent _ _ _
