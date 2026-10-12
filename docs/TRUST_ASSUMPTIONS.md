@@ -1367,3 +1367,13 @@ storage-collision rule in its creation semantics. This measured fork mismatch
 prevents reusing that creation rule as an Osaka translation-validation target
 without a fork-correct refinement. The account transition follows the pinned
 real Osaka EVM and rejects only nonzero nonce/code as collisions.
+
+`BytesObjectMemory.materialize` writes a bytes object's length, payload and
+zero padding into the byte-memory layer at a supplied base address. Kernel
+lemmas prove the representation and frames for later disjoint objects. The
+base is not claimed to equal solc's allocator result: EVM/Lean calibration
+compares relative object bytes, without establishing numeric pointer equality,
+free-memory-pointer behavior, allocation overflow/panic/gas ordering, canonical
+Denote word-memory refinement or a compiled-model C route. The importer still
+rejects these unsupported pointer observations. A length word is encoded in
+256 bits; importer integration must prove the length bound before using it.
