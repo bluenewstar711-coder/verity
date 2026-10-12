@@ -175,7 +175,7 @@ MUTANTS.update({
 
 MUTANTS.update({
     'import-yul-header-size': ('return buffer.size', 'return (.add buffer.size (.literal 1))'),
-    'import-yul-header-declaration': ('let some buffer := (← get).byteBuffers.find? id', 'let some buffer := ((← get).byteBuffers.toList.head?).map (·.2)'),
+    'import-yul-header-declaration': ('let some buffer := (← get).byteBuffers.find? id\n', 'let some buffer := ((← get).byteBuffers.toList.head?).map (·.2)\n'),
     'import-yul-numeric-literal': ('pure (.literal value)\n  | "YulIdentifier" =>', 'pure (.bitXor (.literal value) (.literal 1))\n  | "YulIdentifier" =>'),
     'import-yul-numeric-add': ('| "add", #[a, b] => pure (.add a b)', '| "add", #[a, b] => pure (.sub a b)'),
     'import-yul-result-scope': ('{ e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,', '{ e with values := e.values.insert id expr, yulNames := e.yulNames,'),
