@@ -579,6 +579,7 @@ provenance was changed.
 | --- | --- |
 | Untyped decimal or hexadecimal Yul numeric literal fitting one EVM word | Parse the exact natural value and reject values outside `[0, 2^256)`. |
 | Two-argument Yul `add` in the existing single-assignment helper subset | Use the existing wrapping word addition expression. |
+| Yul `mload` of an immutable admitted `bytes memory` local or alias | Resolve the occurrence through solc external references to its exact declaration and return the captured logical length. No numeric object/payload pointer escapes; free-memory reads, computed addresses, storage offsets, multiword references and memory mutations remain unsupported. |
 
 This draft reuses existing literal and addition semantics in Denote and codegen.
 It does not expose byte-buffer pointers or add raw memory, deployment, additional

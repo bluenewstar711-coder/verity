@@ -1377,3 +1377,14 @@ free-memory-pointer behavior, allocation overflow/panic/gas ordering, canonical
 Denote word-memory refinement or a compiled-model C route. The importer still
 rejects these unsupported pointer observations. A length word is encoded in
 256 bits; importer integration must prove the length bound before using it.
+
+
+The immutable bytes-header Yul rule exposes only the object's logical length,
+resolved by the identifier occurrence's solc declaration reference. It does not
+use an encoding payload pointer as an object pointer: the descriptor observes
+the length word justified by `BytesObjectMemory.materialize_header`. Existing
+encoding allocation and failure checks execute at the source declaration; no
+header read moves or repeats those effects. Objects remain immutable, and
+unrestricted numeric pointer observations and memory writes are rejected.
+This does not establish a source allocator identity or admit CREATE2; the
+world/account/storage/gas/compiler integration obligations remain unchanged.

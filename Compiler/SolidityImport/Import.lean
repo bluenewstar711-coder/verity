@@ -702,9 +702,22 @@ private def literalUnitScale : String → Option Nat
   | "ether" => some (10 ^ 18)
   | _ => none
 
+/-- Resolve the declaration attached to this occurrence, never its spelling.
+The admitted assembly fragment has no Yul-local bindings. -/
+private def yulDeclaration (j : Json) (refs : Array Json) : M Nat := do
+  let src ← mStr (← mField j "src")
+  let candidates ← refs.filterM fun ref => do
+    pure ((← mStr (← mField ref "src")) == src)
+  unless candidates.size == 1 do failAt j "Yul identifier has no unique declaration reference"
+  let ref := candidates[0]!
+  unless !(← mBool (← mField ref "isOffset")) && !(← mBool (← mField ref "isSlot")) &&
+      (field? ref "suffix").isNone && (← mNat (← mField ref "valueSize")) == 1 do
+    failAt j "Yul offset, slot and multiword references are unsupported"
+  mNat (← mField ref "declaration")
+
 mutual
 
-private partial def lowerYul (j : Json) : M Expr := do
+private partial def lowerYul (j : Json) (refs : Array Json) : M Expr := do
   match ← mKind j with
   | "YulLiteral" =>
       unless optStr j "kind" == some "number" do
@@ -731,9 +744,20 @@ private partial def lowerYul (j : Json) : M Expr := do
   | "YulFunctionCall" =>
       let fname ← mStr (← mField (← mField j "functionName") "name")
       let args ← mArr (← mField j "arguments")
+      if fname == "mload" then
+        unless args.size == 1 do failAt j "Yul mload requires one argument"
+        let object := args[0]!
+        unless (← mKind object) == "YulIdentifier" do
+          failAt object "Yul mload currently requires an immutable bytes object"
+        let id ← yulDeclaration object refs
+        let some buffer := (← get).byteBuffers.find? id
+          | failAt object "Yul mload currently requires an immutable bytes object"
+        -- The object descriptor observes its length header, not the existing
+        -- encoding payload pointer. No numeric pointer escapes this rule.
+        return buffer.size
       let mut xs : Array Expr := #[]
       for arg in args do
-        xs := xs.push (← lowerYul arg)
+        xs := xs.push (← lowerYul arg refs)
       match fname, xs with
       | "add", #[a, b] => pure (.add a b)
       | "xor", #[a, b] => pure (.bitXor a b)
@@ -2123,7 +2147,7 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
     | failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
   unless (← get).helperReturnId == some targetId do
     failAt asg s!"Yul assigns {vname}, not the return declaration {retName}"
-  pure { pre := #[], expr := ← lowerYul (← mField asg "value") }
+  pure { pre := #[], expr := ← lowerYul (← mField asg "value") refs }
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let decls ← mArr (← mField s "declarations")

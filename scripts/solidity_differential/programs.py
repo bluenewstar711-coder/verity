@@ -934,3 +934,21 @@ def stateful_yul_numeric_source(fixture: str, variant: str) -> str:
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown Yul numeric variant: {variant}')
+
+
+def stateful_yul_bytes_header_source(fixture: str, variant: str) -> str:
+    """Same immutable object header observations under renaming and aliasing."""
+    if variant == 'baseline':
+        return fixture
+    if variant == 'renamed':
+        import re
+        names = {'input', 'result', 'value', 'buffer', 'aliasBuffer', 'emptyBuffer'}
+        token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|[A-Za-z_$][A-Za-z0-9_$]*'
+        return re.sub(token, lambda m: m.group(0) + '_renamed'
+                      if m.group(0) in names else m.group(0), fixture)
+    if variant == 'copy-alias':
+        before = 'bytes memory aliasBuffer = buffer;'
+        if fixture.count(before) != 1:
+            raise ValueError('bytes header alias anchor changed')
+        return fixture.replace(before, 'bytes memory intermediary = buffer; bytes memory aliasBuffer = intermediary;')
+    raise ValueError(f'unknown bytes header variant: {variant}')

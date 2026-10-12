@@ -174,6 +174,8 @@ MUTANTS.update({
 })
 
 MUTANTS.update({
+    'import-yul-header-size': ('return buffer.size', 'return (.add buffer.size (.literal 1))'),
+    'import-yul-header-declaration': ('let some buffer := (← get).byteBuffers.find? id', 'let some buffer := ((← get).byteBuffers.toList.head?).map (·.2)'),
     'import-yul-numeric-literal': ('pure (.literal value)\n  | "YulIdentifier" =>', 'pure (.bitXor (.literal value) (.literal 1))\n  | "YulIdentifier" =>'),
     'import-yul-numeric-add': ('| "add", #[a, b] => pure (.add a b)', '| "add", #[a, b] => pure (.sub a b)'),
     'import-yul-result-scope': ('{ e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,', '{ e with values := e.values.insert id expr, yulNames := e.yulNames,'),
@@ -182,6 +184,8 @@ MUTANTS.update({
 
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith("import-yul-header-"):
+        fixture = "YulBytesHeaderSequence"
     if name.startswith("import-yul-numeric-"):
         fixture = "YulNumericSequence"
     if name.startswith(("import-named-helper-", "import-yul-result-")):
@@ -224,11 +228,11 @@ def run(directory, output, name):
             '--model-driver', f'Contracts/SolidityImportSmoke/{fixture}Model.lean',
             '--source-fixture', f'Contracts/SolidityImportSmoke/{fixture}.sol',
             '--argument-bits', '128' if fixture == 'NarrowEventSequence' else '256',
-            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '3',
-            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else '30',
+            '--transactions', '64' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'} else '3',
+            '--seed', '2490' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'} else '2453', '--shrink-attempts', '100' if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'} else '30',
             '--output', str(output)]
-    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'}:
-        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'}:
+        argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':
