@@ -79,6 +79,9 @@ def stateful_campaign(output, transactions, seed):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))
+    checks.append(('storage-external-accounts', ['-m', 'solidity_differential.check_storage',
+        '--external-accounts', '--transactions', str(max(32, transactions)), '--seed', str(seed),
+        '--output', str(output / 'storage-external-accounts')]))
     checks.append(('mapping-dirty', ['-m', 'solidity_differential.check_stateful',
         '--dirty-mappings', '--transactions', str(max(5, transactions)), '--seed', str(seed),
         '--source-fixture', 'Contracts/SolidityImportSmoke/MappingDirtySequence.sol',

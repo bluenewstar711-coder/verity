@@ -578,6 +578,18 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                        and row['kind'] == 'kernel-conformance-rejection' for row in storage_conformance)):
         raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
     print("pass three account storage kernel conformance mutations (not runtime witnesses)")
+    account_world_output = Path(tempfile.mkdtemp(prefix="account-world-mutations-", dir=WORK)) / "cases"
+    account_world_launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+        'runpy.run_module("solidity_differential.check_account_world_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", account_world_launcher, "--output", str(account_world_output)],
+                   cwd=ROOT, check=True, timeout=3600)
+    account_world_rows = json.loads((account_world_output / "mutation-results.json").read_text())
+    if ({row['mutant'] for row in account_world_rows} != {"world-initial-nonce", "world-initial-balance",
+            "world-initial-code", "world-initial-storage"}
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in account_world_rows)):
+        raise SystemExit("account-world mutations require actual minimal A/B/C witnesses")
+    print("pass four account-world instrumentation runtime mutations")
     quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                     "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],

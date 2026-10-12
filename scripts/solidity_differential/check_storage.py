@@ -26,6 +26,8 @@ def canonical_observations(observations):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'default-locals', 'local-writes', 'invariant-for', 'helper-loops', 'packed-member-writes', 'helper-effects', 'fixed-arrays', 'array-write-order', 'discarded-helper', 'encoded-byte-locals', 'named-helper-returns', 'yul-numeric', 'yul-bytes-header'), default='packed')
+    parser.add_argument('--external-accounts', action='store_true',
+        help='compare explicit external nonce/balance/code/storage after each transaction')
     parser.add_argument('--narrow-bits', type=int, choices=range(8, 257, 8), default=128)
     parser.add_argument('--transactions', type=int, default=32)
     parser.add_argument('--seed', type=int, default=2453)
@@ -110,6 +112,8 @@ def main():
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 31, 32, 33, 255, 256, (1 << 256) - 1])]
         if args.fixture in ('array-write-order', 'discarded-helper'):
             extra = ['--change-prefix', *map(str, list(range(9)) + [19, 20, 25, 30, 40, (1 << 256) - 1])]
+        if args.external_accounts:
+            extra += ['--external-accounts']
         command([sys.executable, '-m', 'solidity_differential.check_stateful',
                  '--model-driver', driver, '--source-fixture', source,
                  '--argument-bits', str(args.narrow_bits) if args.fixture == 'narrow-event' else '256',

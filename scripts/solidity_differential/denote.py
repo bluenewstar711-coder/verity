@@ -6,7 +6,7 @@ import re
 
 from .engine import HarnessError, command, write_json
 from .identity import ImplementationIdentity
-from .stateful import _bytes, validate_observation
+from .stateful import _bytes, validate_observation, account_snapshots
 
 
 def _uint(value):
@@ -31,16 +31,37 @@ def _calldata(tx):
 
 
 class SequenceAdapter:
-    def __init__(self, directory, driver, account, initial_storage=(), identity=None):
+    def __init__(self, directory, driver, account, initial_storage=(), identity=None,
+                 initial_accounts=(), observe_accounts=()):
         self.directory = Path(directory).resolve()
         self.driver = Path(driver).resolve()
         self.account = _bytes(account, 20)
+        metadata = account_snapshots(list(initial_accounts))
+        if self.account in metadata:
+            raise HarnessError('external account configuration must not replace the executing contract')
+        self.observe_accounts = tuple(_bytes(address, 20) for address in observe_accounts)
+        if len(set(self.observe_accounts)) != len(self.observe_accounts):
+            raise HarnessError('duplicate configured account observation')
+        if not set(self.observe_accounts) <= metadata.keys():
+            raise HarnessError('observed external accounts require explicit initial metadata')
         self.initial_storage = []
+        self.foreign_storage = {address: [] for address in metadata}
+        self.initial_slots = []
         for owner, slot, value in initial_storage:
-            if _bytes(owner, 20) != self.account:
-                raise HarnessError('foreign initial storage unsupported by scalar model adapter')
-            self.initial_storage.append([str(int(_bytes(slot, 32), 16)),
-                                         str(int(_bytes(value, 32), 16))])
+            owner = _bytes(owner, 20)
+            pair = [str(int(_bytes(slot, 32), 16)), str(int(_bytes(value, 32), 16))]
+            self.initial_slots.append((owner, slot))
+            if owner == self.account:
+                self.initial_storage.append(pair)
+            elif owner in metadata:
+                self.foreign_storage[owner].append(pair)
+            else:
+                raise HarnessError('foreign initial storage requires explicit account metadata')
+        self.initial_accounts = [{'address': str(int(address, 16)),
+            'nonce': str(int(nonce, 16)), 'balance': str(int(balance, 16)),
+            'code': [str(byte) for byte in bytes.fromhex(code[2:])],
+            'storage': self.foreign_storage[address]}
+            for address, (nonce, balance, code) in sorted(metadata.items())]
         self.digest = hashlib.sha256(self.driver.read_bytes()).hexdigest()
         self.identity = identity or ImplementationIdentity(self.driver)
         self.runs = 0
@@ -70,9 +91,10 @@ class SequenceAdapter:
                 'value': _uint(int(tx['value'], 16)),
                 'timestamp': _uint(tx['timestamp']), 'blockNumber': _uint(tx['blockNumber']),
                 'observe': [[str(int(_bytes(owner, 20), 16)), str(int(_bytes(slot, 32), 16))]
-                            for owner, slot in slots]})
+                            for owner, slot in sorted(set(map(tuple, slots)) | set(self.initial_slots))],
+                'observeAccounts': [str(int(address, 16)) for address in self.observe_accounts]})
         write_json(directory / 'input.json', {'account': str(int(self.account, 16)),
-            'storage': self.initial_storage, 'transactions': converted})
+            'storage': self.initial_storage, 'accounts': self.initial_accounts, 'transactions': converted})
         argv = ['lake', 'env', 'lean', '--run', self.driver, directory / 'input.json', directory / 'output.json']
         command(argv, log=directory / 'lean.log')
         self.identity.verify()

@@ -74,6 +74,29 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
   let mut world := storage.foldl
     (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
     { Verity.defaultState with thisAddress := Address.ofNat account }
+  let initialAccounts := (input.getObjVal? "accounts").toOption
+  let mut configuredAccounts : List Nat := []
+  if let some entries := initialAccounts then
+    for entry in (← entries.getArr?) do
+      let address ← getWord entry "address"
+      unless address < 2^160 do throw "initial external account exceeds address width"
+      if address == account then throw "external account metadata cannot replace the executing contract"
+      if configuredAccounts.contains address then throw "duplicate initial external account"
+      configuredAccounts := address :: configuredAccounts
+      let nonce ← getWord entry "nonce"
+      let balance ← getWord entry "balance"
+      let code ← (← (← entry.getObjVal? "code").getArr?).toList.mapM fun byte => do
+        let value ← word byte
+        if bound : value < 256 then pure (⟨value, bound⟩ : Fin 256)
+        else throw "initial code byte exceeds uint8"
+      let slots ← (← (← entry.getObjVal? "storage").getArr?).toList.mapM pair
+      unless (slots.map Prod.fst).eraseDups.length == slots.length do
+        throw "duplicate initial external storage slot"
+      if bound : nonce < 2^64 then
+        let state : AccountState := { nonce := ⟨nonce, bound⟩, balance := Uint256.ofNat balance, code }
+        let state := slots.foldl (fun current slot => current.writeStorage slot.1 (Uint256.ofNat slot.2)) state
+        world := world.writeAccount (Address.ofNat address) state
+      else throw "initial external nonce exceeds EIP-2681 bound"
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
@@ -106,8 +129,15 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
     let timestamp ← getWord transaction "timestamp"
     let number ← getWord transaction "blockNumber"
     let observed ← (← (← transaction.getObjVal? "observe").getArr?).toList.mapM pair
-    unless observed.all (fun p => p.1 == account) do
-      throw "foreign storage observation not supported by scalar adapter"
+    unless observed.all (fun p => p.1 == account || configuredAccounts.contains p.1) do
+      throw "external storage observation requires explicit initial metadata"
+    let observedAccounts ← match (transaction.getObjVal? "observeAccounts").toOption with
+      | none => pure []
+      | some entries => (← entries.getArr?).toList.mapM word
+    unless observedAccounts.eraseDups.length == observedAccounts.length do
+      throw "duplicate external account observation"
+    unless observedAccounts.all configuredAccounts.contains do
+      throw "external account observation requires explicit initial metadata"
     let tx : DenoteTransaction :=
       { sender, txOrigin := sender, thisAddress := account, msgValue := value,
         blockTimestamp := timestamp, blockNumber := number, chainId := 31337,
@@ -134,18 +164,26 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json) :
       | .transient _ => pure none
       | _ => throw "unencoded model storage key"
     let touched := touched.eraseDups
-    let slots := (touched ++ observed.map Prod.snd).eraseDups
+    let slots := (touched ++ (observed.filter (fun p => p.1 == account)).map Prod.snd).eraseDups
+    let storageQueries := ((touched.map (fun slot => (account, slot))) ++ observed).eraseDups
     world := result.frame.world
     unless slots.all (fun slot => world.readSlot slot ==
         (world.accountWorld (Address.ofNat account)).storageAt slot) do
       throw "model flat/account storage observations are incoherent"
-    rows := rows.push (Json.mkObj [
+    let metadata := observedAccounts.map fun address =>
+      let state := world.accountWorld (Address.ofNat address)
+      Json.mkObj [("address", toJson (hexAddress address)), ("nonce", toJson (hexWord state.nonce.val)),
+        ("balance", toJson (hexWord state.balance.val)),
+        ("code", toJson (hexBytes (state.code.map (fun byte => UInt8.ofNat byte.val))))]
+    rows := rows.push (Json.mkObj ([
       ("id", toJson ident), ("status", toJson (if result.frame.success then "ok" else "revert")),
       ("data", toJson (hexBytes result.frame.data)),
       ("touched", toJson (touched.map fun slot => [hexAddress account, hexWord slot])),
-      ("storage", toJson (slots.map fun slot =>
-        [hexAddress account, hexWord slot, hexWord (world.readSlot slot).val])),
-      ("events", toJson emitted)])
+      ("storage", toJson (storageQueries.map fun query =>
+        [hexAddress query.1, hexWord query.2,
+          hexWord ((world.accountWorld (Address.ofNat query.1)).storageAt query.2).val])),
+      ("events", toJson emitted)] ++
+      (if observedAccounts.isEmpty then [] else [("accounts", toJson metadata)])))
   return Json.arr rows
 
 /-- The generated model driver supplies the actual model and hash oracle. -/

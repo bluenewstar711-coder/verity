@@ -127,3 +127,29 @@ is not A/B/C evidence. Missing accounts and replay drift have rejection controls
 CREATE and oversized-initcode discovery explicitly fail until their separate
 rules exist. The executable Denote deployment world and its adapter remain
 required before this instrument can establish imported CREATE2 equivalence.
+
+
+### Explicit external account frames in stateful replay
+
+`check_stateful --external-accounts` and `check_storage --external-accounts`
+configure complete external nonce (EIP-2681 uint64), balance, exact code bytes
+and finite storage before replay. The EVM adapters install the pinned metadata
+and read nonce/balance/code at the mined block after every transaction. They
+reject configurations that would replace a deployed route's contract code.
+Denote seeds the same finite account world and observes it directly; configured
+foreign storage stays separate from the executing contract's flat slots.
+Missing metadata, nonce overflow, duplicate accounts and cross-route account
+coverage differences fail the instrument. The existing self-storage coherence
+guard remains enabled.
+
+The frame fixture uses both maximal and zero nonce/balance values, nonempty
+and empty code, dirty foreign storage, self writes/deletes and reverted writes.
+Metamorphic storage variants retain the account observations. Four runtime
+mutations independently corrupt nonce, balance, code and external storage and
+must produce actual model divergences against preserved source/compiled EVM
+observations, with one-call witnesses and empty-sequence deletion controls.
+This extends measuring instruments; it adds no Solidity construct or CREATE2
+admission. Transactions still target the supported executing contract with
+zero value, and configured account frames exclude sender gas/nonce bookkeeping.
+Full deployment equivalence requires canonical creation, gas/memory integration
+and discovery/observation of newly created accounts.

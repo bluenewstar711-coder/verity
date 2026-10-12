@@ -30,10 +30,30 @@ def _slot(row):
     return (_bytes(row[0], 20), _bytes(row[1], 32))
 
 
+def account_snapshots(records):
+    """Strict complete account metadata; absence is never an all-zero account."""
+    if not isinstance(records, list):
+        raise HarnessError('account observation array required')
+    result = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {'address', 'nonce', 'balance', 'code'}:
+            raise HarnessError('complete account address/nonce/balance/code required')
+        address = _bytes(record['address'], 20)
+        nonce = _bytes(record['nonce'], 32)
+        balance = _bytes(record['balance'], 32)
+        code = _bytes(record['code'])
+        if int(nonce, 16) >= 1 << 64:
+            raise HarnessError('account nonce exceeds EIP-2681 bound')
+        if address in result:
+            raise HarnessError('duplicate account observation')
+        result[address] = (nonce, balance, code)
+    return result
+
+
 def validate_observation(row):
     """Validate a complete post-transaction observation; never infer defaults."""
     required = {'id', 'status', 'data', 'touched', 'storage', 'events'}
-    if not isinstance(row, dict) or set(row) != required:
+    if not isinstance(row, dict) or set(row) not in (required, required | {'accounts'}):
         raise HarnessError('incomplete or unknown transaction observation fields')
     if not isinstance(row['id'], str) or not row['id']:
         raise HarnessError('missing transaction identity')
@@ -64,6 +84,8 @@ def validate_observation(row):
             raise HarnessError('invalid EVM event topics')
         for topic in event['topics']:
             _bytes(topic, 32)
+    if 'accounts' in row:
+        account_snapshots(row['accounts'])
     if row['status'] == 'revert' and row['events']:
         raise HarnessError('reverted transaction retained emitted events')
     return set(touched), storage
@@ -104,6 +126,13 @@ def compare_sequences(transaction_ids, traces):
             'storage': values,
             'events': [r['events'] for r in rows],
         }
+        if any('accounts' in row for row in rows):
+            if not all('accounts' in row for row in rows):
+                raise HarnessError('account observation missing from an execution route')
+            accounts = [account_snapshots(row['accounts']) for row in rows]
+            if not accounts[0].keys() == accounts[1].keys() == accounts[2].keys():
+                raise HarnessError('cross-route account observation coverage differs')
+            observations['accounts'] = accounts
         mismatch = tuple((key, v[0] == v[1], v[1] == v[2], v[0] == v[2])
                          for key, v in observations.items() if not v[0] == v[1] == v[2])
         if mismatch:

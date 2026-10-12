@@ -165,5 +165,53 @@ class StatefulTests(unittest.TestCase):
         self.assertEqual(original, ['set', 'read'])
 
 
+
+
+class AccountWorldObservationTests(unittest.TestCase):
+    def observations(self):
+        result = traces()
+        for route in ROUTES:
+            result[route][0]['accounts'] = [{'address': ACCOUNT, 'nonce': SLOT,
+                                           'balance': VALUE, 'code': '0x0001ff'}]
+        return result
+
+    def test_account_frame_agreement(self):
+        self.assertEqual(compare_sequences(['tx'], self.observations()), [])
+
+    def test_each_metadata_difference_is_observed(self):
+        for key, value in [('nonce', VALUE), ('balance', SLOT), ('code', '0x0001')]:
+            with self.subTest(key=key):
+                data = self.observations()
+                data['model'][0]['accounts'][0][key] = value
+                failure = compare_sequences(['tx'], data)
+                self.assertEqual(failure[0]['signature'][0][0], 'accounts')
+
+    def test_missing_route_account_observation_is_rejected(self):
+        data = self.observations()
+        del data['model'][0]['accounts']
+        with self.assertRaises(HarnessError):
+            compare_sequences(['tx'], data)
+
+    def test_missing_metadata_is_rejected(self):
+        for key in ['nonce', 'balance', 'code']:
+            with self.subTest(key=key):
+                data = self.observations()
+                del data['model'][0]['accounts'][0][key]
+                with self.assertRaises(HarnessError): compare_sequences(['tx'], data)
+
+    def test_duplicate_accounts_and_nonce_overflow_are_rejected(self):
+        data = self.observations()
+        data['model'][0]['accounts'] *= 2
+        with self.assertRaises(HarnessError): compare_sequences(['tx'], data)
+        data = self.observations()
+        data['model'][0]['accounts'][0]['nonce'] = '0x' + format(1 << 64, '064x')
+        with self.assertRaises(HarnessError): compare_sequences(['tx'], data)
+
+    def test_account_coverage_difference_is_rejected(self):
+        data = self.observations()
+        data['model'][0]['accounts'] = []
+        with self.assertRaises(HarnessError): compare_sequences(['tx'], data)
+
+
 if __name__ == '__main__':
     unittest.main()

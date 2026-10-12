@@ -18,6 +18,8 @@ def main():
     parser.add_argument('--variant', choices=['baseline', 'scoped', 'early-return'], default='baseline')
     parser.add_argument('--dirty-mappings', action='store_true',
         help='seed the MappingDirtySequence layout with noncanonical low bytes and nonzero upper bits')
+    parser.add_argument('--external-accounts', action='store_true',
+        help='seed and observe explicit external nonce/balance/code/storage frames')
     parser.add_argument('--argument-bits', type=int, default=256,
         help='unsigned width of the change argument; generates canonical ABI words')
     parser.add_argument('--change-prefix', type=int, nargs='+', default=[],
@@ -98,7 +100,21 @@ def main():
                     mapping_slot(mapping_slot(2, key), 7)))
             initial_storage = [[account, '0x' + format(slot, '064x'),
                                 '0x' + format(dirty, '064x')] for slot in sorted(slots)]
+    initial_accounts = []
+    observe_accounts = []
+    if args.external_accounts:
+        for address, nonce, balance, code in [
+                ('0x' + '11' * 20, (1 << 64) - 1, (1 << 256) - 1, '0x000102ff'),
+                ('0x' + '22' * 20, 0, 0, '0x')]:
+            if address == account or address in senders:
+                raise HarnessError('configured external frame overlaps a deployment or sender')
+            initial_accounts.append({'address': address, 'nonce': '0x' + format(nonce, '064x'),
+                'balance': '0x' + format(balance, '064x'), 'code': code})
+            initial_storage.append([address, '0x' + format(7, '064x'),
+                                    '0x' + format((1 << 256) - 3, '064x')])
+            observe_accounts.append(address)
     write_json(output / 'initial-storage.json', initial_storage)
+    write_json(output / 'initial-accounts.json', initial_accounts)
     rng = random.Random(args.seed)
     calls = [(names[0], [7]), ('fail()', []), ('read()', [])]
     calls.extend((names[0], [value]) for value in args.change_prefix)
@@ -119,9 +135,12 @@ def main():
         'timestamp': 1000000100 + index, 'blockNumber': 2 + index,
         'data': '0x' + source['methodIdentifiers'][name] + ''.join(format(arg, '064x') for arg in args)}
         for index, (name, args) in enumerate(calls)]
-    adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage),
-        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity),
-        'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage)}
+    adapters = {'source': EVMAdapter(output / 'A', [source_code], initial_storage=initial_storage,
+                            initial_accounts=initial_accounts, observe_accounts=observe_accounts),
+        'model': DenoteAdapter(output / 'B', driver, account, initial_storage=initial_storage, identity=identity,
+                               initial_accounts=initial_accounts, observe_accounts=observe_accounts),
+        'compiled': EVMAdapter(output / 'C', [compiled_code], initial_storage=initial_storage,
+                            initial_accounts=initial_accounts, observe_accounts=observe_accounts)}
     write_json(output / 'provenance.json', {
         'solcSha256': hashlib.sha256(SOLC.read_bytes()).hexdigest(),
         'anvilVersion': command(['anvil', '--version']).strip(),
@@ -130,6 +149,7 @@ def main():
         'driverSha256': hashlib.sha256(driver.read_bytes()).hexdigest(),
         'variant': args.variant, 'seed': args.seed, 'transactionCount': args.transactions,
         'changePrefix': args.change_prefix, 'argumentBits': args.argument_bits, 'senderCount': args.senders, 'dirtyMappings': args.dirty_mappings,
+        'externalAccounts': args.external_accounts, 'initialAccounts': initial_accounts,
         'evmVersion': 'osaka', 'optimizerRuns': 466})
     result = replay_three_routes(transactions, adapters)
     identity.verify()
