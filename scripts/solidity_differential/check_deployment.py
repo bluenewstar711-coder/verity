@@ -10,7 +10,8 @@ import hashlib
 from pathlib import Path
 
 from .anvil import Anvil
-from .deployment import compare_deployment_sequences, observe_accounts
+from .deployment import (compare_deployment_sequences, observe_accounts, discover_create2_accounts,
+                         DeploymentSequenceAdapter, replay_deployment_routes)
 from .engine import HarnessError, SOLC, solc_compile, write_json
 from .stateful import ROUTES
 
@@ -38,7 +39,7 @@ def main():
                             'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}}
     evm = solc_compile(request, fixture.parent, out / 'source')['contracts']['Deployment.sol']['DeploymentFixture']['evm']
     selector = evm['methodIdentifiers']['deploy(bytes32,bytes,bool)']
-    rows, plans, cases, controls = [], [], [], []
+    rows, plans, cases, controls, transactions = [], [], [], [], []
     with Anvil(out / 'node') as node:
         sender = node.rpc('eth_accounts')[0]
         deployed = node.transact({'from': sender, 'data': '0x' + evm['bytecode']['object'], 'gas': hex(10000000)})
@@ -52,9 +53,12 @@ def main():
             address = '0x' + node.rpc('web3_sha3', '0xff' + creator[2:] + format(salt, '064x') + digest[2:])[-40:]
             if address not in addresses:
                 addresses.append(address)
+            timestamp = 1000000100 + len(rows)
+            node.rpc('evm_setNextBlockTimestamp', timestamp)
             record = node.transact({'from': sender, 'to': creator,
                                     'data': calldata(selector, salt, payload, fail), 'gas': hex(10000000)})
             ident = str(len(rows))
+            assert discover_create2_accounts(node, record) == {address}, kind
             row = node.observe(record, ident)
             row['deployment'] = observe_accounts(node, record, creator, addresses)
             assert row['status'] == ('ok' if succeeds else 'revert'), kind
@@ -71,6 +75,9 @@ def main():
             plans.append(sorted(addresses))
             cases.append({'id': ident, 'kind': kind, 'length': len(payload), 'address': address,
                           'transactionHash': record['receipt']['transactionHash']})
+            transactions.append({'id': ident, 'sender': sender, 'target': creator, 'value': '0x0',
+                                 'data': record['transaction']['data'], 'timestamp': timestamp,
+                                 'blockNumber': int(record['receipt']['blockNumber'], 16)})
         for length in (0, 1, 31, 32, 33, 63, 64, 65):
             payload = bytes((i * 17) % 256 for i in range(length))
             salt = length + 1
@@ -82,6 +89,15 @@ def main():
                    'node': node.provenance, 'solcSha256': hashlib.sha256(SOLC.read_bytes()).hexdigest(),
                    'sourceSha256': hashlib.sha256(fixture.read_bytes()).hexdigest()})
     ids = [row['id'] for row in rows]
+    # Calibrate discovery/replay using the real source bytecode on all adapters.
+    # These are source clones, not Denote and compiled-model implementations.
+    adapters = {route: DeploymentSequenceAdapter(out / ('source-replay-' + route),
+                ['0x' + evm['bytecode']['object']], creator) for route in ROUTES}
+    replay = replay_deployment_routes(transactions, adapters)
+    assert not replay['divergences']
+    for route in ROUTES:
+        assert replay['observations'][route] == rows
+    write_json(out / 'source-replay.json', {'scope': 'all adapters use source bytecode; not A/B/C', **replay})
     traces = {route: copy.deepcopy(rows) for route in ROUTES}
     assert not compare_deployment_sequences(ids, traces, plans)
     # Actual source observations, independently altered in a synthetic route.
@@ -113,7 +129,31 @@ def main():
             controls.append({'rejection': kind, 'rejected': True})
         else:
             raise AssertionError('incomplete observation accepted: ' + kind)
-    write_json(out / 'observations.json', {'scope': 'source only', 'cases': cases, 'observations': rows, 'accountPlan': plans})
+    # Replay stability checks use copies of genuine observations; these are
+    # harness controls, not an executable importer/model mutation campaign.
+    for kind in ('return-drift', 'creator-drift', 'code-drift', 'missing-replay-account'):
+        class ChangedReplay:
+            def __init__(self, change=False):
+                self.calls = 0
+                self.change = change
+            def __call__(self, unused_transactions, unused_slots, unused_accounts):
+                self.calls += 1
+                result = copy.deepcopy(rows)
+                if self.change and self.calls == 2:
+                    row = result[1]
+                    if kind == 'return-drift': row['data'] = '0x'
+                    elif kind == 'creator-drift': row['deployment']['creator']['nonce'] += 1
+                    elif kind == 'code-drift': row['deployment']['accounts'][0]['code'] = '0xff'
+                    else: row['deployment']['accounts'].pop()
+                return result
+        try:
+            replay_deployment_routes(transactions, {route: ChangedReplay(route == 'model') for route in ROUTES})
+        except HarnessError:
+            controls.append({'rejection': kind, 'rejected': True, 'scope': 'replay harness only'})
+        else:
+            raise AssertionError('unstable replay accepted: ' + kind)
+    write_json(out / 'observations.json', {'scope': 'source only', 'cases': cases, 'observations': rows,
+                                         'accountPlan': plans, 'transactions': transactions})
     write_json(out / 'controls.json', controls)
     write_json(out / 'complete.json', {'scope': 'source-only deployment instrument and comparator controls',
                                       'transactions': len(rows), 'controls': len(controls), 'exit': 0})
