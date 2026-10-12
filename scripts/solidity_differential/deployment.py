@@ -79,16 +79,19 @@ def discover_create2_accounts(node, record):
     visit(record['call'])
     trace = node.rpc('debug_traceTransaction', record['receipt']['transactionHash'],
                      {'disableStorage': True, 'disableStack': False, 'enableMemory': True})
+    write_json(node.directory / (record['receipt']['transactionHash'] + '.create2-raw-trace.json'), trace)
     if not isinstance(trace, dict) or not isinstance(trace.get('structLogs'), list):
         raise HarnessError('creation opcode trace required')
     instructions = [step for step in trace['structLogs'] if step.get('op') == 'CREATE2']
     if len(instructions) != len(frames):
         raise HarnessError('opcode and call trace creation counts differ')
-    def word(text):
+    def word(text, padded=False):
         if not isinstance(text, str):
             raise HarnessError('trace word must be hex')
         raw = text.removeprefix('0x')
-        if len(raw) != 64 or any(c not in '0123456789abcdef' for c in raw):
+        # Foundry serializes stack words as short hex quantities, while memory
+        # chunks are full 32-byte words. Both decode exactly; reject overflow.
+        if not 1 <= len(raw) <= 64 or (padded and len(raw) != 64) or any(c not in '0123456789abcdef' for c in raw):
             raise HarnessError('noncanonical trace word')
         return raw
     addresses = set()
@@ -101,7 +104,7 @@ def discover_create2_accounts(node, record):
         # own allocation. Oversize exceptional calls need a separate observer.
         if size > 49152:
             raise HarnessError('oversize CREATE2 opcode observation is not implemented')
-        data = bytes.fromhex(''.join(word(v) for v in memory))
+        data = bytes.fromhex(''.join(word(v, padded=True) for v in memory))
         # EVM reads expand memory with zeros. Avoid allocating up to offset.
         initcode = data[offset:offset + size]
         initcode += bytes(size - len(initcode))
