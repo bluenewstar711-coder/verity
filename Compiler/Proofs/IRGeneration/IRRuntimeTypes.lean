@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.IRStorageWord
+import Verity.Core.ByteMemory
 
 namespace Compiler.Proofs.IRGeneration
 
@@ -15,6 +16,10 @@ structure IRState where
   transientStorage : Nat → Nat := fun _ => 0
   /-- Memory words (offset -> value). -/
   memory : Nat → Nat
+  /-- Physical byte carrier for the coordinated memory migration. Existing
+      legacy statement arms do not yet preserve its relation to `memory`. -/
+  byteMemory : Compiler.CompilationModel.DenoteMemory.Memory :=
+    Compiler.CompilationModel.DenoteMemory.Memory.empty
   /-- Calldata words. -/
   calldata : List Nat
   /-- Return value, if any. -/

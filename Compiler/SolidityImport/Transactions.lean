@@ -20,6 +20,7 @@ def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
     if isTransientKey key then 0 else world.storageWords key
   { fresh with
     memory := fun _ => 0
+    byteMemory := DenoteMemory.Memory.empty
     returndata := []
     events := []
     calls := [] }

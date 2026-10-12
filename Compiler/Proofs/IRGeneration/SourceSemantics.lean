@@ -3261,7 +3261,7 @@ it does commit the receipt's modeled caller-local memory effects and the
 append-only call journal: a compiled `staticcall` writes its output into caller
 memory (e.g. a precompile digest at the caller-supplied output offset) and
 `externalCall` / `denoteCallJournaled` appends a journal entry to `calls`, so
-`writesState = false` preserves every caller-world field except `memory`,
+`writesState = false` preserves every caller-world field except `memory`, `byteMemory`,
 `calls` and the EIP-211 `returndata` buffer. The first two follow the receipt's
 post-call world; the buffer is replaced by the receipt's return words, since a
 `staticcall` still leaves its callee's return data in the caller's frame. -/
@@ -3273,6 +3273,8 @@ theorem execStmt_ecm_static_preserves_world_modulo_memory_calls_and_returndata
     next.world = { state.world with
       memory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).memory
+      byteMemory := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
+        state.world).byteMemory
       calls := ((state.externalCallOracle state.externalCallIndex).postCallWorld.getD
         state.world).calls
       returndata := (state.externalCallOracle state.externalCallIndex).returnValues.map

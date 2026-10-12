@@ -3,6 +3,10 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.ByteMemory
+import Verity.Core.Model.ByteMemoryRoundtrip
+import Verity.Core.Model.PhysicalMemory
+import Compiler.SolidityImport.PhysicalMemoryFrames
 import Verity.Core.Model.BytesObjectMemory
 import Verity.Core.AccountState
 import Verity.Core.Model.DenoteCreate2
@@ -141,6 +145,7 @@ import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.PhysicalMemory
 import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
@@ -315,6 +320,48 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_gaslimit_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
+
+  -- Verity/Core/ByteMemory.lean
+  Compiler.CompilationModel.DenoteMemory.Memory.copyFrom_zero
+  Compiler.CompilationModel.DenoteMemory.Memory.expand_readByte_active
+  Compiler.CompilationModel.DenoteMemory.Memory.expand_readByte_fresh
+  Compiler.CompilationModel.DenoteMemory.expandedLength_aligned
+  Compiler.CompilationModel.DenoteMemory.Memory.expand_size_ge
+  Compiler.CompilationModel.DenoteMemory.Memory.writeByte_at
+  Compiler.CompilationModel.DenoteMemory.Memory.writeWord_at
+  Compiler.CompilationModel.DenoteMemory.Memory.copyFrom_at
+  Compiler.CompilationModel.DenoteMemory.expandedLength_covers
+  Compiler.CompilationModel.DenoteMemory.Memory.readByte_writeWord_at
+  Compiler.CompilationModel.DenoteMemory.Memory.readWord_writeWord_at
+  Compiler.CompilationModel.DenoteMemory.Memory.readByte_writeWord_outside
+  Compiler.CompilationModel.DenoteMemory.Memory.readWord_writeWord_outside
+
+  -- Verity/Core/Model/ByteMemoryRoundtrip.lean
+  Compiler.CompilationModel.DenoteMemory.boundedDigits_fold
+  Compiler.CompilationModel.DenoteMemory.wordValue_valueWord
+
+  -- Verity/Core/Model/PhysicalMemory.lean
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_identity
+  Compiler.CompilationModel.PhysicalMemory.copyPhysicalMemory_zero
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_coherent
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryWord_coherent
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryByte_coherent
+  Compiler.CompilationModel.PhysicalMemory.copyPhysicalMemory_coherent
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryWord_at
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryValue_at
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryValue_coherent
+  Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryWord_outside
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_storage_frame
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_accounts_frame
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_events_frame
+  Compiler.CompilationModel.PhysicalMemory.installPhysicalMemory_returndata_frame
+
+  -- Compiler/SolidityImport/PhysicalMemoryFrames.lean
+  Compiler.CompilationModel.PhysicalMemory.empty_wordValue
+  Compiler.CompilationModel.PhysicalMemory.beginTransaction_coherent
+  Compiler.CompilationModel.PhysicalMemory.beginTransaction_physical_empty
+  Compiler.CompilationModel.PhysicalMemory.committedWorld_static_byteMemory
+  Compiler.CompilationModel.PhysicalMemory.committedWorld_static_coherent
 
   -- Verity/Core/Model/BytesObjectMemory.lean
   Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_at
@@ -3348,6 +3395,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
+  Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_byteMemory
   Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
@@ -4864,6 +4912,15 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
+
+  -- Compiler/Proofs/IRGeneration/PhysicalMemory.lean
+  Compiler.Proofs.IRGeneration.IRState.installPhysicalMemory_coherent
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_at
+  Compiler.Proofs.IRGeneration.IRState.installPhysicalMemory_storage_frame
+  Compiler.Proofs.IRGeneration.IRState.installPhysicalMemory_vars_frame
+  Compiler.Proofs.IRGeneration.installPhysicalMemory_matches
+  Compiler.Proofs.IRGeneration.writePhysicalMemoryValue_matches
+  Compiler.Proofs.IRGeneration.copyPhysicalMemory_matches
 
   -- Compiler/Proofs/IRGeneration/Returndata.lean
   Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
@@ -8014,4 +8071,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7356 theorems/lemmas (5296 public, 2060 private, 0 sorry'd)
+-- Total: 7398 theorems/lemmas (5338 public, 2060 private, 0 sorry'd)

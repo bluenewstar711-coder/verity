@@ -168,6 +168,7 @@ def initialIRStateForTx
       (SourceSemantics.encodeStorage spec initialWorld s.toNat)
     transientStorage := fun slot => (initialWorld.transientStorage slot).val
     memory := fun o => (initialWorld.memory o).val
+    byteMemory := initialWorld.byteMemory
     calldata := tx.args
     returnValue := none
     sender := tx.sender
@@ -182,6 +183,12 @@ def initialIRStateForTx
     events := SourceSemantics.encodeEvents initialWorld.events
     codeSize := fun addr => (initialWorld.codeSize addr).val
     returndata := [] }
+
+/-- Preserve the explicit physical carrier when entering the proof-side IR
+frame. Coherence with the legacy word view is a separate obligation. -/
+theorem initialIRStateForTx_byteMemory (spec : CompilationModel) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState) :
+    (initialIRStateForTx spec tx initialWorld).byteMemory = initialWorld.byteMemory := rfl
 
 /-- EIP-211 makes the returndata buffer frame-local, so the IR frame enters
     empty: a stale buffer from the initial world's earlier execution must not

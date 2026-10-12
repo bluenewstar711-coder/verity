@@ -1,3 +1,4 @@
+import Verity.Core.ByteMemory
 import Verity.Core.Model.DenoteExternalCalls
 
 /-!
@@ -26,91 +27,6 @@ namespace Compiler.CompilationModel.DenoteMemory
 open Compiler.CompilationModel
 open Compiler.CompilationModel.Denote
 open Compiler.CompilationModel.DenoteExternalCalls
-
-abbrev Byte := Fin 256
-abbrev Word := Fin 32 → Byte
-
-def zeroByte : Byte := ⟨0, by decide⟩
-
-/-- Runtime EVM memory. `size` is the expanded byte length and is always
-intended to be a multiple of 32; `bytes` is total to expose zero-filled reads
-without partial indexing. -/
-structure Memory where
-  bytes : Nat → Byte
-  size : Nat
-
-def Memory.empty : Memory :=
-  { bytes := fun _ => zeroByte, size := 0 }
-
-def expandedLength (endOffset : Nat) : Nat :=
-  if endOffset = 0 then 0 else 32 * ((endOffset + 31) / 32)
-
-def Memory.expand (memory : Memory) (endOffset : Nat) : Memory :=
-  { memory with size := Nat.max memory.size (expandedLength endOffset) }
-
-def Memory.readByte (memory : Memory) (offset : Nat) : Byte :=
-  if offset < memory.size then memory.bytes offset else zeroByte
-
-def Memory.writeByte (memory : Memory) (offset : Nat) (value : Byte) : Memory :=
-  let expanded := memory.expand (offset + 1)
-  { expanded with bytes := fun address => if address = offset then value else memory.readByte address }
-
-def Memory.readWord (memory : Memory) (offset : Nat) : Word :=
-  fun index => memory.readByte (offset + index)
-
-def Memory.writeWord (memory : Memory) (offset : Nat) (value : Word) : Memory :=
-  let expanded := memory.expand (offset + 32)
-  { expanded with
-    bytes := fun address =>
-      if h : offset ≤ address ∧ address < offset + 32 then
-        value ⟨address - offset, by omega⟩
-      else
-        memory.readByte address }
-
-def Memory.copyFrom (memory : Memory) (source : Nat → Byte)
-    (destOffset sourceOffset size : Nat) : Memory :=
-  let expanded := memory.expand (destOffset + size)
-  { expanded with
-    bytes := fun address =>
-      if _h : destOffset ≤ address ∧ address < destOffset + size then
-        source (sourceOffset + (address - destOffset))
-      else
-        memory.readByte address }
-
-theorem expandedLength_aligned (endOffset : Nat) :
-    expandedLength endOffset % 32 = 0 := by
-  by_cases h : endOffset = 0
-  · simp [expandedLength, h]
-  · simp [expandedLength, h]
-
-theorem Memory.expand_size_ge (memory : Memory) (endOffset : Nat) :
-    memory.size ≤ (memory.expand endOffset).size := by
-  exact Nat.le_max_left _ _
-
-theorem Memory.writeByte_at (memory : Memory) (offset : Nat) (value : Byte) :
-    (memory.writeByte offset value).bytes offset = value := by
-  simp [Memory.writeByte]
-
-theorem Memory.writeWord_at (memory : Memory) (offset : Nat) (value : Word)
-    (index : Fin 32) :
-    (memory.writeWord offset value).bytes (offset + index) = value index := by
-  simp only [Memory.writeWord]
-  split
-  · congr
-    omega
-  · rename_i h
-    exact False.elim (h ⟨by omega, by omega⟩)
-
-theorem Memory.copyFrom_at (memory : Memory) (source : Nat → Byte)
-    (destOffset sourceOffset size : Nat) (index : Fin size) :
-    (memory.copyFrom source destOffset sourceOffset size).bytes (destOffset + index) =
-      source (sourceOffset + index) := by
-  simp only [Memory.copyFrom]
-  split
-  · congr
-    omega
-  · rename_i h
-    exact False.elim (h ⟨by omega, by omega⟩)
 
 /-! ## Operations and their result -/
 

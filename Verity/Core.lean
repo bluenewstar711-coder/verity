@@ -6,6 +6,7 @@
 -/
 
 import Verity.Core.Address
+import Verity.Core.ByteMemory
 import Verity.Core.AccountState
 import Verity.Core.Int256
 import Verity.Core.NarrowTypes
@@ -373,6 +374,11 @@ structure ContractState where
   calldataSize : Uint256 := 0
   calldata : List Nat := []                 -- Immutable calldata words used by ABI expression semantics
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
+  /-- Physical byte memory. Legacy word-only APIs remain unchanged until their
+      canonical integration is validated; use PhysicalMemory.Coherent to relate
+      the word observation function to this authoritative byte representation. -/
+  byteMemory : Compiler.CompilationModel.DenoteMemory.Memory :=
+    Compiler.CompilationModel.DenoteMemory.Memory.empty
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
   /-- Observed external calls, append-only journal. Journaled call

@@ -1493,3 +1493,25 @@ and 19 located acceptance/rejection controls pass;
 this is not a whole-Midnight campaign or a complete exact-head release receipt.
 Near-miss tests and all six registered implementation mutations must pass before
 publication as supported release behavior.
+
+
+### Physical memory carrier and frame prerequisites
+
+`Verity.Core.ByteMemory` provides byte-addressed memory below `ContractState`.
+Zero-length copies do not expand memory; expansion exposes zeros even when an
+inactive backing function contains nonzero bytes. `ByteMemoryRoundtrip` proves
+big-endian byte reconstruction for every bounded word by width induction.
+`PhysicalMemory` installs all overlapping word observations from that carrier,
+with exact scalar-write readback and storage/account/event/returndata frames.
+The IR physical APIs prove equality of both bytes and every word observation
+across world/IR writes and copies. Transaction adapters clear the physical
+carrier, and static ECM receipts transfer it together with their word view.
+
+These are prerequisites, not raw pointer or CREATE2 importer admission. Existing
+legacy `mstore`, ABI/event scratch and copy statement arms still use word maps;
+`runtimeStateMatchesIR` does not yet contain the physical carrier relation.
+Their current agreement proofs are not byte-memory/EVM refinement proofs.
+Canonical admission still requires coordinated statement/IR migration, fresh
+and callback frame coverage, source allocator provenance, gas, actual A/B/C
+fixtures and detected mutations. No legacy word map is reconstructed into bytes
+by approximation. The public prerequisite theorems are included in PrintAxioms.

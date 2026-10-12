@@ -99,7 +99,7 @@ def committedWorld (mod : ExternalCallModule)
   if mod.writesState then postCallWorld.getD callerWorld
   else
     let pcw := postCallWorld.getD callerWorld
-    { callerWorld with memory := pcw.memory, calls := pcw.calls }
+    { callerWorld with memory := pcw.memory, byteMemory := pcw.byteMemory, calls := pcw.calls }
 
 end Compiler.ECM.ExternalCallModule
 
