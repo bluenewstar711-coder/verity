@@ -38,6 +38,9 @@ def copyPhysicalMemory (world : ContractState) (source : Nat → Byte)
     (destOffset sourceOffset size : Nat) : ContractState :=
   world.installPhysicalMemory (world.byteMemory.copyFrom source destOffset sourceOffset size)
 
+def physicalByte (world : ContractState) (offset : Nat) : Byte :=
+  world.byteMemory.readByte offset
+
 end Verity.ContractState
 
 namespace Compiler.CompilationModel.PhysicalMemory
@@ -100,6 +103,12 @@ theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
     exact Nat.le_max_right _ _
   simp [Memory.readByte, Memory.writeByte]
   omega
+
+@[simp] theorem physicalByte_writePhysicalMemoryByte (world : Verity.ContractState)
+    (offset : Nat) (byte : Byte) :
+    Verity.ContractState.physicalByte
+      (world.writePhysicalMemoryByte offset byte) offset = byte := by
+  exact writePhysicalMemoryByte_at world offset byte
 
 theorem writePhysicalMemoryValue_coherent (world : Verity.ContractState) (offset : Nat)
     (value : Uint256) : Coherent (world.writePhysicalMemoryValue offset value) :=
