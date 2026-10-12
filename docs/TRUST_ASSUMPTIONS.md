@@ -1515,3 +1515,17 @@ Canonical admission still requires coordinated statement/IR migration, fresh
 and callback frame coverage, source allocator provenance, gas, actual A/B/C
 fixtures and detected mutations. No legacy word map is reconstructed into bytes
 by approximation. The public prerequisite theorems are included in PrintAxioms.
+
+
+The physical simulation relation in `FunctionBody.PhysicalMemory` retains all
+legacy runtime/IR conjuncts and additionally requires a coherent world and
+matching byte carriers. Physical primitive writes/copies preserve that stronger
+relation; legacy statement preservation is not asserted.
+
+`MemoryOverlapProbe` is a manually constructed diagnostic model, not an accepted
+Solidity import. Its explicit `localObligations` entry is **unchecked**, so the
+compiler's assembly trust boundary remains visible. A single call with stores at
+0 and 1 produces `0xff00…00` in solc and compiled Verity but `0xffff…ff` in legacy
+Denote. This is a preserved counterexample, not a passing A/B/C fixture or release
+evidence. Raw Yul pointer admission must wait for canonical memory migration and
+actual agreement. No compiler validation check is disabled by this probe.

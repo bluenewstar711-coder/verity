@@ -111,6 +111,7 @@ import Compiler.Proofs.IRGeneration.FragmentCheck
 import Compiler.Proofs.IRGeneration.FuelBound
 import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
+import Compiler.Proofs.IRGeneration.FunctionBody.PhysicalMemory
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
@@ -3619,6 +3620,13 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.evalExpr_lt_evmModulus_core
   Compiler.Proofs.IRGeneration.FunctionBody.compileRequireFailCond_core_ok
   Compiler.Proofs.IRGeneration.FunctionBody.eval_compileRequireFailCond_core_onExpr
+
+  -- Compiler/Proofs/IRGeneration/FunctionBody/PhysicalMemory.lean
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesPhysicalIR_legacy
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesPhysicalIR_irCoherent
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_installPhysicalMemory
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesPhysicalIR_write
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesPhysicalIR_copy
 
   -- Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setVar_bindValue
@@ -8071,4 +8079,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7398 theorems/lemmas (5338 public, 2060 private, 0 sorry'd)
+-- Total: 7403 theorems/lemmas (5343 public, 2060 private, 0 sorry'd)
