@@ -20,6 +20,8 @@ from property_utils import strip_lean_comments
 ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
+    ROOT / "Verity" / "Core" / "Model" / "InitCodeExecution.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "InitCodeExecutionChecks.lean",
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
     ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",

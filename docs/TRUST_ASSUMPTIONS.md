@@ -1334,3 +1334,14 @@ CREATE2 executable or make an encoded-byte descriptor a Solidity object pointer.
 Generated variants, two runtime mutation rules and eight located controls are
 registered in the draft. Native A/B/C validation and all exact-head release gates
 remain pending; no new semantic-equivalence or Midnight-unlock claim is made.
+# Initcode execution prerequisite
+
+The bounded functional executor in `Verity/Core/Model/InitCodeExecution.lean`
+decodes actual opcode bytes and does not accept an oracle-supplied runtime code.
+Its nine-step theorem proves the pinned Midnight prefix returns its payload;
+it does not prove equivalence with the full EVM or complete deployment semantics.
+The EVM/Lean instrument tests actual runtime bytes and a semantically identical
+PUSH1-zero variant. It is not an A/B/C campaign and does not extend the import
+trust boundary. Gas, call depth, size/deposit/prefix checks, collisions, nonce
+changes and rollback must still be modeled by the deployment transition before
+source admission. CODECOPY with zero size preserves memory without expansion.

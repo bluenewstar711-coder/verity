@@ -589,3 +589,13 @@ normalization/commuted-add variants are generated; runtime literal/add mutations
 and located acceptance/rejection controls are registered. Native validation,
 exact-head release gates and the pinned pilot check are pending. This is a
 prerequisite for the measured IdLib path, not an implementation of `storeInCode`.
+# Initcode execution groundwork
+
+`Verity/Core/Model/InitCodeExecution.lean` executes the bytecode instructions in
+Midnight's eleven-byte deployment prefix with an explicit instruction bound.
+The kernel proof `midnight_returns_payload` composes nine intermediate
+instruction lemmas and proves that the returned bytes equal the appended
+payload. Byte-copy frame lemmas preserve reads outside the destination range.
+This is deployment proof infrastructure: it adds no supported Solidity or Yul
+construct to the importer. `CREATE2` remains rejected until exact object-memory
+provenance, account-world transitions and full A/B/C checks are integrated.

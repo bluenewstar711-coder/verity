@@ -7,6 +7,30 @@ import random
 from .engine import campaign, write_json
 
 
+def initcode_execution_programs(seed=2500, random_cases=16):
+    """Two bytecode variants returning the same payload on the real EVM.
+
+    The pinned variant uses PUSH0 and an eleven-byte prefix; the expanded
+    variant uses PUSH1 0 and a thirteen-byte prefix, with offsets adjusted.
+    This tests initcode execution, not importer or whole-deployment support.
+    """
+    rng = random.Random(seed)
+    lengths = [0, 1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 512]
+    lengths += [rng.randrange(513) for _ in range(random_cases)]
+    prefixes = [('midnight', bytes.fromhex('600b380380600b5f395ff3')),
+                ('push1-zero', bytes.fromhex('600d380380600d6000396000f3'))]
+    programs = []
+    for index, length in enumerate(lengths):
+        # Avoid EIP-3541 failure when checking execution's returned bytes by
+        # observing deployed code. Deposit failures are a separate world rule.
+        payload = bytes([0] + [rng.randrange(256) for _ in range(length - 1)]) if length else b''
+        for variant, prefix in prefixes:
+            assert prefix[1] == len(prefix)
+            programs.append({'id': f'{index}-{variant}', 'group': index, 'variant': variant,
+                             'fuel': 16, 'code': list(prefix + payload), 'payload': list(payload)})
+    return programs
+
+
 def expression(rng, depth, bits):
     if depth == 0 or rng.randrange(4) == 0:
         return {"kind": rng.choice(["x", "y", "literal"]), "value": rng.choice([0, 1, 2, (1 << bits) - 1])}
