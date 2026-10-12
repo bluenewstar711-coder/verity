@@ -345,6 +345,13 @@ private def freshAbiStem (schema : List AbiSchema.Member) (inMemory : Bool) : M 
       return stem
   throwError "unable to allocate hygienic ABI bindings"
 
+private def tupleTypes (at_ : Json) (ty : String) : M (Array String) := do
+  unless ty.startsWith "tuple(" && ty.endsWith ")" do
+    failAt at_ s!"expected a tuple value, found {ty}"
+  let inner := ((ty.drop 6).dropEnd 1).toString
+  if inner.any (· == '(') then failAt at_ s!"tuple component types of {ty} are outside this slice"
+  pure (inner.splitOn ",").toArray
+
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
   | .caller | .contractAddress | .chainid => true
@@ -2151,7 +2158,7 @@ private partial def lowerAssembly (j : Json) (retName : String) : M Val := do
 
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
   let decls ← mArr (← mField s "declarations")
-  unless decls.size == 1 do failAt s "only a single declaration is supported"
+  unless decls.size == 1 do return ← lowerTupleLocal s decls
   if decls[0]!.isNull then failAt s "empty declaration"
   let d := decls[0]!
   let name ← mStr (← mField d "name")
@@ -2246,6 +2253,295 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
       { e with values := e.values.insert id expr, yulNames := e.yulNames.insert name expr,
                writableLocals := e.writableLocals.insert id binding }
     pure (v.pre.push (.letVar binding v.expr))
+
+private partial def lowerTupleCall (j : Json) (want : Nat) : M (Array Stmt × Array Expr) := do
+  unless (← mStr (← mField j "kind")) == "functionCall" do
+    failAt j "tuple values require an internal helper call"
+  unless (← mArr (← mField j "names")).isEmpty do
+    failAt j "named call arguments are outside this slice"
+  let callee ← mField j "expression"
+  let (fnId, receiver?) ← match ← mKind callee with
+    | "MemberAccess" =>
+        let id ← refInt callee
+        if id < 0 then failAt callee "builtin call is outside this slice"
+        let base ← mField callee "expression"
+        let baseTy ← mType base
+        if baseTy.startsWith "type(library " then
+          pure (id.toNat, none)
+        else
+          pure (id.toNat, some base)
+    | "Identifier" =>
+        let id ← refInt callee
+        if id < 0 then failAt callee "builtin call is outside this slice"
+        pure (id.toNat, none)
+    | _ => failAt callee "unsupported callee"
+  let some declaration := (← get).funs.find? fnId
+    | failAt callee s!"unresolved function {fnId}"
+  let visibility := optStr declaration "visibility" |>.getD ""
+  let directPublic := visibility == "public" && (← mKind callee) == "Identifier"
+  unless visibility == "internal" || visibility == "private" || directPublic do
+    failAt j "multi-value calls require an internal helper or direct public call"
+  let args ← mArr (← mField j "arguments")
+  let nodes := match receiver? with
+    | some recv => #[recv] ++ args
+    | none => args
+  let mut vals : Array CallArg := #[]
+  for arg in nodes do
+    let effectfulArgument := statefulCallIn arg (← get)
+    if effectfulArgument then
+      failAt arg "stateful helper call arguments require explicit evaluation-order support"
+    if (← mType arg).startsWith "struct " then
+      match ← lowerRef arg with
+      | .mem id pre =>
+          let some descriptor := (← get).mems.find? id
+            | failAt arg "unknown reference argument"
+          vals := vals.push (.memory descriptor pre)
+      | _ => failAt arg "only root memory/calldata struct arguments are supported"
+    else
+      vals := vals.push (.scalar (← lowerExpr arg))
+  inlineTupleFn fnId vals j want
+
+
+private partial def inlineTupleFn (fnId : Nat) (args : Array CallArg) (at_ : Json) (want : Nat) : M (Array Stmt × Array Expr) := do
+  if (← get).stack.contains fnId then failAt at_ s!"recursive call {fnId}"
+  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"
+  let saved := ← get
+  let savedYul := saved.yulNames
+  let savedFile := (← get).currentFile
+  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile
+  let frame := fnId :: (← get).stack
+  modify fun e => { e with stack := frame, currentFile := frameFile }
+  if (field? fn "virtual").bind (fun v => v.getBool?.toOption) == some true then
+    failAt fn "virtual dispatch is outside this slice"
+  let mods ← mArr (← mField fn "modifiers")
+  unless mods.isEmpty do failAt fn "modifiers are outside this slice"
+  let params ← mArr (← mField (← mField fn "parameters") "parameters")
+  unless params.size == args.size do
+    failAt at_ s!"call arity {args.size} does not match declaration {params.size}"
+  let rets ← mArr (← mField (← mField fn "returnParameters") "parameters")
+  unless want > 1 && rets.size == want do
+    failAt at_ s!"helper returns {rets.size} values where {want} are expected"
+  let mut resultTypes : Array String := #[]
+  for declaration in rets do
+    let ty ← mType declaration
+    unless (paramType ty).isSome && !(ty.startsWith "struct ") do
+      failAt declaration s!"unsupported tuple helper result type {ty}"
+    unless (← mStr (← mField declaration "name")) == "" do
+      failAt declaration "named multi-value helper results are unsupported"
+    resultTypes := resultTypes.push ty
+  let mut pre : Array Stmt := #[]
+  let mut yul := savedYul
+  for i in [:params.size] do
+    let p := params[i]!
+    let pname ← mStr (← mField p "name")
+    let pid ← mNat (← mField p "id")
+    let pty ← mType p
+    let argNode ← argumentAt at_ i
+    let argTy ← mType argNode
+    let some arg := args[i]? | failAt at_ s!"missing argument {i}"
+    match arg with
+    | .scalar value =>
+        let converted ← convert pty argTy value at_
+        let bound ← atom converted
+        pre := pre ++ bound.pre
+        modify fun e => { e with values := e.values.insert pid bound.expr }
+        if pname != "" then
+          yul := yul.insert pname bound.expr
+    | .memory descriptor effects =>
+        unless pty.startsWith "struct " do
+          failAt p "reference argument requires a struct parameter"
+        let sid ← refInt (← mField p "typeName")
+        unless sid >= 0 && sid.toNat == descriptor.structId do
+          failAt p "reference argument struct declaration differs"
+        let location := optStr p "storageLocation" |>.getD "default"
+        let expected := if descriptor.calldataLocation then "calldata" else "memory"
+        unless location == expected do
+          failAt p "reference argument location conversion is unsupported"
+        pre := pre ++ effects
+        modify fun e => { e with mems := e.mems.insert pid descriptor }
+        if pname != "" then
+          yul := yul.erase pname
+  modify fun e => { e with yulNames := yul }
+  noteFn fn
+  let body ← mField fn "body"
+  let stmts ← mArr (← mField body "statements")
+  modify fun e => { e with helperResult := none, helperReturnId := none }
+  let (effects, result) ← lowerTupleHelperFrom stmts.toList resultTypes
+  let some values := result | failAt fn "tuple helper did not return on every path"
+  modify fun e =>
+    { e with stack := saved.stack, yulNames := savedYul, currentFile := savedFile,
+             values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths,
+             snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+             helperResult := (saved.helperResult), helperReturnId := saved.helperReturnId,
+             scalarTy := saved.scalarTy }
+  pure (pre ++ effects, values)
+
+private partial def lowerTupleHelperFrom (stmts : List Json) (resultTypes : Array String) :
+    M (Array Stmt × Option (Array Expr)) := do
+  match stmts with
+  | [] =>
+      pure (#[], none)
+  | s :: rest =>
+    match ← mKind s with
+    | "VariableDeclarationStatement" =>
+        let pre ← lowerLocal s
+        let (tail, result) ← lowerTupleHelperFrom rest resultTypes
+        pure (pre ++ tail, result)
+    | "ExpressionStatement" =>
+        -- Multiple-result helpers retain source effects before their continuation.
+        let pre ← lowerEffect s
+        let (tail, result) ← lowerTupleHelperFrom rest resultTypes
+        pure (pre ++ tail, result)
+    | "EmitStatement" =>
+        -- Preserve helper events before its scalar-result continuation.
+        let tupleEvents ← lowerEmit s
+        let (tail, result) ← lowerTupleHelperFrom rest resultTypes
+        pure (tupleEvents ++ tail, result)
+    | "ForStatement" =>
+        let tupleLoop ← lowerFor s lowerHelperLoopBody
+        let (tail, result) ← lowerTupleHelperFrom rest resultTypes
+        pure (tupleLoop ++ tail, result)
+    | "Return" =>
+        if let some next := rest.head? then failAt next "statement after helper result"
+        let expression := field? s "expression" |>.getD Json.null
+        if expression.isNull then failAt s "bare helper returns are unsupported"
+        let types ← tupleTypes expression (← mType expression)
+        let (pre, values) ← lowerTuple expression resultTypes.size
+        let mut out := pre
+        let mut converted : Array Expr := #[]
+        for i in [:resultTypes.size] do
+          let some component := values[i]? | failAt expression "missing helper result component"
+          let value ← atom (← convert resultTypes[i]! types[i]! {pre := #[], expr := component} expression)
+          out := out ++ value.pre
+          converted := converted.push value.expr
+        pure (out, some converted)
+    | "InlineAssembly" => failAt s "assembly results of multi-value helpers are unsupported"
+    | "IfStatement" =>
+        let (tupleCondition, yes, no) ← ifParts s
+        let yesReturns ← helperListReturns yes
+        let noReturns ← helperListReturns no
+        if yesReturns && noReturns then
+          if let some next := rest.head? then failAt next "statement after helper result"
+        let saved ← get
+        let restore : M Unit := modify fun e =>
+          { e with values := saved.values, writableLocals := saved.writableLocals, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, byteBuffers := saved.byteBuffers,
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames }
+        if !yesReturns && !noReturns then
+          -- Neither branch returns: branch-local declarations stay scoped and
+          -- the continuation is lowered once after the conditional.
+          let (yesPre, _) ← lowerTupleHelperFrom yes.toList resultTypes
+          restore
+          let (noPre, _) ← lowerTupleHelperFrom no.toList resultTypes
+          restore
+          let (tail, result) ← lowerTupleHelperFrom rest resultTypes
+          pure (tupleCondition.pre.push (.ite tupleCondition.expr yesPre.toList noPre.toList) ++ tail, result)
+        else
+          let yesList := if yesReturns then yes.toList else yes.toList ++ rest
+          let noList := if noReturns then no.toList else no.toList ++ rest
+          let (yesPre, yesResult) ← lowerTupleHelperFrom yesList resultTypes
+          restore
+          let (noPre, noResult) ← lowerTupleHelperFrom noList resultTypes
+          restore
+          let mut dests : Array String := #[]
+          for _ in [:resultTypes.size] do dests := dests.push (← fresh)
+          let assign (pre : Array Stmt) (result : Option (Array Expr)) : Array Stmt :=
+            match result with
+            | some values => pre ++ (dests.zip values).map fun (d, e) => Stmt.assignVar d e
+            | none => pre
+          let branch := Stmt.ite tupleCondition.expr (assign yesPre yesResult).toList
+            (assign noPre noResult).toList
+          match yesResult, noResult with
+          | some _, some _ =>
+              pure (tupleCondition.pre ++ dests.map (fun d => Stmt.letVar d (.literal 0)) |>.push branch,
+                some (dests.map Expr.localVar))
+          | _, _ => failAt s "inlined tuple helper does not return on every path"
+    | kind => failAt s s!"unsupported tuple helper statement {kind}"
+
+private partial def lowerTupleLocal (s : Json) (decls : Array Json) : M (Array Stmt) := do
+  let some init := (field? s "initialValue").filter (!·.isNull)
+    | failAt s "tuple declarations require an initializer"
+  let types ← tupleTypes init (← mType init)
+  unless types.size == decls.size do
+    failAt s s!"tuple of {types.size} values declares {decls.size} components"
+  for d in decls do
+    if d.isNull then continue
+    let name ← mStr (← mField d "name")
+    unless name.all (fun c => c.isAlphanum || c == '_') && name != "" do
+      failAt d s!"unsupported local name {name}"
+    let ty ← mType d
+    let loc := optStr d "storageLocation" |>.getD "default"
+    unless loc == "default" && ((bitsOf ty).isSome || ty == "bool") do
+      failAt d s!"tuple component of type {ty} is outside this slice"
+  let (pre, values) ← lowerTuple init decls.size
+  let mut out := pre
+  for i in [:decls.size] do
+    let d := decls[i]!
+    if d.isNull then continue
+    let some value := values[i]? | failAt d "missing tuple component"
+    let ty ← mType d
+    let v ← convert ty types[i]! { pre := #[], expr := value } d
+    let binding ← freshFor (← mStr (← mField d "name"))
+    let id ← mNat (← mField d "id")
+    let name ← mStr (← mField d "name")
+    let some scalar := paramType ty | failAt d s!"unsupported tuple local type {ty}"
+    modify fun e =>
+      { e with values := e.values.insert id (.localVar binding),
+               writableLocals := e.writableLocals.insert id binding, scalarTy := e.scalarTy.insert id scalar,
+               yulNames := e.yulNames.insert name (.localVar binding) }
+    out := out ++ v.pre |>.push (.letVar binding v.expr)
+  pure out
+
+/-- Lowers a tuple-valued expression to `want` component values. Effectful components
+    are rejected; supported components are evaluated and snapshotted in source order. -/
+private partial def lowerTuple (j : Json) (want : Nat) : M (Array Stmt × Array Expr) := do
+  match ← mKind j with
+  | "TupleExpression" =>
+      if ← mBool (← mField j "isInlineArray") then
+        failAt j "inline arrays are outside this slice"
+      let cs ← mArr (← mField j "components")
+      unless cs.size == want do
+        failAt j s!"tuple has {cs.size} components where {want} are expected"
+      let mut pre : Array Stmt := #[]
+      let mut values : Array Expr := #[]
+      for c in cs do
+        if c.isNull then failAt j "empty tuple component"
+        if (← mType c).startsWith "tuple(" then failAt c "nested tuples are outside this slice"
+        if statefulCallIn c (← get) then
+          failAt c "stateful tuple components require explicit evaluation-order support"
+        let value ← lowerExpr c
+        let captured ← fresh
+        let v : Val := {pre := value.pre.push (.letVar captured value.expr), expr := .localVar captured}
+        pre := pre ++ v.pre
+        values := values.push v.expr
+      pure (pre, values)
+  | "FunctionCall" =>
+      unless (← mStr (← mField j "kind")) == "functionCall" do
+        failAt j "only internal helper calls produce tuples in this slice"
+      unless (← mArr (← mField j "names")).isEmpty do
+        failAt j "named call arguments are outside this slice"
+      lowerTupleCall j want
+  | "Conditional" =>
+      let cond ← atom (← lowerExpr (← mField j "condition"))
+      let saved ← get
+      let (yesPre, yes) ← lowerTuple (← mField j "trueExpression") want
+      modify fun e =>
+        {e with values := saved.values, writableLocals := saved.writableLocals,
+                paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+                byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames}
+      let (noPre, no) ← lowerTuple (← mField j "falseExpression") want
+      modify fun e =>
+        {e with values := saved.values, writableLocals := saved.writableLocals,
+                paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems,
+                byteBuffers := saved.byteBuffers, scalarTy := saved.scalarTy, yulNames := saved.yulNames}
+      let mut dests : Array String := #[]
+      for _ in [:want] do
+        dests := dests.push (← fresh)
+      let assign (pre : Array Stmt) (values : Array Expr) : List Stmt :=
+        (pre ++ (dests.zip values).map fun (d, e) => Stmt.assignVar d e).toList
+      let ite := Stmt.ite cond.expr (assign yesPre yes) (assign noPre no)
+      pure (cond.pre ++ dests.map (fun d => Stmt.letVar d (.literal 0)) |>.push ite,
+        dests.map Expr.localVar)
+  | kind => failAt j s!"unsupported tuple expression {kind}"
 
 end
 
@@ -2382,6 +2678,10 @@ private partial def lowerRootStatements (stmts : Array Json) : M (Array Stmt × 
             pres := pres ++ v.pre
             exprs := exprs.push v.expr
           out := out ++ pres |>.push (.returnValues exprs.toList)
+        else if (← mType expr).startsWith "tuple(" then
+          let types ← tupleTypes expr (← mType expr)
+          let (pre, values) ← lowerTuple expr types.size
+          out := out ++ pre |>.push (.returnValues values.toList)
         else
           let v ← atom (← lowerExpr expr)
           out := out ++ v.pre |>.push (.returnValues [v.expr])

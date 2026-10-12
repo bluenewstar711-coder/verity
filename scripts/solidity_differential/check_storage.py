@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 from .engine import command, write_json
-from .programs import stateful_yul_bytes_header_source, stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_numeric_literal_source, stateful_constant_array_source, stateful_modulo_source, stateful_default_local_source, stateful_local_write_source, stateful_invariant_for_source, stateful_helper_loop_source, stateful_packed_member_write_source, stateful_helper_effect_source, stateful_fixed_array_source, stateful_array_write_order_source, stateful_discarded_helper_source, stateful_encoded_byte_local_source, stateful_named_helper_return_source, stateful_yul_numeric_source
+from .programs import stateful_tuple_source, stateful_yul_bytes_header_source, stateful_storage_source, stateful_storage_word_source, stateful_mapping_source, stateful_short_circuit_source, stateful_imported_event_source, stateful_if_else_source, stateful_numeric_literal_source, stateful_constant_array_source, stateful_modulo_source, stateful_default_local_source, stateful_local_write_source, stateful_invariant_for_source, stateful_helper_loop_source, stateful_packed_member_write_source, stateful_helper_effect_source, stateful_fixed_array_source, stateful_array_write_order_source, stateful_discarded_helper_source, stateful_encoded_byte_local_source, stateful_named_helper_return_source, stateful_yul_numeric_source
 from .stateful import validate_observation
 
 
@@ -25,7 +25,7 @@ def canonical_observations(observations):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'default-locals', 'local-writes', 'invariant-for', 'helper-loops', 'packed-member-writes', 'helper-effects', 'fixed-arrays', 'array-write-order', 'discarded-helper', 'encoded-byte-locals', 'named-helper-returns', 'yul-numeric', 'yul-bytes-header'), default='packed')
+    parser.add_argument('--fixture', choices=('packed', 'void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'default-locals', 'local-writes', 'invariant-for', 'helper-loops', 'packed-member-writes', 'helper-effects', 'fixed-arrays', 'array-write-order', 'discarded-helper', 'encoded-byte-locals', 'named-helper-returns', 'yul-numeric', 'yul-bytes-header', 'tuple'), default='packed')
     parser.add_argument('--external-accounts', action='store_true',
         help='compare explicit external nonce/balance/code/storage after each transaction')
     parser.add_argument('--narrow-bits', type=int, choices=range(8, 257, 8), default=128)
@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve() if args.output else Path(tempfile.mkdtemp(prefix='storage-', dir='.lake')).resolve()
     output.mkdir(parents=True, exist_ok=args.output is None)
-    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'numeric-literals': 'NumericLiteralSequence', 'constant-arrays': 'ConstantArraySequence', 'modulo': 'ModuloSequence', 'default-locals': 'DefaultLocalSequence', 'local-writes': 'LocalWriteSequence', 'invariant-for': 'InvariantForSequence', 'helper-loops': 'HelperLoopSequence', 'packed-member-writes': 'PackedMemberWriteSequence', 'helper-effects': 'HelperEffectSequence', 'fixed-arrays': 'MappingFixedArraySequence', 'array-write-order': 'FixedArrayWriteOrderSequence', 'discarded-helper': 'DiscardedHelperSequence', 'encoded-byte-locals': 'EncodedByteLocalSequence', 'named-helper-returns': 'NamedHelperReturnSequence', 'yul-numeric': 'YulNumericSequence', 'yul-bytes-header': 'YulBytesHeaderSequence'}[args.fixture]
+    name = {'packed': 'StorageSequence', 'void': 'StorageVoidSequence', 'bytes': 'StorageBytesSequence', 'mapping': 'MappingSequence', 'short-circuit': 'ShortCircuitSequence', 'imported-event': 'ImportedEventSequence', 'narrow-event': 'NarrowEventSequence', 'if-else': 'IfElseSequence', 'numeric-literals': 'NumericLiteralSequence', 'constant-arrays': 'ConstantArraySequence', 'modulo': 'ModuloSequence', 'default-locals': 'DefaultLocalSequence', 'local-writes': 'LocalWriteSequence', 'invariant-for': 'InvariantForSequence', 'helper-loops': 'HelperLoopSequence', 'packed-member-writes': 'PackedMemberWriteSequence', 'helper-effects': 'HelperEffectSequence', 'fixed-arrays': 'MappingFixedArraySequence', 'array-write-order': 'FixedArrayWriteOrderSequence', 'discarded-helper': 'DiscardedHelperSequence', 'encoded-byte-locals': 'EncodedByteLocalSequence', 'named-helper-returns': 'NamedHelperReturnSequence', 'yul-numeric': 'YulNumericSequence', 'yul-bytes-header': 'YulBytesHeaderSequence', 'tuple': 'TupleSequence'}[args.fixture]
     fixture = Path(f'Contracts/SolidityImportSmoke/{name}.sol').read_text()
     template = Path(f'Contracts/SolidityImportSmoke/{name}Model.lean').read_text()
     if args.fixture == 'narrow-event':
@@ -75,11 +75,14 @@ def main():
         variants = ('baseline', 'inverted', 'ternary')
     if args.fixture in ('imported-event', 'narrow-event'):
         variants = ('baseline', 'renamed', 'reordered' if args.fixture == 'narrow-event' else 'bindings')
+    if args.fixture == 'tuple':
+        variants = ('baseline', 'expanded', 'inline')
     for variant in variants:
         directory = output / variant
         directory.mkdir()
         source = directory / 'Sequence.sol'
         source.write_text(stateful_imported_event_source(fixture, variant, args.fixture == "narrow-event") if args.fixture in ("imported-event", "narrow-event")
+                          else stateful_tuple_source(fixture, variant) if args.fixture == "tuple"
                           else stateful_yul_bytes_header_source(fixture, variant) if args.fixture == "yul-bytes-header"
                           else stateful_yul_numeric_source(fixture, variant) if args.fixture == "yul-numeric"
                           else stateful_named_helper_return_source(fixture, variant) if args.fixture == "named-helper-returns"
@@ -112,6 +115,8 @@ def main():
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 31, 32, 33, 255, 256, (1 << 256) - 1])]
         if args.fixture in ('array-write-order', 'discarded-helper'):
             extra = ['--change-prefix', *map(str, list(range(9)) + [19, 20, 25, 30, 40, (1 << 256) - 1])]
+        if args.fixture == 'tuple':
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 86399, 86400, 86401, 604799, 604800, 604801, 691199, 691200, (1 << 128) - 1, 1 << 128, (1 << 256) - 1])]
         if args.external_accounts:
             extra += ['--external-accounts']
         command([sys.executable, '-m', 'solidity_differential.check_stateful',

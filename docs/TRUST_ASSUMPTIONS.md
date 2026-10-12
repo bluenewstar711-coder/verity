@@ -1472,3 +1472,24 @@ admission. Transactions still target the supported executing contract with
 zero value, and configured account frames exclude sender gas/nonce bookkeeping.
 Full deployment equivalence requires canonical creation, gas/memory integration
 and discovery/observation of newly created accounts.
+
+
+### Tuple locals and multiple helper results (development)
+
+The importer lowers flat unsigned/bool tuple declarations, including omitted
+components, to explicit component snapshots followed by declaration-bound locals.
+Omitted components are still evaluated, so their guards and reverts are retained.
+Conditional tuples lower to a single lazy model branch. Multiple-result internal helpers and direct public calls use explicit result destinations with scoped bindings and source effects
+before the returning continuation. Single-result helper lowering remains intact.
+
+This uses existing model statements and Denote semantics and adds no external
+oracle or project axiom. The source AST and pinned solc remain trusted. Component
+expressions containing stateful calls, external calls, reference locals, signed
+locals and named multiple helper results remain rejected rather than assigned
+approximate behavior. Three equivalent fixtures have passed 192 draft A/B/C
+transactions including branch boundaries, mapping writes, event data and rollback.
+A further 64 transactions using direct public helpers match those observations,
+and 19 located acceptance/rejection controls pass;
+this is not a whole-Midnight campaign or a complete exact-head release receipt.
+Near-miss tests and all six registered implementation mutations must pass before
+publication as supported release behavior.

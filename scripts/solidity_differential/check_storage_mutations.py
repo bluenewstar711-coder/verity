@@ -182,8 +182,13 @@ MUTANTS.update({
     'import-yul-result-id-guard': ('unless (← get).helperReturnId == some targetId do', 'unless true do'),
 })
 
+MUTANTS.update({'import-tuple-skip': ('let some value := values[i]? | failAt d "missing tuple component"', 'let some value := values[decls.size - 1 - i]? | failAt d "missing tuple component"'), 'import-tuple-capture': ('let v : Val := {pre := value.pre.push (.letVar captured value.expr), expr := .localVar captured}', 'let v : Val := {pre := value.pre.push (.letVar captured (.literal 0)), expr := .localVar captured}'), 'import-tuple-branch': ('let ite := Stmt.ite cond.expr (assign yesPre yes) (assign noPre no)', 'let ite := Stmt.ite cond.expr (assign noPre no) (assign yesPre yes)'), 'import-tuple-lazy': ('(assign yesPre yes) (assign noPre no)\n      pure (cond.pre ++ dests.map', '(assign yesPre yes) (assign #[] no)\n      pure (cond.pre ++ noPre ++ dests.map'), 'import-tuple-helper-if': ('| some values => pre ++ (dests.zip values).map', '| some values => pre ++ (dests.zip values.reverse).map'), 'import-tuple-return': ('out := out ++ pre |>.push (.returnValues values.toList)', 'out := out ++ pre |>.push (.returnValues values.reverse.toList)')})
+
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
+    if name.startswith('import-tuple-'):
+        fixture = 'TupleSequence'
     if name.startswith("import-yul-header-"):
         fixture = "YulBytesHeaderSequence"
     if name.startswith("import-yul-numeric-"):
@@ -233,6 +238,9 @@ def run(directory, output, name):
             '--output', str(output)]
     if fixture in {'MappingFixedArraySequence', 'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'}:
         argv.extend(['--change-prefix', *map(str, list(range(9)) + ([19, 20, 25, 30, 40] if fixture in {'FixedArrayWriteOrderSequence', 'DiscardedHelperSequence', 'EncodedByteLocalSequence', 'NamedHelperReturnSequence', 'YulNumericSequence', 'YulBytesHeaderSequence'} else [65535, 65536]) + [(1 << 256) - 1])])
+    if fixture == 'TupleSequence':
+        prefix = argv.index('--change-prefix')
+        argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 86399, 86400, 86401, 604799, 604800, 604801, 691199, 691200, (1 << 128) - 1, 1 << 128, (1 << 256) - 1])]
     if fixture == 'YulNumericSequence':
         argv = argv[:argv.index('--change-prefix')] + ['--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 30, 31, 32, 33, 255, 256, (1 << 255) - 1, 1 << 255, (1 << 256) - 2, (1 << 256) - 1])]
     if fixture == 'NamedHelperReturnSequence':
