@@ -116,5 +116,14 @@ status, return/revert data, storage and event observations. Missing account
 state, including a rolled-back/nonexistent account, is an infrastructure error.
 The creator's source and compiled bytecode intentionally differ, so only its
 nonce/balance are compared; created-account code is compared byte for byte.
-Account discovery/replay and the executable Denote deployment world remain
+`DeploymentSequenceAdapter` discovers attempted CREATE2 addresses using opcode
+stack/memory and call frames, including collisions whose call trace has no
+destination address. `replay_deployment_routes` unions every route's account and
+storage discoveries, replays from the pinned prestate, and rejects any changed
+execution or sampled state. Raw opcode traces are retained. The source probe
+calibrates this protocol with six real source executions (three discovery and
+three replay adapters); all adapters use source bytecode, so this calibration
+is not A/B/C evidence. Missing accounts and replay drift have rejection controls.
+CREATE and oversized-initcode discovery explicitly fail until their separate
+rules exist. The executable Denote deployment world and its adapter remain
 required before this instrument can establish imported CREATE2 equivalence.

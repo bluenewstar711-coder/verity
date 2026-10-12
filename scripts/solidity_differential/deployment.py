@@ -6,8 +6,10 @@ compare its nonce and balance, and compare complete code for created accounts.
 Every route must provide every explicitly planned account, including nonexistent
 accounts and deployments rolled back by the parent. Missing data is an error.
 """
-from .engine import HarnessError
-from .stateful import ROUTES, _bytes, compare_sequences
+import copy
+
+from .engine import HarnessError, write_json
+from .stateful import ROUTES, _bytes, compare_sequences, validate_observation
 
 
 def _word(value):
@@ -53,6 +55,141 @@ def observe_accounts(node, record, creator, addresses):
                            for address in sorted(addresses)]}
     validate_accounts(result)
     return result
+
+
+def discover_create2_accounts(node, record):
+    """Recover attempted CREATE2 addresses, including missing call-tracer `to`.
+
+    Foundry's call tracer omits `to` on collisions and invalid runtime code.
+    Pair its ordered creation frames with opcode trace CREATE2 operands and
+    memory, check the actual initcode, then apply EIP-1014 using real Keccak.
+    Any disagreement or missing trace is an instrument error, never an empty
+    account set. CREATE requires a separate nonce-based discovery rule.
+    """
+    frames = []
+    def visit(frame):
+        if not isinstance(frame, dict) or not isinstance(frame.get('calls', []), list):
+            raise HarnessError('incomplete creation call trace')
+        if frame.get('type') == 'CREATE':
+            raise HarnessError('CREATE account discovery is not implemented')
+        if frame.get('type') == 'CREATE2':
+            frames.append(frame)
+        for child in frame.get('calls', []):
+            visit(child)
+    visit(record['call'])
+    trace = node.rpc('debug_traceTransaction', record['receipt']['transactionHash'],
+                     {'disableStorage': True, 'disableStack': False, 'enableMemory': True})
+    if not isinstance(trace, dict) or not isinstance(trace.get('structLogs'), list):
+        raise HarnessError('creation opcode trace required')
+    instructions = [step for step in trace['structLogs'] if step.get('op') == 'CREATE2']
+    if len(instructions) != len(frames):
+        raise HarnessError('opcode and call trace creation counts differ')
+    def word(text):
+        if not isinstance(text, str):
+            raise HarnessError('trace word must be hex')
+        raw = text.removeprefix('0x')
+        if len(raw) != 64 or any(c not in '0123456789abcdef' for c in raw):
+            raise HarnessError('noncanonical trace word')
+        return raw
+    addresses = set()
+    for frame, instruction in zip(frames, instructions):
+        stack, memory = instruction.get('stack'), instruction.get('memory')
+        if not isinstance(stack, list) or len(stack) < 4 or not isinstance(memory, list):
+            raise HarnessError('CREATE2 stack and memory required')
+        _, offset, size, salt = (int(word(v), 16) for v in reversed(stack[-4:]))
+        # The Osaka size limit bounds accepted initcode, and this instrument's
+        # own allocation. Oversize exceptional calls need a separate observer.
+        if size > 49152:
+            raise HarnessError('oversize CREATE2 opcode observation is not implemented')
+        data = bytes.fromhex(''.join(word(v) for v in memory))
+        # EVM reads expand memory with zeros. Avoid allocating up to offset.
+        initcode = data[offset:offset + size]
+        initcode += bytes(size - len(initcode))
+        if frame.get('input') != '0x' + initcode.hex():
+            raise HarnessError('CREATE2 opcode memory and call initcode differ')
+        creator = _bytes(frame.get('from'), 20)
+        digest = _bytes(node.rpc('web3_sha3', '0x' + initcode.hex()), 32)
+        address = '0x' + _bytes(node.rpc('web3_sha3',
+            '0xff' + creator[2:] + format(salt, '064x') + digest[2:]), 32)[-40:]
+        if 'to' in frame and frame['to'] != address:
+            raise HarnessError('CREATE2 trace address differs from EIP-1014')
+        addresses.add(address)
+    write_json(node.directory / (record['receipt']['transactionHash'] + '.create2-trace.json'),
+               {'trace': trace, 'frames': frames, 'addresses': sorted(addresses)})
+    return addresses
+
+
+class DeploymentSequenceAdapter:
+    """Actual EVM discovery/replay with bytecode and environment pinned."""
+    def __init__(self, directory, bytecodes, creator, initial_storage=()):
+        from .anvil import SequenceAdapter
+        self.creator = _bytes(creator, 20)
+        self.account_plan = None
+        self.indices = {}
+        self.adapter = SequenceAdapter(directory, bytecodes, initial_storage=initial_storage,
+                                       observer=self.observe)
+
+    def observe(self, node, record, ident, slots):
+        row = node.observe(record, ident, slots)
+        addresses = discover_create2_accounts(node, record)
+        addresses.update(self.account_plan[self.indices[ident]])
+        row['deployment'] = observe_accounts(node, record, self.creator, addresses)
+        return row
+
+    def __call__(self, transactions, slot_plan, account_plan):
+        if len(transactions) != len(account_plan):
+            raise HarnessError('deployment adapter requires complete account plan')
+        self.indices = {tx['id']: index for index, tx in enumerate(transactions)}
+        if len(self.indices) != len(transactions):
+            raise HarnessError('unique deployment transaction ids required')
+        self.account_plan = copy.deepcopy(account_plan)
+        return self.adapter(transactions, slot_plan)
+
+
+def replay_deployment_routes(transactions, adapters):
+    """Discover cross-route slots/accounts and replay from each pinned prestate."""
+    if not isinstance(transactions, list) or not transactions or set(adapters) != set(ROUTES):
+        raise HarnessError('nonempty transactions and all deployment adapters required')
+    ids = [tx.get('id') if isinstance(tx, dict) else None for tx in transactions]
+    if any(not isinstance(ident, str) or not ident for ident in ids) or len(set(ids)) != len(ids):
+        raise HarnessError('unique deployment transaction identities required')
+    def run(route, slots, accounts):
+        rows = adapters[route](copy.deepcopy(transactions), copy.deepcopy(slots), copy.deepcopy(accounts))
+        if not isinstance(rows, list) or len(rows) != len(ids):
+            raise HarnessError('deployment adapter omitted results')
+        for ident, row in zip(ids, rows):
+            if not isinstance(row, dict) or row.get('id') != ident or 'deployment' not in row:
+                raise HarnessError('incomplete deployment adapter observation')
+            validate_observation({k: v for k, v in row.items() if k != 'deployment'})
+            validate_accounts(row['deployment'])
+        return copy.deepcopy(rows)
+    empty = [[] for _ in ids]
+    discovery = {route: run(route, empty, empty) for route in ROUTES}
+    slots, accounts, cumulative_slots, cumulative_accounts = [], [], set(), set()
+    for index in range(len(ids)):
+        for route in ROUTES:
+            row = discovery[route][index]
+            touched, storage = validate_observation({k: v for k, v in row.items() if k != 'deployment'})
+            _, states = validate_accounts(row['deployment'])
+            cumulative_slots.update(touched)
+            cumulative_slots.update(storage)
+            cumulative_accounts.update(states)
+        slots.append([list(key) for key in sorted(cumulative_slots)])
+        accounts.append(sorted(cumulative_accounts))
+    observations = {route: run(route, slots, accounts) for route in ROUTES}
+    for route in ROUTES:
+        for before, after in zip(discovery[route], observations[route]):
+            for key in ('id', 'status', 'data', 'events'):
+                if before[key] != after[key]:
+                    raise HarnessError('deployment execution changed between discovery and replay')
+            bt, bs = validate_observation({k: v for k, v in before.items() if k != 'deployment'})
+            at, ast = validate_observation({k: v for k, v in after.items() if k != 'deployment'})
+            bc, ba = validate_accounts(before['deployment'])
+            ac, aa = validate_accounts(after['deployment'])
+            if bt != at or any(ast.get(k) != v for k, v in bs.items()) or bc != ac or any(aa.get(k) != v for k, v in ba.items()):
+                raise HarnessError('deployment state changed between discovery and replay')
+    return {'discovery': discovery, 'observations': observations, 'slots': slots, 'accounts': accounts,
+            'divergences': compare_deployment_sequences(ids, observations, accounts)}
 
 
 def compare_deployment_sequences(ids, traces, account_plan):
