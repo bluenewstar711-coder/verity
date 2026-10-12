@@ -17,7 +17,9 @@ from .engine import HarnessError, command, write_json
 MUTANTS = {
     'create2-initcode-word-cost': ('Create2ParentGas',
         '32000 + 8 * ((size + 31) / 32)', '32000 + 7 * ((size + 31) / 32)', 1),
-    'create2-eip150-divisor': ('Create2ParentGas', 'remaining / 64', 'remaining / 63', 2),
+    'create2-eip150-divisor': ('Create2Opcode',
+        'value := context.value, childGas := charged.childGas,',
+        'value := context.value, childGas := (context.gas - charged.opcodeGas) - (context.gas - charged.opcodeGas) / 63,', 1),
     'create2-parent-refund': ('Create2Opcode',
         'gasLeft, childGas := charged.childGas', 'gasLeft := gasLeft + 1, childGas := charged.childGas', 1),
     'create2-memory-expansion': ('Create2Opcode',
@@ -42,6 +44,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-campaign', type=Path, help='reuse immutable actual EVM opcode observations; otherwise generate them')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--mutant', action='append', choices=sorted(MUTANTS), help='run selected mutants; default is all')
     args = parser.parse_args()
     repo = Path.cwd()
     out = args.output.resolve()
@@ -110,7 +113,8 @@ def main():
         raise HarnessError('opcode baseline does not match preserved real EVM')
     rows = []
     try:
-        for name, (module, before, after, count) in MUTANTS.items():
+        for name in args.mutant or list(MUTANTS):
+            module, before, after, count = MUTANTS[name]
             original = originals[module]
             if original.count(before) != count:
                 raise HarnessError('nonunique opcode mutation anchor: ' + name)
