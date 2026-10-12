@@ -8,6 +8,7 @@ import Verity.Core.AccountState
 import Verity.Core.Model.DenoteCreate2
 import Verity.Core.Model.Create2ParentGas
 import Verity.Core.Model.Create2Opcode
+import Verity.Core.Model.AccountStorageBridge
 import Contracts.SolidityImportSmoke.DeploymentWorldChecks
 import Verity.Core.Model.InitCodeExecution
 import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
@@ -328,6 +329,10 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.BytesObjectMemory.materialize_preserves_before
 
   -- Verity/Core/AccountState.lean
+  Verity.Core.AccountState.storageAt_writeStorage
+  Verity.Core.AccountState.storageAt_writeStorage_same
+  Verity.Core.AccountState.storageAt_writeStorage_other
+  Verity.Core.AccountState.storageAt_writeStorageValues
   Verity.Core.AccountState.storage_only_not_collision
   Verity.Core.AccountWorld.write_at
   Verity.Core.AccountWorld.write_other
@@ -357,6 +362,17 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Create2Opcode.expand_new_zero
   Compiler.CompilationModel.Create2Opcode.static_aborts
   Compiler.CompilationModel.Create2Opcode.oversized_aborts
+
+  -- Verity/Core/Model/AccountStorageBridge.lean
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_other
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_word_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writePhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.modifyPhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_balance_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_code_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.commitRuntime_preserves_coherent
 
   -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
   SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
@@ -8049,4 +8065,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7388 theorems/lemmas (5328 public, 2060 private, 0 sorry'd)
+-- Total: 7401 theorems/lemmas (5341 public, 2060 private, 0 sorry'd)

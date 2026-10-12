@@ -580,6 +580,19 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                        and row['signature'] and len(row['witnessCaseIds']) == 1 for row in opcode_results)):
         raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
     print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)")
+    storage_conformance_output = Path(tempfile.mkdtemp(prefix="account-storage-conformance-", dir=WORK)) / "cases"
+    storage_conformance_launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+        'runpy.run_module("solidity_differential.check_account_storage_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", storage_conformance_launcher, "--output", str(storage_conformance_output)],
+                   cwd=ROOT, check=True, timeout=2400)
+    storage_conformance = json.loads((storage_conformance_output / "mutation-results.json").read_text())
+    expected_storage_conformance = {"denote-physical-slot-account", "denote-physical-batch-account",
+                                    "denote-physical-modify-account"}
+    if ({row['mutant'] for row in storage_conformance} != expected_storage_conformance
+            or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
+                       and row['kind'] == 'kernel-conformance-rejection' for row in storage_conformance)):
+        raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
+    print("pass three account storage kernel conformance mutations (not runtime witnesses)")
     quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                     "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],
