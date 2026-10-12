@@ -16,11 +16,11 @@ class ImplementationIdentity:
         self.workspace = Path.cwd().resolve()
         self.driver = Path(driver).resolve()
         self.extra_inputs = tuple(Path(path).resolve() for path in extra_inputs)
-        self.toolchain = Path(command(['lake', 'env', 'lean', '--print-prefix']).strip())
+        self.toolchain = Path(command(['lake', 'env', 'lean', '--print-prefix'], cwd=self.workspace).strip())
         self.paths = self._inventory()
         self.stats = {str(p): self._stat(p) for p in self.paths}
         self.manifest = {
-            'revision': command(['git', 'rev-parse', 'HEAD']).strip(),
+            'revision': command(['git', 'rev-parse', 'HEAD'], cwd=self.workspace).strip(),
             'files': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in self.paths}}
         self.verify()
 

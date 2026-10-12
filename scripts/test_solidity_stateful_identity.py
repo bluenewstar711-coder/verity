@@ -10,6 +10,10 @@ from solidity_differential.identity import ImplementationIdentity
 
 
 class IdentityTests(unittest.TestCase):
+    def identity_command(self, args, *, cwd):
+        self.assertEqual(Path(cwd), self.root)
+        return str(self.toolchain) if '--print-prefix' in args else 'test-revision'
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -24,15 +28,13 @@ class IdentityTests(unittest.TestCase):
         os.chdir(self.root)
         self.addCleanup(os.chdir, self.old_cwd)
         self.addCleanup(self.temp.cleanup)
-        with patch('solidity_differential.identity.command', side_effect=lambda args:
-                   str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
+        with patch('solidity_differential.identity.command', side_effect=self.identity_command):
             self.identity = ImplementationIdentity(self.source)
 
     def test_imported_solidity_input_is_hashed_and_edits_rejected(self):
         source = self.root / 'Generated.sol'
         source.write_text('contract Generated { }')
-        with patch('solidity_differential.identity.command', side_effect=lambda args:
-                   str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
+        with patch('solidity_differential.identity.command', side_effect=self.identity_command):
             identity = ImplementationIdentity(self.source, extra_inputs=[source])
         self.assertIn(str(source.resolve()), identity.manifest['files'])
         identity.verify()
@@ -45,8 +47,7 @@ class IdentityTests(unittest.TestCase):
     def test_missing_imported_solidity_input_invalidates_identity(self):
         source = self.root / 'Generated.sol'
         source.write_text('contract Generated { }')
-        with patch('solidity_differential.identity.command', side_effect=lambda args:
-                   str(self.toolchain) if '--print-prefix' in args else 'test-revision'):
+        with patch('solidity_differential.identity.command', side_effect=self.identity_command):
             identity = ImplementationIdentity(self.source, extra_inputs=[source])
         source.unlink()
         with self.assertRaisesRegex(HarnessError, 'snapshot became unavailable'):

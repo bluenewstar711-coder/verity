@@ -96,7 +96,7 @@ class SequenceAdapter:
         write_json(directory / 'input.json', {'account': str(int(self.account, 16)),
             'storage': self.initial_storage, 'accounts': self.initial_accounts, 'transactions': converted})
         argv = ['lake', 'env', 'lean', '--run', self.driver, directory / 'input.json', directory / 'output.json']
-        command(argv, log=directory / 'lean.log')
+        command(argv, cwd=self.identity.workspace, log=directory / 'lean.log')
         self.identity.verify()
         rows = json.loads((directory / 'output.json').read_text())
         if not isinstance(rows, list) or len(rows) != len(transactions):
@@ -106,5 +106,5 @@ class SequenceAdapter:
             if tx['id'] != row['id']:
                 raise HarnessError('model transaction identity differs')
         write_json(directory / 'replay.json', {'driver': str(self.driver), 'driverSha256': self.digest,
-            'command': list(map(str, argv)), 'transactions': transactions, 'slots': plan})
+            'command': list(map(str, argv)), 'cwd': str(self.identity.workspace), 'transactions': transactions, 'slots': plan})
         return rows
