@@ -371,6 +371,10 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_balance_view_frame
   Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_code_view_frame
   Compiler.CompilationModel.AccountStorageBridge.commitRuntime_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writeAccount_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.incremented_creator_collides
+  Compiler.CompilationModel.AccountStorageBridge.denoteCreate2_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.create2Opcode_preserves_coherent
 
   -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
   SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
@@ -8010,4 +8014,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7352 theorems/lemmas (5292 public, 2060 private, 0 sorry'd)
+-- Total: 7356 theorems/lemmas (5296 public, 2060 private, 0 sorry'd)

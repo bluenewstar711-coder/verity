@@ -1427,6 +1427,15 @@ use the physical APIs. The reference `SourceSemantics` uses the same exact
 physical transitions; the statements of `DenoteAgreement` and
 `DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
 for single/batch/transformed writes and runtime-code commits to another account.
+It also proves the relation for every successful `Except` outcome of the
+supported concrete `DenoteCreate2` transition and composed `Create2Opcode`,
+when the creator is the current contract. This includes aborts, parent gas
+failures, nonce-only child failures and successful creation. A non-colliding
+candidate differs from the creator because the creator's incremented nonce
+itself satisfies Osaka's collision predicate; no hash-injectivity assumption
+is used. Unsupported initcode remains an error. These are preservation proofs
+for the existing executable prerequisite, not new Solidity admission or full
+source/compiled deployment equivalence.
 Old shadow-mapping/channel-wide compatibility operations are not asserted to
 preserve this relation and must not be used as an exact deployment bridge.
 
