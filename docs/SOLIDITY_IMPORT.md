@@ -639,3 +639,30 @@ imported or compiled-model C campaign. Canonical Stmt integration, complete
 frame gas tracking, source allocator/memory refinement, account/storage bridge,
 ABI/revert/event observations and all exact-head release gates remain required.
 No new Solidity construct or whole-EVM equivalence is claimed here.
+
+
+### Canonical flat-storage/account coherence
+
+Concrete account storage uses `Std.TreeMap` with kernel-checked read-after-write
+and outside-frame laws. `writePhysicalSlot`, `writePhysicalSlots` and
+`modifyPhysicalSlots` update flat persistent storage and the self account's
+finite storage together. Batch transformers read the original world, including
+when targets alias. These APIs preserve code, nonce, balance, caller metadata,
+transient keys and legacy shadow channels. Legacy `writeSlot` and bulk lenses
+retain their previous account-world frame; their regression is unchanged.
+
+Canonical Denote flat scalar, packed, mapping-word and fixed-array write helpers
+use the physical APIs. The reference `SourceSemantics` uses the same exact
+physical transitions; the statements of `DenoteAgreement` and
+`DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
+for single/batch/transformed writes and runtime-code commits to another account.
+Old shadow-mapping/channel-wide compatibility operations are not asserted to
+preserve this relation and must not be used as an exact deployment bridge.
+
+The scalar differential adapters initialize finite storage through the physical
+API. The sequence adapter verifies flat/account agreement for every touched or
+requested persistent slot after each transaction, including rollback. This
+seeds storage only: it does not fabricate creator nonce, balance or code, model
+external account effects, admit CREATE2, or establish full deployment A/B/C
+equivalence. Those account inputs, complete gas/memory integration and the
+remaining source-admission obligations still have to be implemented.

@@ -25,6 +25,7 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Verity" / "Core" / "Model" / "DenoteCreate2.lean",
     ROOT / "Verity" / "Core" / "Model" / "Create2ParentGas.lean",
     ROOT / "Verity" / "Core" / "Model" / "Create2Opcode.lean",
+    ROOT / "Verity" / "Core" / "Model" / "AccountStorageBridge.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "DeploymentWorldChecks.lean",
     ROOT / "Verity" / "Core" / "Model" / "InitCodeExecution.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "InitCodeExecutionChecks.lean",

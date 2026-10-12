@@ -493,6 +493,15 @@ def readSlot (s : ContractState) (slot : Nat) : Uint256 := s.storage slot
 def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with storageWords := fun key => if key == .slot slot then value else s.storageWords key }
 
+/-- Physical persistent self-slot write. Unlike the legacy source-channel
+lens, this also synchronizes the concrete self account's finite storage.
+Code-size and balance views are preserved even if metadata is not coherent. -/
+def writePhysicalSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => if key == .slot slot then value else s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorage slot value) }
+
 /-- Read a word from a contract-separated storage world. Contract id `0`
     deliberately denotes the legacy, unqualified `storage` world. -/
 def readContractSlot (s : ContractState) (contract : Nat) (slot : Nat) : Uint256 :=
@@ -1160,6 +1169,28 @@ def modifySlots (s : ContractState) (targets : List Nat)
   { s with storageWords := fun key => match key with
       | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
       | _ => s.storageWords key }
+
+/-- Physical batch write, retaining all legacy storage-channel projections
+while synchronizing the self account. Duplicate targets remain aliases. -/
+def writePhysicalSlots (s : ContractState) (targets : List Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then value else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets (fun _ => value)) }
+
+/-- Every physical transformed value is computed from the original world,
+including duplicate targets, matching the atomic legacy bulk operation. -/
+def modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets
+        (fun slot => f (s.storageWords (.slot slot)))) }
 
 /-- Write `value` at every transient slot in `targets`. -/
 def writeTransientSlots (s : ContractState) (targets : List Nat)
