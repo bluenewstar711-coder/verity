@@ -6,6 +6,8 @@ import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
 import Verity.Core.Model.BytesObjectMemory
 import Verity.Core.AccountState
 import Verity.Core.Model.DenoteCreate2
+import Verity.Core.Model.Create2ParentGas
+import Verity.Core.Model.Create2Opcode
 import Contracts.SolidityImportSmoke.DeploymentWorldChecks
 import Verity.Core.Model.InitCodeExecution
 import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
@@ -338,6 +340,23 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_code
   Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_nonce
   Compiler.CompilationModel.DenoteCreate2.commitRuntime_clears_storage
+
+  -- Verity/Core/Model/Create2ParentGas.lean
+  Compiler.CompilationModel.Create2ParentGas.memoryCost_monotone
+  Compiler.CompilationModel.Create2ParentGas.resultingWords_ge
+  Compiler.CompilationModel.Create2ParentGas.opcodeCost_zero_size
+  Compiler.CompilationModel.Create2ParentGas.charge_of_enough
+  Compiler.CompilationModel.Create2ParentGas.charge_of_insufficient
+  Compiler.CompilationModel.Create2ParentGas.charge_conserves_gas
+  Compiler.CompilationModel.Create2ParentGas.finish_of_within
+  Compiler.CompilationModel.Create2ParentGas.finish_of_excess
+  Compiler.CompilationModel.Create2ParentGas.finished_gas_bound
+
+  -- Verity/Core/Model/Create2Opcode.lean
+  Compiler.CompilationModel.Create2Opcode.expand_before
+  Compiler.CompilationModel.Create2Opcode.expand_new_zero
+  Compiler.CompilationModel.Create2Opcode.static_aborts
+  Compiler.CompilationModel.Create2Opcode.oversized_aborts
 
   -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
   SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
@@ -8030,4 +8049,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7375 theorems/lemmas (5315 public, 2060 private, 0 sorry'd)
+-- Total: 7388 theorems/lemmas (5328 public, 2060 private, 0 sorry'd)

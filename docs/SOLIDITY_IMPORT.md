@@ -911,3 +911,25 @@ aliases after another allocation. This is a prerequisite, not new supported
 Solidity: allocator/pointer identity, overflow and gas behavior, declaration
 provenance, the canonical word-memory bridge and compiled-model integration
 remain mandatory before admitting object-pointer Yul expressions.
+
+
+### CREATE2 parent opcode composition prerequisite
+
+`Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas
+EIP-3860 initcode words, and quadratic memory expansion. Zero-length ranges
+do not expand memory. Kernel lemmas establish the EIP-150 gas split,
+conservation and bounded child refunds. `Create2Opcode.execute` derives the
+child allowance from parent gas, reads initcode from actual byte memory,
+executes the concrete account transition and refunds unused child gas. The
+expanded memory zero-extends inactive bytes; no backing-function contents
+beyond the old active range become visible. Static/size violations abort,
+parent out-of-gas aborts, and nonaligned instrument memory is rejected.
+
+`check_deployment_world --parent-opcode` compares actual EVM opcode memory,
+parent continuation gas, child allowance and account transitions against Lean,
+including nonce-limit prechecks. It supplies neither initcode bytes nor a child
+gas allowance to the Lean opcode driver. This remains A/B calibration, not an
+imported or compiled-model C campaign. Canonical Stmt integration, complete
+frame gas tracking, source allocator/memory refinement, account/storage bridge,
+ABI/revert/event observations and all exact-head release gates remain required.
+No new Solidity construct or whole-EVM equivalence is claimed here.

@@ -567,6 +567,19 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                        and row['signature'] for row in deployment_results)):
         raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
     print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)")
+    opcode_output = Path(tempfile.mkdtemp(prefix="create2-opcode-mutations-", dir=WORK)) / "cases"
+    opcode_launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                       'runpy.run_module("solidity_differential.check_create2_opcode_mutations",run_name="__main__")')
+    subprocess.run([sys.executable, "-c", opcode_launcher, "--output", str(opcode_output)],
+                   cwd=ROOT, check=True, timeout=2400)
+    opcode_results = json.loads((opcode_output / "mutation-results.json").read_text())
+    opcode_names = {"create2-initcode-word-cost", "create2-eip150-divisor",
+                    "create2-parent-refund", "create2-memory-expansion"}
+    if ({row['mutant'] for row in opcode_results} != opcode_names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in opcode_results)):
+        raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
+    print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)")
     quote_output = Path(tempfile.mkdtemp(prefix="modulo-quote-integrity-", dir=WORK))
     subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
                     "--mutations", "--mutant", "import-modulo-quote", "--output", str(quote_output)],

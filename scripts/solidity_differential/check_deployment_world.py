@@ -22,6 +22,7 @@ def calldata(selector, salt, payload, fail, value, require):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--parent-opcode', action='store_true', help='derive initcode and child gas in Lean from actual parent memory/gas')
     parser.add_argument('--nonce-max', action='store_true', help='start the creator at the EIP-2681 nonce limit')
     parser.add_argument('--case-ids', type=int, nargs='*', help='replay a subset from the unchanged initial world')
     args = parser.parse_args()
@@ -29,6 +30,9 @@ def main():
     out.mkdir(parents=True, exist_ok=False)
     command(['lake', 'build', 'Verity.Core.Model.DenoteCreate2', 'Compiler.SolidityImport.Transactions'],
             log=out / 'build.log')
+    if args.parent_opcode:
+        command(['lake', 'build', 'Contracts.SolidityImportSmoke.Create2OpcodeChecks'],
+                log=out / 'opcode-build.log')
     fixture = Path(__file__).parent / 'fixtures/DeploymentWorld.sol'
     request = {'language': 'Solidity', 'sources': {'DeploymentWorld.sol': {'content': fixture.read_text()}},
                'settings': {'evmVersion': 'osaka', 'viaIR': True,
@@ -118,16 +122,31 @@ def main():
                           'code': list(PREFIX + payload), 'childGas': str(child_gas),
                           'failAfter': fail, 'requireSuccess': require,
                           'observations': [{'address': str(int(addr, 16)), 'slots': ['7']} for addr in addresses]})
+            if args.parent_opcode:
+                parent_index = trace['structLogs'].index(instruction)
+                after = next((row for row in trace['structLogs'][parent_index + 1:]
+                              if row['depth'] == instruction['depth']), None)
+                if after is None:
+                    raise HarnessError('CREATE2 parent continuation missing from opcode trace')
+                steps[-1].pop('childGas')
+                steps[-1].pop('code')
+                steps[-1].update({'parentGas': str(instruction['gas']),
+                    'offset': str(offset), 'size': str(size), 'memory': list(memory)})
+                parent_expected = {'childGas': str(child_gas), 'parentGasLeft': str(after['gas']),
+                                   'memoryWords': str(new_words)}
             observations.append({'id': str(index), 'case': kind,
                 'status': 'ok' if record['receipt']['status'] == '0x1' else 'revert',
                 'address': str(int(record['call'].get('output', '0x0'), 16)) if record['receipt']['status'] == '0x1' else None,
                 'childGasLeft': str(int(frames[0]['gas'], 16) - int(frames[0]['gasUsed'], 16)) if frames else None,
                 'accounts': sample(record['receipt']['blockNumber']),
                 'transactionHash': record['receipt']['transactionHash']})
+            if args.parent_opcode:
+                observations[-1].update(parent_expected)
         write_json(out / 'node-provenance.json', node.provenance)
     write_json(out / 'input.json', {'creator': str(int(creator, 16)), 'initialAccounts': initial, 'steps': steps})
     write_json(out / 'source-observations.json', observations)
-    driver = Path('Contracts/SolidityImportSmoke/DeploymentWorldDriver.lean')
+    driver = Path('Contracts/SolidityImportSmoke/Create2OpcodeDriver.lean' if args.parent_opcode
+                  else 'Contracts/SolidityImportSmoke/DeploymentWorldDriver.lean')
     command(['lake', 'env', 'lean', '--run', driver, out / 'input.json', out / 'model-observations.json'],
             log=out / 'model.log')
     model = json.loads((out / 'model-observations.json').read_text())
@@ -137,11 +156,17 @@ def main():
         same = actual['id'] == expected['id'] and actual['status'] == expected['status'] and actual['accounts'] == expected['accounts']
         if expected['status'] == 'ok': same = same and actual['address'] == expected['address']
         if expected['childGasLeft'] is not None: same = same and actual['childGasLeft'] == expected['childGasLeft']
+        if args.parent_opcode:
+            same = same and all(actual[key] == expected[key]
+                                for key in ['childGas', 'parentGasLeft', 'memoryWords'])
         if not same:
             write_json(out / 'divergence.json', {'actual': actual, 'expected': expected})
             raise HarnessError('EVM/Lean account-world divergence')
     write_json(out / 'complete.json', {'exit': 0, 'transactions': len(selected),
         'scope': 'threaded EVM/Lean account and child-gas calibration; no imported/full ABC/ABI-event claim'})
+    if args.parent_opcode:
+        write_json(out / 'opcode-complete.json', {'exit': 0, 'transactions': len(selected),
+            'scope': 'live EVM versus Lean opcode/world/gas; no canonical Stmt/importer/C or ABI/events claim'})
     print(f'Deployment world agrees on {len(selected)} actual EVM calls')
 
 
