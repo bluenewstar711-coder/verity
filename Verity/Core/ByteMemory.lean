@@ -98,6 +98,21 @@ theorem Memory.writeByte_at (memory : Memory) (offset : Nat) (value : Byte) :
     (memory.writeByte offset value).bytes offset = value := by
   simp [Memory.writeByte]
 
+theorem Memory.readByte_writeByte_outside (memory : Memory) (offset : Nat)
+    (value : Byte) (address : Nat) (outside : address ≠ offset) :
+    (memory.writeByte offset value).readByte address = memory.readByte address := by
+  have expanded := Memory.expand_size_ge memory (offset + 1)
+  simp [Memory.writeByte, Memory.readByte, outside]
+  omega
+
+theorem Memory.readWord_writeByte_outside (memory : Memory) (offset : Nat)
+    (value : Byte) (query : Nat) (disjoint : query + 32 ≤ offset ∨ offset + 1 ≤ query) :
+    (memory.writeByte offset value).readWord query = memory.readWord query := by
+  funext index
+  apply Memory.readByte_writeByte_outside
+  have bound := index.isLt
+  omega
+
 theorem Memory.writeWord_at (memory : Memory) (offset : Nat) (value : Word)
     (index : Fin 32) :
     (memory.writeWord offset value).bytes (offset + index) = value index := by
