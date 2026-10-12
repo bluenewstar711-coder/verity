@@ -903,3 +903,11 @@ rollback include this metadata. The source-storage/account-storage bridge,
 parent opcode charging, ABI/events, compiled-model route and importer lowering
 remain required before CREATE2 is supported. Unsupported initcode is an
 instrument error, never a fabricated successful deployment or Solidity revert.
+
+`BytesObjectMemory` provides a byte-level immutable object representation:
+big-endian length header, payload at base+32, zero padding and disjoint-write
+frame proofs. Its EVM/Lean instrument observes source-created objects and
+aliases after another allocation. This is a prerequisite, not new supported
+Solidity: allocator/pointer identity, overflow and gas behavior, declaration
+provenance, the canonical word-memory bridge and compiled-model integration
+remain mandatory before admitting object-pointer Yul expressions.

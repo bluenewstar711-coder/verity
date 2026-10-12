@@ -3,6 +3,7 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.Model.BytesObjectMemory
 import Verity.Core.AccountState
 import Verity.Core.Model.DenoteCreate2
 import Contracts.SolidityImportSmoke.DeploymentWorldChecks
@@ -313,6 +314,16 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_gaslimit_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
+
+  -- Verity/Core/Model/BytesObjectMemory.lean
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_at
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_header
+  Compiler.CompilationModel.BytesObjectMemory.materialize_payload
+  Compiler.CompilationModel.BytesObjectMemory.materialize_padding
+  Compiler.CompilationModel.BytesObjectMemory.materialize_represents
+  Compiler.CompilationModel.BytesObjectMemory.materialize_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_preserves_before
 
   -- Verity/Core/AccountState.lean
   Verity.Core.AccountState.storage_only_not_collision
@@ -8019,4 +8030,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7367 theorems/lemmas (5307 public, 2060 private, 0 sorry'd)
+-- Total: 7375 theorems/lemmas (5315 public, 2060 private, 0 sorry'd)
