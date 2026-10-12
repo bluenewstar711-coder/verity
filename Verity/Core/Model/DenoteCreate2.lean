@@ -165,5 +165,6 @@ theorem commitRuntime_clears_storage (world : Verity.ContractState) (creator tar
     (value : Uint256) (runtime : List Byte) (slot : Nat) :
     ((commitRuntime world creator target value runtime).accountWorld target).storageAt slot = 0 := by
   simp [commitRuntime, AccountState.storageAt]
+  rfl
 
 end Compiler.CompilationModel.DenoteCreate2
