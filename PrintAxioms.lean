@@ -3,6 +3,9 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.AccountState
+import Verity.Core.Model.DenoteCreate2
+import Contracts.SolidityImportSmoke.DeploymentWorldChecks
 import Verity.Core.Model.InitCodeExecution
 import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
 import Compiler.CompilationModel.ReservedScratchNames
@@ -309,6 +312,27 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
+  -- Verity/Core/AccountState.lean
+  Verity.Core.AccountState.storage_only_not_collision
+  Verity.Core.AccountWorld.write_at
+  Verity.Core.AccountWorld.write_other
+
+  -- Verity/Core/Model/DenoteCreate2.lean
+  Compiler.CompilationModel.DenoteCreate2.static_aborts_without_effect
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_other
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_storageWords
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_events
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_code
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_nonce
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_clears_storage
+
+  -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
+  SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
+  SolidityImportSmoke.DeploymentWorldChecks.insufficient_balance_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.depth_limit_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.unsupported_initcode_is_instrument_error
+  SolidityImportSmoke.DeploymentWorldChecks.metadata_survives_storage_write
+
   -- Verity/Core/Model/InitCodeExecution.lean
   Compiler.CompilationModel.InitCodeExecution.codeCopy_zero
   Compiler.CompilationModel.InitCodeExecution.run_succ
@@ -352,6 +376,8 @@ end Verity.AxiomAudit
 
   -- Compiler/SolidityImport/Transactions.lean
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_storage
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_accounts
+  Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert_accounts
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_foreignStorage
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_transient
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_parkedTransient
@@ -7938,4 +7964,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7301 theorems/lemmas (5241 public, 2060 private, 0 sorry'd)
+-- Total: 7318 theorems/lemmas (5258 public, 2060 private, 0 sorry'd)

@@ -6,6 +6,7 @@
 -/
 
 import Verity.Core.Address
+import Verity.Core.AccountState
 import Verity.Core.Int256
 import Verity.Core.NarrowTypes
 import Verity.Core.Panic
@@ -385,12 +386,53 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- Concrete code, nonce, balance and storage for deployment-world modeling.
+      Existing source storage remains in storageWords; deployment admission
+      additionally requires the account/slot representation bridge. -/
+  accountWorld : Verity.Core.AccountWorld := Verity.Core.AccountWorld.empty
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
       data; `returndatasize()` is `32 * returndata.length`. -/
   returndata : List Nat := []
 
 namespace ContractState
+
+/-- Commit one account while synchronizing the existing code-size and caller
+balance views. Raw address aliases are normalized exactly as EVM addresses. -/
+def writeAccount (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) : ContractState :=
+  { state with
+    accountWorld := Verity.Core.AccountWorld.write state.accountWorld address account
+    codeSize := fun raw => if Verity.Core.Address.ofNat raw = address then Verity.Core.Uint256.ofNat account.code.length
+                          else state.codeSize raw
+    selfBalance := if address = state.thisAddress then account.balance else state.selfBalance }
+
+@[simp] theorem writeAccount_at (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).accountWorld address = account := by
+  simp [writeAccount]
+
+theorem writeAccount_other (state : ContractState) (address query : Address)
+    (account : Verity.Core.AccountState) (different : query ≠ address) :
+    (state.writeAccount address account).accountWorld query = state.accountWorld query := by
+  simp [writeAccount, Verity.Core.AccountWorld.write_other, different]
+
+@[simp] theorem writeAccount_storageWords (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).storageWords = state.storageWords := rfl
+
+@[simp] theorem writeAccount_events (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).events = state.events := rfl
+
+theorem writeAccount_codeSize (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) (raw : Nat) (same : Verity.Core.Address.ofNat raw = address) :
+    (state.writeAccount address account).codeSize raw = Verity.Core.Uint256.ofNat account.code.length := by
+  simp [writeAccount, same]
+
+theorem writeAccount_selfBalance (state : ContractState) (account : Verity.Core.AccountState) :
+    (state.writeAccount state.thisAddress account).selfBalance = account.balance := by
+  simp [writeAccount]
 
 /-!
 ## Canonical storage lens API (P5-A)
@@ -624,6 +666,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+
+@[simp] theorem accountWorld_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).accountWorld = s.accountWorld := rfl
 @[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).returndata = s.returndata := rfl
 
