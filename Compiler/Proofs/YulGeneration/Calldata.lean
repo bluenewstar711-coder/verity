@@ -28,6 +28,23 @@ def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat
       let lo := calldata.getD (q + 1) 0 % evmModulus
       ((hi % (2 ^ (8 * (32 - r)))) * (2 ^ (8 * r)) + lo / (2 ^ (8 * (32 - r)))) % evmModulus
 
+/-- Every abstract calldata word is bounded before a physical memory store. -/
+theorem calldataloadWord_lt_modulus (selector : Nat) (calldata : List Nat) (offset : Nat) :
+    calldataloadWord selector calldata offset < evmModulus := by
+  unfold calldataloadWord
+  split
+  · unfold selectorWord
+    have bound := Nat.mod_lt selector (show 0 < selectorModulus by decide)
+    have shifted := Nat.mul_lt_mul_of_pos_right bound
+      (show 0 < 2^selectorShift by decide)
+    have modulus : selectorModulus * 2^selectorShift = evmModulus := by decide
+    rw [modulus] at shifted
+    exact shifted
+  · split
+    · exact (show 0 < evmModulus by decide)
+    · dsimp only
+      split <;> exact Nat.mod_lt _ (by decide)
+
 /-- Memory word offsets written by `calldatacopy dst src size` under the
 word-addressed memory model used by the source semantics and the IR
 interpreter: the `size / 32` aligned words `dst, dst + 32, …`. -/

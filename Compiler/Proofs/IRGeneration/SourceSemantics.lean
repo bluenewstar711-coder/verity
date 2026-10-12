@@ -2657,14 +2657,10 @@ mutual
     | state, .mstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
-            .continue {
-              state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
-            }
+            .continue { state with
+              world := state.world.writePhysicalMemoryValue
+                (Verity.Core.Uint256.ofNat resolvedOffset).val
+                (Verity.Core.Uint256.ofNat resolvedValue) }
         | _, _ => .revert
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
@@ -2728,8 +2724,8 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0
+                  (Verity.Core.Uint256.ofNat resolved) }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -3040,14 +3036,10 @@ mutual
     | state, .mstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
         | some resolvedOffset, some resolvedValue =>
-            .continue {
-              state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
-            }
+            .continue { state with
+              world := state.world.writePhysicalMemoryValue
+                (Verity.Core.Uint256.ofNat resolvedOffset).val
+                (Verity.Core.Uint256.ofNat resolvedValue) }
         | _, _ => .revert
     | state, .tstore offset value =>
         match evalExpr fields state offset, evalExpr fields state value with
@@ -3111,8 +3103,8 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0
+                  (Verity.Core.Uint256.ofNat resolved) }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -4640,14 +4632,10 @@ mutual
         match evalExprWithHelpers spec fields fuel state offset,
             evalExprWithHelpers spec fields fuel state value with
         | some resolvedOffset, some resolvedValue =>
-            .continue {
-              state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
-            }
+            .continue { state with
+              world := state.world.writePhysicalMemoryValue
+                (Verity.Core.Uint256.ofNat resolvedOffset).val
+                (Verity.Core.Uint256.ofNat resolvedValue) }
         | _, _ => .revert
     | .tstore offset value =>
         match evalExprWithHelpers spec fields fuel state offset,
@@ -4712,8 +4700,8 @@ mutual
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0
+                  (Verity.Core.Uint256.ofNat resolved) }
         | none => .revert
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>

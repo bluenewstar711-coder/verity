@@ -36,6 +36,15 @@ theorem writePhysicalMemoryValue_at (state : IRState) (offset value : Nat) :
     (valueWord (Verity.Core.Uint256.ofNat value))).readWord offset)).val = _
   rw [Memory.readWord_writeWord_at, wordValue_valueWord]
 
+@[simp] theorem writePhysicalMemoryValue_storage (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).storage = state.storage := rfl
+
+@[simp] theorem writePhysicalMemoryValue_events (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).events = state.events := rfl
+
+@[simp] theorem writePhysicalMemoryValue_vars (state : IRState) (offset value : Nat) :
+    (state.writePhysicalMemoryValue offset value).vars = state.vars := rfl
+
 theorem installPhysicalMemory_storage_frame (state : IRState) (physical : Memory) :
     (state.installPhysicalMemory physical).storage = state.storage := rfl
 

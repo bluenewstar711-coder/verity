@@ -120,7 +120,8 @@ def runtimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory
 
 /-- Runtime/IR alignment for constructor execution, whose calldata is not
 selector-prefixed. This is the constructor-shaped analogue of
@@ -148,7 +149,8 @@ def constructorRuntimeStateMatchesIR
   state.returnValue = none ∧
   state.events = SourceSemantics.encodeEvents runtime.world.events ∧
   state.codeSize = (fun addr => (runtime.world.codeSize addr).val) ∧
-  state.returndata = runtime.world.returndata
+  state.returndata = runtime.world.returndata ∧
+  runtime.world.byteMemory = state.byteMemory
 
 theorem runtimeStateMatchesIR_returndata
     {fields : List Field}
@@ -157,7 +159,7 @@ theorem runtimeStateMatchesIR_returndata
     (h : runtimeStateMatchesIR fields runtime state) :
     state.returndata = runtime.world.returndata := by
   obtain ⟨-, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, -, h⟩ := h
-  exact h
+  exact h.1
 
 def initialIRStateForTx
     (spec : CompilationModel)
@@ -2457,7 +2459,7 @@ theorem runtimeStateMatchesIR_returndatacopyBothMemory
   simp only [runtimeStateMatchesIR] at hmatch ⊢
   obtain ⟨hstor, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
     hmem, hret, hevt⟩ := hmatch
-  have hrd := hevt.2.2
+  have hrd := hevt.2.2.1
   refine ⟨?_, htrans, hsender, hmsgVal, hthis, hts, hbn, hcid, hblob, htx, hsel, hcd, hcds,
     ?_, hret, hevt⟩
   · rw [hstor]

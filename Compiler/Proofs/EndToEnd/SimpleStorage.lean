@@ -5966,6 +5966,10 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
     simp [EvmYul.UInt256.toNat, EvmYul.UInt256.ofNat, Fin.ofNat,
       Nat.mod_eq_of_lt hValueRange']
     rfl
+  have hValueCoreNat : (Verity.Core.Uint256.ofNat value).val = value := by
+    apply Nat.mod_eq_of_lt
+    simpa [Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS,
+      EvmYul.UInt256.size] using hValueRange
   have hLogs :
       Compiler.Proofs.YulGeneration.Backends.Native.projectLogsFromState
         (EvmYul.Yul.State.Ok shared2 markedStore) = [] := by
@@ -5977,7 +5981,7 @@ private theorem nativeResultsMatchOn_execIRFunction_mstore0_lit_return32_markedP
     rfl
   rw [hIR, hProject]
   refine ⟨rfl, ?_, ?_, ?_⟩
-  · simp [hValueNat]
+  · simp [hValueNat, hValueCoreNat]
   · intro slot hslot
     have hslot' : slot ∈ slots := by
       simp [slots, Compiler.Proofs.YulGeneration.Backends.Native.materializedStorageSlots,
