@@ -1589,3 +1589,14 @@ trailing bytes of the final word on long writes, and zero out stale long-storage
 words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
 bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
+# Initcode execution prerequisite
+
+The bounded functional executor in `Verity/Core/Model/InitCodeExecution.lean`
+decodes actual opcode bytes and does not accept an oracle-supplied runtime code.
+Its nine-step theorem proves the pinned Midnight prefix returns its payload;
+it does not prove equivalence with the full EVM or complete deployment semantics.
+The EVM/Lean instrument tests actual runtime bytes and a semantically identical
+PUSH1-zero variant. It is not an A/B/C campaign and does not extend the import
+trust boundary. Gas, call depth, size/deposit/prefix checks, collisions, nonce
+changes and rollback must still be modeled by the deployment transition before
+source admission. CODECOPY with zero size preserves memory without expansion.

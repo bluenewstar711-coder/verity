@@ -884,3 +884,13 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 | Narrow fixed-bytes (`bytes1`–`bytes31`) locals, helper parameters/returns, `bytesN("...")` string literal casts (`N < 32`), and `bytes12` / `bytes20` integer/address conversions (`ERC2771Context._msgSender()`, `Votes`) | `localParamType`, `cleanHelperResultExpr`, and `lowerYulDirectAssignmentTarget` support `bytes1`–`bytes31` (`ParamType.bytesN w`, left-aligned to `256 - 8*w` bits), while keeping root ABI parameters and storage fields restricted to `bytes4` and `bytes32`. `lowerCast` supports `bytesN("...")` / `bytesN(hex"...")` for `1 <= N < 32` when the literal byte length is `<= N` (leaving `bytes32("...")` rejected), `bytesN(bytesSliceOrMemory)` (`1 <= N <= 32`), `bytes12(uint96)` / `uint96(bytes12)` (`shl 160` / `shr 160`), `bytes20(uint160)` / `uint160(bytes20)` / `bytes20(address)` / `address(bytes20)` (`shl 96` / `shr 96`), and widening/truncating conversions between `bytes12` / `bytes20` and `bytes32`. `lowerBinary` supports `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, and `^` on matching `bytesN` types (rejecting implicit `int_const` operands), and `AbiEncoding` packs `bytes1`–`bytes32` values by their exact byte width (`scalarPackedWidth`). |
 | Tuple assignment with `MemberAccess` storage or flat-struct targets (`(_roles[roleId].grantDelay, effect) = _roles[roleId].grantDelay.withUpdate(...)`, `AccessManager`) | `lowerEffect` `TupleExpression` assignment supports `MemberAccess` components alongside `Identifier` components, resolving each `MemberAccess` target against flat `memory` struct locals (`flatStructs`), ERC-7201 raw-slot storage structs (`SPath.rawSlot`), and top-level or 1-/2-/3-key mapping-backed storage structs (`SPath.zero`, `SPath.one`, `SPath.two`) with boolean `0`/`1` normalization and key-capture prelude validation. |
 
+# Initcode execution groundwork
+
+`Verity/Core/Model/InitCodeExecution.lean` executes the bytecode instructions in
+Midnight's eleven-byte deployment prefix with an explicit instruction bound.
+The kernel proof `midnight_returns_payload` composes nine intermediate
+instruction lemmas and proves that the returned bytes equal the appended
+payload. Byte-copy frame lemmas preserve reads outside the destination range.
+This is deployment proof infrastructure: it adds no supported Solidity or Yul
+construct to the importer. `CREATE2` remains rejected until exact object-memory
+provenance, account-world transitions and full A/B/C checks are integrated.

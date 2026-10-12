@@ -3,6 +3,8 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.Model.InitCodeExecution
+import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
 import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
@@ -309,6 +311,43 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
+  -- Verity/Core/Model/InitCodeExecution.lean
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_zero
+  Compiler.CompilationModel.InitCodeExecution.run_succ
+  Compiler.CompilationModel.InitCodeExecution.run_after_step
+  Compiler.CompilationModel.InitCodeExecution.midnightInitcode_length
+  Compiler.CompilationModel.InitCodeExecution.hasMidnightPrefix_initcode
+  Compiler.CompilationModel.InitCodeExecution.expandedLength_ge
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.prefix_sub_length
+  -- Compiler.CompilationModel.InitCodeExecution.step1  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step2  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step3  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step4  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step5  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step6  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step7  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step8  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step9  -- private
+  Compiler.CompilationModel.InitCodeExecution.midnight_run
+  Compiler.CompilationModel.InitCodeExecution.midnight_codeByte
+  Compiler.CompilationModel.InitCodeExecution.midnight_slice
+  Compiler.CompilationModel.InitCodeExecution.midnight_returns_payload
+
+  -- Contracts/SolidityImportSmoke/InitCodeExecutionChecks.lean
+  SolidityImportSmoke.InitCodeExecutionChecks.unsupported_opcode_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.subtract_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.copy_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.return_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.duplicate_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.fuel_exhaustion_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.truncated_push_zero_extends
+  SolidityImportSmoke.InitCodeExecutionChecks.empty_code_stops
+  SolidityImportSmoke.InitCodeExecutionChecks.zero_copy_preserves_memory
+
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
@@ -614,6 +653,8 @@ end Verity.AxiomAudit
   -- Contracts/SolidityImportSmoke/AbiCoverageChecks.lean
   SolidityImportSmoke.AbiCoverageChecks.memory_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.calldata_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_memory_root_is_executable
+  SolidityImportSmoke.AbiCoverageChecks.offer_calldata_root_is_executable
   SolidityImportSmoke.AbiCoverageChecks.memory_write_is_not_read_only
   SolidityImportSmoke.AbiCoverageChecks.loop_is_not_read_only
 
@@ -7952,4 +7993,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7315 theorems/lemmas (5264 public, 2051 private, 0 sorry'd)
+-- Total: 7350 theorems/lemmas (5290 public, 2060 private, 0 sorry'd)
