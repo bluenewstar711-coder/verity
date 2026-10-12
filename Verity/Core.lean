@@ -1186,6 +1186,32 @@ def writePhysicalSlots (s : ContractState) (targets : List Nat) (value : Uint256
     accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
       ((s.accountWorld s.thisAddress).writeStorageValues targets (fun _ => value)) }
 
+@[simp] theorem storageArray_writePhysicalSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageAddr_writePhysicalSlots (s : ContractState)
+    (targets : List Nat) (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  rfl
+
+@[simp] theorem storage_writePhysicalSlots_mem (s : ContractState)
+    (targets : List Nat) (value : Uint256) {slot : Nat}
+    (h : targets.contains slot = true) :
+    (s.writePhysicalSlots targets value).storage slot = value := by
+  simp only [storage, writePhysicalSlots]
+  rw [h]
+  rfl
+
+@[simp] theorem storage_writePhysicalSlots_not_mem (s : ContractState)
+    (targets : List Nat) (value : Uint256) {slot : Nat}
+    (h : targets.contains slot = false) :
+    (s.writePhysicalSlots targets value).storage slot = s.storage slot := by
+  simp only [storage, writePhysicalSlots]
+  rw [h]
+  rfl
+
 /-- Every physical transformed value is computed from the original world,
 including duplicate targets, matching the atomic legacy bulk operation. -/
 def modifyPhysicalSlots (s : ContractState) (targets : List Nat)
@@ -1197,6 +1223,32 @@ def modifyPhysicalSlots (s : ContractState) (targets : List Nat)
     accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
       ((s.accountWorld s.thisAddress).writeStorageValues targets
         (fun slot => f (s.storageWords (.slot slot)))) }
+
+@[simp] theorem storageArray_modifyPhysicalSlots (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storageAddr_modifyPhysicalSlots (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  rfl
+
+@[simp] theorem storage_modifyPhysicalSlots_mem (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) {slot : Nat}
+    (h : targets.contains slot = true) :
+    (s.modifyPhysicalSlots targets f).storage slot = f (s.storage slot) := by
+  simp only [storage, modifyPhysicalSlots]
+  rw [h]
+  rfl
+
+@[simp] theorem storage_modifyPhysicalSlots_not_mem (s : ContractState)
+    (targets : List Nat) (f : Uint256 → Uint256) {slot : Nat}
+    (h : targets.contains slot = false) :
+    (s.modifyPhysicalSlots targets f).storage slot = s.storage slot := by
+  simp only [storage, modifyPhysicalSlots]
+  rw [h]
+  rfl
 
 /-- Write `value` at every transient slot in `targets`. -/
 def writeTransientSlots (s : ContractState) (targets : List Nat)

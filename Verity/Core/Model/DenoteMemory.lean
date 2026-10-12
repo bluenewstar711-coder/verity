@@ -164,11 +164,19 @@ theorem execStmt_literal_mstore_source_sound
         { state with
           world :=
             { state.world with
-              memory := canonicalMstore state.world.memory
-                (wordNormalize offset) (wordNormalize value) } } := by
-  simp [execStmt, evalExpr]
-  funext address
-  simp [canonicalMstore]
+              memory := fun address =>
+                wordValue ((state.world.byteMemory.writeWord
+                  (wordNormalize offset)
+                  (valueWord (Verity.Core.Uint256.ofNat (wordNormalize value)))).readWord address),
+              byteMemory := state.world.byteMemory.writeWord
+                (wordNormalize offset)
+                (valueWord (Verity.Core.Uint256.ofNat (wordNormalize value))) } } := by
+  simp [execStmt, evalExpr, Verity.ContractState.writePhysicalMemoryValue,
+    Verity.ContractState.writePhysicalMemoryWord,
+    Verity.ContractState.installPhysicalMemory]
+  constructor
+  · simp [wordNormalize, Verity.Core.Uint256.modulus]
+  · simp [wordNormalize, Verity.Core.Uint256.modulus]
 
 /-- Soundness for the corresponding source `Expr.mload` arm. -/
 theorem evalExpr_literal_mload_source_sound

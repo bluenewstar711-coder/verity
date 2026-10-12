@@ -297,7 +297,7 @@ private theorem encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleto
           [(Compiler.Proofs.solidityMappingSlot slot key + wordOffset) %
               Compiler.Constants.evmModulus].contains query = false :=
         singleton_contains_false hEq
-      exact Verity.ContractState.storage_modifySlots_not_mem _ _ _ hfalse
+      exact Verity.ContractState.storage_modifyPhysicalSlots_not_mem _ _ _ hfalse
   · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots,
       Verity.ContractState.storageAddr_modifySlots]
   · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots]
@@ -1068,7 +1068,7 @@ private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_
     exact hdyn
   simp only [hdyn']
   simp only [SourceSemantics.writeAddressKeyedMappingChainSlots, List.map_cons, List.map_nil]
-  rw [Verity.ContractState.storage_writeSlots_mem _ _ _
+  rw [Verity.ContractState.storage_writePhysicalSlots_mem _ _ _
     (singleton_contains_true _)]
   simp only [Verity.Core.Uint256.val_ofNat]
   exact Nat.mod_eq_of_lt hvalue
@@ -1439,7 +1439,7 @@ private theorem encodeStorageAt_writeStorageWordSlots_singleton_other
   · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize]
     rw [Verity.ContractState.storageAddr_writeAddrSlots_not_mem _ _ _
       (singleton_contains_false hneq)]
-    rw [Verity.ContractState.storageAddr_writeSlots]
+    rw [Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeStorageWordSlots]
 
 private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
@@ -1584,7 +1584,7 @@ private theorem runtimeStateMatchesIR_writeUintSlots
             simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
               Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.modulus] using hcontains
         simp only [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize]
-        rw [Verity.ContractState.storage_writeSlots_mem _ _ _ hcontains]
+        rw [Verity.ContractState.storage_writePhysicalSlots_mem _ _ _ hcontains]
         simp only [Verity.Core.Uint256.val_ofNat]
         exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (Nat.mod_eq_of_lt hvalue).symm
       · simp only [hmem, ↓reduceIte]
@@ -2730,26 +2730,20 @@ private theorem compiledStmtStep_mstore_single_preserves
         hOffsetEval.symm
       have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
         hValueEval.symm
-      -- Source execution: mstore updates source-level memory
-      set runtime' := {
-        runtime with
-        world := {
-          runtime.world with
-          memory := fun o =>
-            if o = offsetNat then valueNat else runtime.world.memory o
-        }
-      }
+      let offsetKey := (Verity.Core.Uint256.ofNat offsetNat).val
+      set runtime' := { runtime with
+        world := runtime.world.writePhysicalMemoryValue
+          offsetKey (Verity.Core.Uint256.ofNat valueNat) }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.mstore offset value) = .continue runtime' := by
-        simp [SourceSemantics.execStmt, hOffsetSrc, hValueSrc, runtime']
-      -- IR execution: mstore updates IR-level memory
-      set state' := { state with
-          memory := fun o => if o = offsetNat then valueNat else state.memory o }
+        simp [SourceSemantics.execStmt, hOffsetSrc, hValueSrc, runtime',
+          offsetKey, Verity.Core.Uint256.val_ofNat, SourceSemantics.wordNormalize_eq_mod]
+      set state' := state.writePhysicalMemoryValue offsetKey valueNat
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) =
               .continue state' := by
-        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', offsetKey]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -2779,7 +2773,7 @@ private theorem compiledStmtStep_mstore_single_preserves
         rw [hValueSrc] at this; exact this
       have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
         show FunctionBody.runtimeStateMatchesIR fields _ _
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hValueLt
+        exact FunctionBody.runtimeStateMatchesIR_setBothPhysicalMemory hruntime offsetKey valueNat hValueLt
       exact ⟨_, _, hSrcExec, hIRExec,
         hruntime', hexact', hbounded', hscope'⟩
 
@@ -5825,7 +5819,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                 state4, state3, state2, state1] using hret
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
-                state4, state3, state2, state1] using hevents
+                state4, state3, state2, state1, Verity.ContractState.modifyTransientSlots] using hevents
           simpa [state', htrans] using hmatch
         · have htransFalse : SourceSemantics.fieldIsTransient fields fieldName = false := by
             cases h : SourceSemantics.fieldIsTransient fields fieldName <;> simp [h] at htrans ⊢
