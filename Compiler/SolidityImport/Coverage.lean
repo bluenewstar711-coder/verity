@@ -235,8 +235,10 @@ theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (offset value : Expr) :
     execStmt oracle fields state (.mstore offset value) =
       (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
-       | some address, some resolved => .continue { state with world := { state.world with
-           memory := fun o => if o = address then resolved else state.world.memory o } }
+       | some address, some resolved =>
+           .continue { state with world :=
+             (state.world.writePhysicalMemoryValue address
+               (Verity.Core.Uint256.ofNat resolved)) }
        | _, _ => .revert) := rfl
 
 theorem execStmt_tstore_arm (oracle : DenoteOracle) (fields : List Field)
