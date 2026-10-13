@@ -4,6 +4,7 @@ import Verity.Core.Int256
 import Verity.Core.Model.Constants
 import Verity.Core.Model.DynamicAbi
 import Verity.Core.Model.Types
+import Verity.Core.Model.PhysicalMemory
 
 
 /-!
@@ -1449,11 +1450,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
