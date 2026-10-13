@@ -92,6 +92,15 @@ theorem writePhysicalMemoryValue_at (world : Verity.ContractState) (offset : Nat
   unfold Verity.ContractState.writePhysicalMemoryValue
   rw [writePhysicalMemoryWord_at, wordValue_valueWord]
 
+theorem writePhysicalMemoryValue_byte_at (world : Verity.ContractState)
+    (offset : Nat) (value : Uint256) (index : Fin 32) :
+    (world.writePhysicalMemoryValue offset value).physicalByte (offset + index.val) =
+      (valueWord value) index := by
+  unfold Verity.ContractState.writePhysicalMemoryValue
+    Verity.ContractState.writePhysicalMemoryWord
+    Verity.ContractState.physicalByte
+  exact Memory.readByte_writeWord_at world.byteMemory offset (valueWord value) index
+
 theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
     (byte : Byte) :
     (world.writePhysicalMemoryByte offset byte).byteMemory.readByte offset = byte := by
