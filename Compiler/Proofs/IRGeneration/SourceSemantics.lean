@@ -2731,8 +2731,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -3119,8 +3118,7 @@ mutual
         match evalExpr fields state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | state, .stop => .stop state
     | state, .ite cond thenBranch elseBranch =>
@@ -4725,8 +4723,7 @@ mutual
         match evalExprWithHelpers spec fields fuel state value with
         | some resolved => .return resolved
             { state with
-                world := { state.world with
-                  memory := fun o => if o = 0 then resolved else state.world.memory o } }
+                world := state.world.writePhysicalMemoryValue 0 resolved }
         | none => .revert
     | .stop => .stop state
     | .ite cond thenBranch elseBranch =>
