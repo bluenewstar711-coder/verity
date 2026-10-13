@@ -5,6 +5,7 @@ import Compiler.CompilationModel.LayoutValidation
 import Compiler.Keccak.Sponge
 import Compiler.Proofs.IRGeneration.Returndata
 import Verity.Core.Model.Denote
+import Verity.Core.Model.PhysicalMemory
 import Verity.Core.Model.DynamicAbi
 
 set_option linter.unnecessarySimpa false
@@ -2665,11 +2666,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -3057,11 +3054,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | state, .tstore offset value =>
@@ -4666,11 +4659,7 @@ mutual
         | some resolvedOffset, some resolvedValue =>
             .continue {
               state with
-              world := {
-                state.world with
-                memory := fun o =>
-                  if o = resolvedOffset then resolvedValue else state.world.memory o
-              }
+              world := state.world.writePhysicalMemoryValue resolvedOffset resolvedValue
             }
         | _, _ => .revert
     | .tstore offset value =>
