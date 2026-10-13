@@ -110,6 +110,45 @@ theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
       (world.writePhysicalMemoryByte offset byte) offset = byte := by
   exact writePhysicalMemoryByte_at world offset byte
 
+/-- Byte insertion preserves every other byte, including overlapping word views. -/
+theorem physicalByte_writePhysicalMemoryByte_outside (world : Verity.ContractState)
+    (offset : Nat) (byte : Byte) (query : Nat) (outside : query ≠ offset) :
+    (world.writePhysicalMemoryByte offset byte).physicalByte query =
+      world.physicalByte query := by
+  exact Memory.readByte_writeByte_outside world.byteMemory offset byte query outside
+
+/-- Physical copy observation: the copied prefix is exact and all other bytes
+retain their initial values. This does not assume an aligned word-grid model. -/
+def PhysicalCopyPrefix (initial world : Verity.ContractState) (bytes : Nat → Byte)
+    (destination count : Nat) : Prop :=
+  ∀ query, world.physicalByte query =
+    if destination ≤ query ∧ query < destination + count then
+      bytes (query - destination) else initial.physicalByte query
+
+theorem physicalCopyPrefix_zero (initial : Verity.ContractState)
+    (bytes : Nat → Byte) (destination : Nat) :
+    PhysicalCopyPrefix initial initial bytes destination 0 := by
+  intro query
+  rw [if_neg (by omega)]
+
+/-- Extending a byte prefix needs no zero-initialization assumption: the
+physical write replaces exactly one byte and preserves the full outside frame. -/
+theorem physicalCopyPrefix_step (initial world : Verity.ContractState)
+    (bytes : Nat → Byte) (destination count : Nat)
+    (copied : PhysicalCopyPrefix initial world bytes destination count) :
+    PhysicalCopyPrefix initial
+      (world.writePhysicalMemoryByte (destination + count) (bytes count))
+      bytes destination (count + 1) := by
+  intro query
+  by_cases current : query = destination + count
+  · subst query
+    rw [physicalByte_writePhysicalMemoryByte, if_pos (by omega)]
+    simp
+  · rw [physicalByte_writePhysicalMemoryByte_outside _ _ _ _ current, copied]
+    have same : (destination ≤ query ∧ query < destination + count) ↔
+        (destination ≤ query ∧ query < destination + (count + 1)) := by omega
+    simp only [same]
+
 theorem writePhysicalMemoryValue_coherent (world : Verity.ContractState) (offset : Nat)
     (value : Uint256) : Coherent (world.writePhysicalMemoryValue offset value) :=
   writePhysicalMemoryWord_coherent _ _ _
