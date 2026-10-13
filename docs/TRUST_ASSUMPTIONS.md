@@ -1589,3 +1589,12 @@ trailing bytes of the final word on long writes, and zero out stale long-storage
 words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
 bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
+
+### Physical memory migration carrier
+
+`ContractState.byteMemory` and the pure operations in `PhysicalMemory` provide
+byte-addressed memory with exact overlapping-write and outside-byte frame proofs.
+Current executors still use the legacy `memory` field. The two fields are not
+automatically coherent: preservation of legacy word observations requires the
+explicit `PhysicalMemory.Coherent` predicate. These carrier proofs do not expand
+the importer support set or establish physical-memory execution equivalence.
