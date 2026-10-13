@@ -161,6 +161,13 @@ theorem writePhysicalMemoryWord_outside (world : Verity.ContractState) (offset :
   rw [Memory.readWord_writeWord_outside _ _ _ _ disjoint]
   exact (coherent query).symm
 
+theorem writePhysicalMemoryValue_aligned_cell
+    (world : Verity.ContractState) (offset query : Nat) (value : Uint256)
+    (coherent : Coherent world) (aligned : query % 32 = 0)
+    (different : query ≠ offset) (disjoint : query + 32 ≤ offset ∨ offset + 32 ≤ query) :
+    (world.writePhysicalMemoryValue offset value).memory query = world.memory query := by
+  exact writePhysicalMemoryWord_outside world offset (valueWord value) query coherent disjoint
+
 theorem writePhysicalMemoryByte_outside (world : Verity.ContractState) (offset : Nat)
     (byte : Byte) (query : Nat) (coherent : Coherent world)
     (disjoint : query + 32 ≤ offset ∨ offset + 1 ≤ query) :
