@@ -37,4 +37,29 @@ theorem execStmt_zeroStore_prefix (oracle : DenoteOracle) (fields : List Field)
   exact ⟨execStmt_zeroStore_physical oracle fields state offset _ evaluated bounded,
     physicalZeroPrefix_step initial state.world base count invariant⟩
 
+theorem physicalZeroPrefix_loop
+    (varName : String) (runBody : DenoteState → StmtOutcome)
+    (initial : Verity.ContractState) (base : Nat) (limit : Nat)
+    (step : ∀ index state, index < limit →
+      PhysicalZeroPrefix initial state.world base index →
+      LoopOutcomePost
+        (fun next => PhysicalZeroPrefix initial next.world base (index + 1)) (fun _ => False)
+        (runBody state))
+    (state : DenoteState)
+    (initialInvariant : PhysicalZeroPrefix initial state.world base 0) :
+    LoopOutcomePost
+      (fun next => PhysicalZeroPrefix initial next.world base (0 + limit)) (fun _ => False)
+      (execForEachLoop varName runBody state 0 limit) := by
+  have step' : ∀ (index : Nat) (before : DenoteState), index < limit →
+      PhysicalZeroPrefix initial before.world base index →
+      LoopOutcomePost (fun next => PhysicalZeroPrefix initial next.world base (index + 1))
+        (fun _ => False)
+        (runBody { before with bindings := bindValue before.bindings varName (wordNormalize index) }) := by
+    intro index before bounded invariant
+    exact step index { before with bindings := bindValue before.bindings varName (wordNormalize index) }
+      bounded invariant
+  simpa only [Nat.zero_add] using (execForEachLoop_bounded_invariant varName runBody limit
+    (fun index next => PhysicalZeroPrefix initial next.world base index)
+    (fun _ => False) step' limit 0 state (by omega) initialInvariant)
+
 end Compiler.CompilationModel.Denote
