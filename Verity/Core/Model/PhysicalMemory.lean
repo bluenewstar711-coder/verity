@@ -111,6 +111,45 @@ theorem writePhysicalMemoryValue_byte_outside (world : Verity.ContractState)
     Verity.ContractState.physicalByte
   exact Memory.readByte_writeWord_outside world.byteMemory offset (valueWord value) query outside
 
+def PhysicalZeroPrefix (initial world : Verity.ContractState)
+    (base count : Nat) : Prop :=
+  ∀ query, world.physicalByte query =
+    if base ≤ query ∧ query < base + 32 * count then
+      zeroByte else initial.physicalByte query
+
+theorem physicalZeroPrefix_step (initial world : Verity.ContractState)
+    (base count : Nat) (copied : PhysicalZeroPrefix initial world base count) :
+    PhysicalZeroPrefix initial
+      (world.writePhysicalMemoryValue (base + 32 * count) (Uint256.ofNat 0))
+      base (count + 1) := by
+  intro query
+  by_cases inside : base ≤ query ∧ query < base + 32 * count
+  · rw [writePhysicalMemoryValue_byte_outside world _ _ query (by omega), copied]
+    by_cases hnew : base ≤ query ∧ query < base + 32 * (count + 1)
+    · simp only [if_pos inside, if_pos hnew]
+    · omega
+  · by_cases current : base + 32 * count ≤ query ∧ query < base + 32 * (count + 1)
+    · have lower : query ≥ base + 32 * count := current.1
+      have upper : query < base + 32 * count + 32 := by omega
+      let index : Fin 32 := ⟨query - (base + 32 * count), by omega⟩
+      have hquery : query = base + 32 * count + index.val := by
+        dsimp [index]
+        omega
+      have written := writePhysicalMemoryValue_byte_at world
+        (base + 32 * count) (Uint256.ofNat 0) index
+      have cond : base ≤ query ∧ query < base + 32 * (count + 1) := by omega
+      rw [if_pos cond]
+      calc
+        (world.writePhysicalMemoryValue (base + 32 * count) (Uint256.ofNat 0)).physicalByte query =
+            (valueWord (Uint256.ofNat 0)) index := by simpa [hquery] using written
+        _ = zeroByte := by
+          apply Fin.ext
+          simp [valueWord, zeroByte]
+    · have outside : query < base + 32 * count ∨ base + 32 * count + 32 ≤ query := by omega
+      rw [writePhysicalMemoryValue_byte_outside world _ _ query outside, copied]
+      have hnew : ¬ (base ≤ query ∧ query < base + 32 * (count + 1)) := by omega
+      simp only [if_neg inside, if_neg hnew]
+
 theorem writePhysicalMemoryByte_at (world : Verity.ContractState) (offset : Nat)
     (byte : Byte) :
     (world.writePhysicalMemoryByte offset byte).byteMemory.readByte offset = byte := by
