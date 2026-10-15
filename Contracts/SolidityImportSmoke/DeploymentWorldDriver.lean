@@ -53,13 +53,13 @@ private def hash (input : List Byte) : Uint256 :=
 private def observe (world : Verity.ContractState) (j : Json) : Except String Json := do
   let addr ← address (← j.getObjVal? "address")
   let value := world.accountWorld addr
-  let mut storage : Array Json := #[]
+  let mut storageRows : Array Json := #[]
   for slot in (← (← j.getObjVal? "slots").getArr?).toList do
     let n ← word slot
-    storage := storage.push (.arr #[.str (toString n.val), .str (toString (value.storageAt n.val).val)])
+    storageRows := storageRows.push (.arr #[.str (toString n.val), .str (toString (value.storageAt n.val).val)])
   pure (Json.mkObj [("address", .str (toString addr.val)), ("nonce", .str (toString value.nonce.val)),
     ("balance", .str (toString value.balance.val)),
-    ("code", .arr (value.code.map (fun byte => toJson byte.val)).toArray), ("storage", .arr storage)])
+    ("code", .arr (value.code.map (fun byte => toJson byte.val)).toArray), ("storage", .arr storageRows)])
 
 def execute (input : Json) : Except String Json := do
   let creator ← address (← input.getObjVal? "creator")

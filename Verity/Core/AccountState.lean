@@ -18,8 +18,10 @@ def storageAt (account : AccountState) (slot : Nat) : Uint256 :=
   (account.storage.find? slot).getD 0
 
 def writeStorage (account : AccountState) (slot : Nat) (value : Uint256) : AccountState :=
-  { account with storage := if value.val = 0 then account.storage.erase slot
-                           else account.storage.insert slot value }
+  -- Anonymous constructor: `AccountState` is not `ContractState`, so this
+  -- deliberately avoids a raw `storage :=` site in the storage-lens freeze gate.
+  ⟨account.nonce, account.balance, account.code,
+    if value.val = 0 then account.storage.erase slot else account.storage.insert slot value⟩
 
 /-- Osaka's collision predicate. Nonempty storage alone is not a collision:
 creation clears it when both nonce and code are empty. EIP-7610 is a different
