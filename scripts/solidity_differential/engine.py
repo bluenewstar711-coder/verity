@@ -1,5 +1,6 @@
 """Batch A/B/C execution with explicit infrastructure failures and replay artifacts."""
 import hashlib
+import os
 import json
 from pathlib import Path
 import shutil
@@ -11,6 +12,12 @@ from .cases import canonical, generate, materialize
 ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = Path.cwd().resolve()
 SOLC = WORKSPACE / ".lake/solidity-import/solc-0.8.34"
+
+
+# Mutant campaigns recompile `Compiler.SolidityImport.Import` (and dependents) in a
+# private snapshot. That module alone takes ~5 minutes of single-threaded codegen,
+# so CI workers running campaigns in parallel need more than the old 600s budget.
+MUTANT_BUILD_TIMEOUT = int(os.environ.get("VERITY_MUTANT_BUILD_TIMEOUT", "1800"))
 
 
 class HarnessError(RuntimeError):

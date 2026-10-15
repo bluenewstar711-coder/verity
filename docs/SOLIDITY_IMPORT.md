@@ -236,6 +236,9 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   checks the golden model (`--update-golden` after review), hygiene,
   determinism, rejections with diagnostics, multi-root independence, and that
   source changes move the witness results and the digest.
+  `--shard I/N --jobs J` runs a deterministic share of the independent
+  campaigns with `J` parallel isolated snapshots; CI's `import-mutations` job
+  runs six shards from the prepared `build` workspace.
 
 CI runs fixed seeds on every PR (10 minutes) and longer input, program and
 mutant campaigns nightly and on demand (60 minutes), archiving the evidence.

@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from solidity_differential.mutations import release, snapshot
 
 MUTANTS = {
@@ -1206,7 +1206,7 @@ def mutation_campaign(output, selected=None):
                 raise HarnessError(f'{name}: nonunique mutation anchor')
             source.write_text(text.replace(before, after))
             command(['lake', 'build', 'Compiler.SolidityImport.Import', 'Compiler.SolidityImport.SequenceRunner'], cwd=directory,
-                    timeout=600, log=directory / 'build.log')
+                    timeout=MUTANT_BUILD_TIMEOUT, log=directory / 'build.log')
             if order_guard:
                 diagnostic, log_path = helper_order_control(directory, name, True)
                 reports.append({'mutant': name, 'status': 'detected', 'detected': True,

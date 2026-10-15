@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from solidity_differential.engine import HarnessError, command, write_json
+from solidity_differential.engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from solidity_differential.mutations import snapshot
 
 
@@ -50,7 +50,7 @@ def main():
             raise HarnessError(f'{name}: mutation anchor not unique')
         source.write_text(original.replace(anchor, replacement))
         command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
-                timeout=600, log=root / 'build.log')
+                timeout=MUTANT_BUILD_TIMEOUT, log=root / 'build.log')
         admitted = subprocess.run(['lake', 'env', 'lean', str(baseline / name / 'Check.lean')],
             cwd=directory, env=env, capture_output=True, text=True, timeout=180)
         (root / 'admitted.log').write_text(admitted.stdout + admitted.stderr)

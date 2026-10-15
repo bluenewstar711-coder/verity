@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
 IMPORT = 'Compiler/SolidityImport/Import.lean'
@@ -80,7 +80,7 @@ def main():
         source.write_text(original.replace(anchor, replacement))
         command(['lake', 'build', 'Compiler.SolidityImport.Import',
                  'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
-                cwd=directory, timeout=600, log=record / 'build.log')
+                cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'build.log')
         code, campaign = run('mutated')
         if not (campaign / 'campaign.json').is_file():
             raise HarnessError(f'{name}: tool failure is not detection')
@@ -97,7 +97,7 @@ def main():
         source.write_text(original)
         command(['lake', 'build', 'Compiler.SolidityImport.Import',
                  'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
-                cwd=directory, timeout=600, log=record / 'restore.log')
+                cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'restore.log')
         print(f'{name}: detected with positive control and reproduced minimal witness', flush=True)
     write_json(output / 'complete.json', {'exit': 0, 'results': results})
 
