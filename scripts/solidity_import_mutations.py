@@ -9,6 +9,7 @@ process must not leave an olean.
 """
 
 import argparse
+import os
 import shutil
 import json
 import re
@@ -679,6 +680,30 @@ def tasks(update_golden: bool) -> list:
     return items
 
 
+def auto_jobs() -> int:
+    """One worker per usable core, bounded by memory.
+
+    Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
+    peak) plus its campaign; budget 4 GiB per worker so hosts with less memory
+    than cores (or a cgroup cap) do not swap.
+    """
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    limits = []
+    try:
+        with open("/proc/meminfo") as meminfo:
+            limits += [int(line.split()[1]) * 1024 for line in meminfo if line.startswith("MemAvailable:")]
+    except OSError:
+        pass
+    try:
+        cap = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        if cap != "max":
+            limits.append(int(cap))
+    except (OSError, ValueError):
+        pass
+    by_memory = min(limits) // (4 << 30) if limits else cores
+    return max(1, min(cores, by_memory))
+
+
 def shard_of(items: list, index: int, count: int) -> list:
     """Deterministic longest-processing-time assignment of tasks to shards."""
     loads = [0] * count
@@ -695,20 +720,33 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update-golden", action="store_true")
     parser.add_argument("--shard", default="0/1", help="run shard I of N, written I/N")
-    parser.add_argument("--jobs", type=int, default=1, help="parallel isolated campaigns")
+    parser.add_argument("--jobs", default="1", help="parallel isolated campaigns, or 'auto' to size by cores and memory")
     parser.add_argument("--list", action="store_true", help="print the selected tasks and exit")
+    parser.add_argument("--task", action="append", help="run only the named task (repeatable)")
     args = parser.parse_args()
     index, count = (int(part) for part in args.shard.split("/"))
     if not 0 <= index < count:
         parser.error("--shard must be I/N with 0 <= I < N")
+    if args.jobs == "auto":
+        jobs = auto_jobs()
+    elif args.jobs.isdigit() and int(args.jobs) > 0:
+        jobs = int(args.jobs)
+    else:
+        parser.error("--jobs must be a positive integer or 'auto'")
     selected = shard_of(tasks(args.update_golden), index, count)
+    if args.task:
+        unknown = set(args.task) - {name for name, _, _ in tasks(args.update_golden)}
+        if unknown:
+            parser.error(f"unknown task: {', '.join(sorted(unknown))}")
+        selected = [item for item in selected if item[0] in args.task]
     if args.list:
         for name, _, _ in selected:
             print(name)
         return
+    print(f"import mutation shard {args.shard}: {len(selected)} tasks, {jobs} parallel", flush=True)
     setup()
     failures = []
-    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
         futures = {pool.submit(run): name for name, _, run in selected}
         for future in as_completed(futures):
             try:

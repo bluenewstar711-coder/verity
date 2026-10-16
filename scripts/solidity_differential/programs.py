@@ -1,4 +1,5 @@
 """Small typed source programs; solc/EVM supplies the expected behavior."""
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import json
 from pathlib import Path
@@ -107,11 +108,42 @@ def smaller_expressions(node):
         yield {"kind": "literal", "value": 0}
 
 
-def generated_campaign(output, count, cases, seed):
+def generated_program(output, count, cases, seed, i, tree, bits):
+    """Run the three equivalent forms of program i; stop at its first divergence."""
+    reports = []
+    reference = None
+    for variant in (0, 1, 2):
+        spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
+        if count <= i < 2 * count:
+            spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
+        elif i >= 2 * count:
+            kind = (i - 2 * count) % 3
+            spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
+            spec["error_arguments"] = kind != 0
+        directory = output / f"program-{i}-{variant}"
+        fixture = write_program(directory, spec)
+        report = campaign(fixture, directory / "run", cases, seed + i)
+        reports.append({"program": i, "variant": variant, **{k: v for k, v in report.items() if k != "divergences"}})
+        if report["divergences"]:
+            return reports, report["divergences"]
+        # Renaming + helper extraction must preserve the observed behavior.
+        rows = (directory / "run/out/source.txt").read_text()
+        if reference is not None and reference != rows:
+            divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
+                          "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
+                                   in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
+            write_json(output / "metamorphic-divergence.json", divergence)
+            return reports, [divergence]
+        reference, reference_dir = rows, directory
+    return reports, []
+
+
+def generated_campaign(output, count, cases, seed, jobs=1):
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
-    reports = []
+    # Draw every program first so the generated corpus does not depend on --jobs.
+    programs = []
     # Preserve every original arithmetic program, then add guarded programs.
     # Each guarded program retains all three equivalent extraction/name forms.
     for i in range(3 * count):
@@ -120,31 +152,22 @@ def generated_campaign(output, count, cases, seed):
         # First five explicitly exercise each checked width, especially uint248.
         if i < 5:
             tree = {"kind": "binary", "op": "*", "left": {"kind": "x"}, "right": {"kind": "y"}}
-        reference = None
-        for variant in (0, 1, 2):
-            spec = {"bits": bits, "expression": tree, "renamed": variant == 1, "helper": variant != 0, "projection_collision": variant == 2}
-            if count <= i < 2 * count:
-                spec["require_message"] = ["", "échec", "x" * 33][(i - count) % 3]
-            elif i >= 2 * count:
-                kind = (i - 2 * count) % 3
-                spec["require_error"] = ["EmptyFailure", "Failure", "AnErrorWhoseSignatureCrossesAThirtyTwoByteWordBoundary"][kind]
-                spec["error_arguments"] = kind != 0
-            directory = output / f"program-{i}-{variant}"
-            fixture = write_program(directory, spec)
-            report = campaign(fixture, directory / "run", cases, seed + i)
-            reports.append({"program": i, "variant": variant, **{k: v for k, v in report.items() if k != "divergences"}})
-            write_json(output / "program-results.json", reports)
-            if report["divergences"]:
-                return {"programs": len(reports), "divergences": report["divergences"]}
-            # Renaming + helper extraction must preserve the observed behavior.
-            rows = (directory / "run/out/source.txt").read_text()
-            if reference is not None and reference != rows:
-                divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
-                              "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
-                                       in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
-                write_json(output / "metamorphic-divergence.json", divergence)
-                return {"programs": len(reports), "divergences": [divergence]}
-            reference, reference_dir = rows, directory
+        programs.append((i, tree, bits))
+    # Programs are independent; each one's metamorphic variants stay sequential.
+    reports = []
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = [pool.submit(generated_program, output, count, cases, seed, i, tree, bits)
+                   for i, tree, bits in programs]
+        try:
+            for future in futures:
+                program_reports, divergences = future.result()
+                reports.extend(program_reports)
+                write_json(output / "program-results.json", reports)
+                if divergences:
+                    return {"programs": len(reports), "divergences": divergences}
+        finally:
+            for future in futures:
+                future.cancel()
     return {"programs": len(reports), "cases": sum(r["cases"] for r in reports), "divergences": []}
 
 

@@ -213,7 +213,7 @@ compilation and tool failures are harness errors, never reverts.
 ```sh
 scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json \
   --output .lake/d/smoke --seed 2438 --cases 128        # inputs
-scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 \
+scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 \
   --output .lake/d/programs                             # generated programs
 scripts/check_solidity_differential.sh --mutations --output .lake/d/mutants
 scripts/check_solidity_differential.sh --replay --output .lake/d/smoke
@@ -237,8 +237,9 @@ scripts/check_solidity_differential.sh --reduce --reduce-seconds 120 --output .l
   determinism, rejections with diagnostics, multi-root independence, and that
   source changes move the witness results and the digest.
   `--shard I/N --jobs J` runs a deterministic share of the independent
-  campaigns with `J` parallel isolated snapshots; CI's `import-mutations` job
-  runs six shards from the prepared `build` workspace.
+  campaigns with `J` parallel isolated snapshots (`--jobs auto` sizes `J` by
+  cores and available memory; `--task NAME` selects single campaigns); CI's
+  `import-mutations` job runs six shards from the prepared `build` workspace.
 
 CI runs fixed seeds on every PR (10 minutes) and longer input, program and
 mutant campaigns nightly and on demand (60 minutes), archiving the evidence.

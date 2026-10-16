@@ -55,9 +55,9 @@ MUTANTS = {'import-market-root-offset': ('Compiler/SolidityImport/AbiLowering.le
  'import-market-root-scalar-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                           'if bound < 2^256 then body := body ++ [guard (.lt value (.literal '
                                           'bound))]\n'
-                                          '      body := body ++ [.mstore destination value]',
+                                          '        body := body ++ [.mstore destination value]',
                                           'if bound < 2^256 then body := body ++ [guard (.literal 1)]\n'
-                                          '      body := body ++ [.mstore destination value]'),
+                                          '        body := body ++ [.mstore destination value]'),
  'import-market-memory-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                       'if inMemory then ([], .mload (.add (.localVar plan.memoryPointer) '
                                       '(.literal (32*index))))',

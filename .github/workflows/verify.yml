@@ -560,7 +560,10 @@ jobs:
 
   import-mutations:
     # Each shard restores the prepared workspace and runs its share of the
-    # isolated importer/Denote mutation campaigns with parallel workers.
+    # isolated importer/Denote mutation campaigns with parallel workers. A
+    # campaign is dominated by a single-threaded rebuild of
+    # Compiler.SolidityImport.Import (~2.7 GiB peak), so `--jobs auto` runs one
+    # worker per core, capped by available memory (build-medium hosts differ).
     runs-on: [self-hosted, linux, x64, verity, build, build-medium]
     timeout-minutes: 150
     needs: [changes, checks, build]
@@ -572,7 +575,7 @@ jobs:
     env:
       LEAN_NUM_THREADS: 2
       IMPORT_MUTATION_SHARDS: 6
-      IMPORT_MUTATION_JOBS: 4
+      IMPORT_MUTATION_JOBS: auto
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1334,7 +1337,9 @@ jobs:
         run: |
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential.json --output .lake/import-differential/smoke --cases 128 --seed 2438
           scripts/check_solidity_differential.sh --config Contracts/SolidityImportSmoke/differential-loss.json --output .lake/import-differential/loss --cases 64 --seed 2438
-          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --output .lake/import-differential/programs
+          # Generated programs are independent campaigns of ~16s each (two `lean --run`
+          # passes over the importer); run them 4-wide to stay inside the step budget.
+          scripts/check_solidity_differential.sh --programs 5 --cases 16 --seed 2438 --jobs 4 --output .lake/import-differential/programs
 
       - name: Stateful Solidity instrument checks
         timeout-minutes: 45

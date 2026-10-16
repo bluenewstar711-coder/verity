@@ -11,8 +11,8 @@ MUTANTS = {'import-scalar-array-source-stride': ('Compiler/SolidityImport/AbiLow
 
 MUTANTS.update({
     'import-abi-array-length-calldata': ('Compiler/SolidityImport/Import.lean',
-        'return .expr { pre := pre ++ checks.toArray, expr := .localVar length }',
-        'return .expr { pre := pre ++ checks.toArray, expr := .add (.localVar length) (.literal 1) }'),
+        'elementWords header length data\n              return .expr { pre := pre ++ checks.toArray, expr := .localVar length }',
+        'elementWords header length data\n              return .expr { pre := pre ++ checks.toArray, expr := .add (.localVar length) (.literal 1) }'),
     'import-abi-array-length-memory': ('Compiler/SolidityImport/Import.lean',
         'return .expr { pre, expr := .mload array }',
         'return .expr { pre, expr := array }'),
