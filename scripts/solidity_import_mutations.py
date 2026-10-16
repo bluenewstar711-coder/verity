@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -24,6 +25,8 @@ SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
 SMOKE = ROOT / "Contracts/SolidityImportSmoke"
 GOLDEN = SMOKE / "model.golden"
+# Provisioned by `setup()`; campaign modules import eth_hash/eth_abi from it.
+VENV_PYTHON = ROOT / ".lake/slice-testing-venv/bin/python"
 
 HEADER = """
 import Compiler.SolidityImport.Import
@@ -312,7 +315,7 @@ def setup() -> None:
 
 
 def prefix_checks(update_golden: bool) -> None:
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
                    cwd=ROOT, check=True)
     snapshot = WORK / "model.txt"
     snapshot.unlink(missing_ok=True)
@@ -549,8 +552,10 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
 GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard')
 
 # Each isolated campaign recompiles `Compiler.SolidityImport.Import` in a private
-# snapshot; under parallel workers that build alone can take several minutes.
-MUTANT_TIMEOUT = 2400
+# snapshot. With one worker per core that build alone takes ~14 minutes, on top of
+# the baseline and mutated campaign runs, so 40 minutes was too tight. The nested
+# harness steps keep their own timeouts; this one only bounds a whole task.
+MUTANT_TIMEOUT = 3600
 
 
 def run_differential_mutant(mutant: str) -> list:
@@ -581,7 +586,7 @@ def module_campaign(module: str, label: str, timeout: int, *extra: str) -> dict:
     output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
     launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
                 f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output), *extra],
+    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
                    cwd=ROOT, check=True, timeout=timeout)
     return json.loads((output / "complete.json").read_text())
 
@@ -617,16 +622,21 @@ def quote_integrity_check() -> None:
 
 
 def environment_rejections() -> None:
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
                    cwd=ROOT, check=True, timeout=900)
     print("pass environment rejection campaign", flush=True)
 
 
-def storage_rejections() -> None:
-    # ~420 located rejections, one `lean` elaboration each (~20 min serially).
-    subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
+# ~420 located rejections, one `lean` elaboration each (~20 min serially on an
+# idle host): split into parts so shards can spread them.
+STORAGE_REJECTION_PARTS = 4
+
+
+def storage_rejections(part: int) -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_storage_rejections.py"),
+                    "--part", f"{part}/{STORAGE_REJECTION_PARTS}"],
                    cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
-    print("pass storage rejection campaign", flush=True)
+    print(f"pass storage rejection campaign part {part}/{STORAGE_REJECTION_PARTS}", flush=True)
 
 
 def abi_rejections() -> None:
@@ -639,7 +649,7 @@ def module_campaign_output(module: str, label: str, timeout: int) -> Path:
     output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
     launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
                 f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
-    subprocess.run([sys.executable, "-c", launcher, "--output", str(output)],
+    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output)],
                    cwd=ROOT, check=True, timeout=timeout)
     return output
 
@@ -679,17 +689,22 @@ def reference_location_mutation() -> None:
 
 
 def tasks(update_golden: bool) -> list:
-    """Independent work items, most expensive first (each runs in its own snapshot)."""
-    items = [("prefix-checks", 6, lambda: prefix_checks(update_golden)),
-             ("storage-rejections", 3, storage_rejections),
-             ("quote-integrity", 1, quote_integrity_check),
+    """Independent work items, most expensive first (each runs in its own snapshot).
+
+    Weights count importer rebuilds (~14 minutes each under full parallel load),
+    the unit of cost; campaigns without a rebuild are weighted by their runtime.
+    """
+    items = [("prefix-checks", 2, lambda: prefix_checks(update_golden)),
+             ("reference-boundary", 2, reference_boundary_mutations)]
+    items += [(f"storage-rejections-{part}", 1, (lambda part=part: storage_rejections(part)))
+              for part in range(STORAGE_REJECTION_PARTS)]
+    items += [("quote-integrity", 1, quote_integrity_check),
              ("environment-rejections", 1, environment_rejections),
              ("abi-rejections", 1, abi_rejections),
-             ("reference-boundary", 2, reference_boundary_mutations),
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
              ("reference-location", 1, reference_location_mutation)]
-    items += [(m, 2, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
+    items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
     return items
@@ -761,8 +776,17 @@ def main() -> None:
     print(f"import mutation shard {args.shard}: {len(selected)} tasks, {jobs} parallel", flush=True)
     setup()
     failures = []
+
+    def timed(name, run):
+        # Durations feed the shard weights in `tasks()`.
+        start = time.monotonic()
+        try:
+            run()
+        finally:
+            print(f"task {name}: {time.monotonic() - start:.0f}s", flush=True)
+
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = {pool.submit(run): name for name, _, run in selected}
+        futures = {pool.submit(timed, name, run): name for name, _, run in selected}
         for future in as_completed(futures):
             try:
                 future.result()

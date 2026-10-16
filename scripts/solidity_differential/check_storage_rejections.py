@@ -9,7 +9,13 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--only', default=None)
+    parser.add_argument('--part', default='0/1', help='check only cases I, I+N, I+2N, ... written I/N')
     args = parser.parse_args()
+    part, parts = (int(n) for n in args.part.split('/'))
+    if not 0 <= part < parts:
+        parser.error('--part must be I/N with 0 <= I < N')
+    # One index across both case lists, so parts partition every case.
+    ordinal = iter(range(10**9))
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
@@ -215,6 +221,8 @@ def main():
         ('named-return', 'uint256 value;', 'value = x;', 'uint256 result', None),
     ]
     for name, fields, body, returns, expected in cases:
+        if next(ordinal) % parts != part:
+            continue
         if args.only and args.only not in name:
             continue
         directory = output / name
@@ -1350,6 +1358,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          'YulFunctionCall: [solidity-import:unsupported] unsupported Yul builtin mload'),
     ]
     for name, source_text, dep_text, profile_text, expected in solc_0810_cases:
+        if next(ordinal) % parts != part:
+            continue
         if args.only and args.only not in name:
             continue
         directory = output / name

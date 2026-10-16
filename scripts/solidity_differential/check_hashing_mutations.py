@@ -54,7 +54,8 @@ def main():
     snapshot(directory)
     env = dict(os.environ, PYTHONPATH=str(directory / 'scripts'))
     results = []
-    for name in args.mutant or list(MUTANTS):
+    selected = args.mutant or list(MUTANTS)
+    for position, name in enumerate(selected):
         filename, anchor, replacement, indices = MUTANTS[name]
         source = directory / filename
         original = source.read_text()
@@ -95,9 +96,11 @@ def main():
         write_json(record / 'complete.json', results[-1])
         write_json(output / 'results.json', results)
         source.write_text(original)
-        command(['lake', 'build', 'Compiler.SolidityImport.Import',
-                 'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
-                cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'restore.log')
+        # Only a later mutant in this snapshot needs the unmutated build back.
+        if position + 1 < len(selected):
+            command(['lake', 'build', 'Compiler.SolidityImport.Import',
+                     'Compiler.SolidityImport.SequenceRunner', 'Compiler.SolidityImport.Differential'],
+                    cwd=directory, timeout=MUTANT_BUILD_TIMEOUT, log=record / 'restore.log')
         print(f'{name}: detected with positive control and reproduced minimal witness', flush=True)
     write_json(output / 'complete.json', {'exit': 0, 'results': results})
 

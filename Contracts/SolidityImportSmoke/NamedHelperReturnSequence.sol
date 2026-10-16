@@ -51,6 +51,9 @@ contract SequenceFixture {
             assembly { result := xor(input, mul(input, lt(input, input))) }
         } else {
             result = input + 4;
+            // An explicit return beside the assembly branch makes the importer
+            // decide per branch whether the continuation still runs.
+            if (input == 71) return result;
         }
         require(input != 70, "named branch continuation");
         result = result + 5;

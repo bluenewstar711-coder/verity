@@ -35,7 +35,7 @@ def main():
     anchor = 'e.mems.insert pid descriptor'
     if text.count(anchor) != 1:
         raise HarnessError('reference mutation anchor not unique')
-    source.write_text(text.replace(anchor, 'e.mems.insert pid ((saved.mems.toList.head?.map Prod.snd).getD descriptor)'))
+    source.write_text(text.replace(anchor, 'e.mems.insert pid ((e.mems.toList.head?.map Prod.snd).getD descriptor)'))
     command(['lake', 'build', 'Compiler.SolidityImport.Import'], cwd=directory,
             timeout=MUTANT_BUILD_TIMEOUT, log=output / 'build.log')
     code, campaign = run('mutated')

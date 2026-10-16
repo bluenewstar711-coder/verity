@@ -16,7 +16,7 @@ def main():
     parser.add_argument("--cases", type=int, default=128, help="generated cases in addition to the fixed corpus")
     parser.add_argument("--replay", action="store_true", help="replay materialized cases in --output")
     parser.add_argument("--programs", type=int, default=0, help="generate this many source programs, each with a renamed/helper variant")
-    parser.add_argument("--jobs", type=int, default=1, help="parallel generated-program campaigns")
+    parser.add_argument("--jobs", type=int, default=1, help="parallel generated-program campaigns or stateful checks")
     parser.add_argument("--reduce", action="store_true", help="reduce the first recorded divergence")
     parser.add_argument("--reduce-seconds", type=int, default=120)
     parser.add_argument("--mutations", action="store_true", help="test importer and Denote mutants in isolated snapshots")
@@ -32,7 +32,7 @@ def main():
     try:
         if args.stateful:
             from solidity_differential.suite import stateful_campaign
-            report = stateful_campaign(args.output, args.cases, args.seed)
+            report = stateful_campaign(args.output, args.cases, args.seed, args.jobs)
         elif args.mutations:
             from solidity_differential.mutations import mutation_campaign
             report = mutation_campaign(args.output, args.mutant)

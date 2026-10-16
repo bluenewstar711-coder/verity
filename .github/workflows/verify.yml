@@ -1344,7 +1344,8 @@ jobs:
       - name: Stateful Solidity instrument checks
         timeout-minutes: 45
         run: |
-          scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --output .lake/import-differential/stateful
+          # 46 independent checks, ~90 minutes back to back; run them 6-wide.
+          scripts/check_solidity_differential.sh --stateful --cases 64 --seed 2449 --jobs 6 --output .lake/import-differential/stateful
 
       - name: Extended Solidity slice campaigns
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
