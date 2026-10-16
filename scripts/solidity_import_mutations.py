@@ -605,7 +605,7 @@ def hashing_mutant(mutant: str) -> None:
     print(f"pass ABI hashing mutation {mutant}", flush=True)
 
 
-def quote_and_rejection_checks() -> None:
+def quote_integrity_check() -> None:
     # Quotation corruption is rejected before an executable model exists.
     quote_results = run_differential_mutant("import-modulo-quote")
     if (len(quote_results) != 1 or quote_results[0]["mutant"] != "import-modulo-quote"
@@ -614,13 +614,25 @@ def quote_and_rejection_checks() -> None:
             or quote_results[0]["diagnostic"] != "internal: the elaborated model differs from the imported value"):
         raise SystemExit("modulo quotation corruption escaped the exact integrity check")
     print("pass import-modulo-quote integrity rejection", flush=True)
+
+
+def environment_rejections() -> None:
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
                    cwd=ROOT, check=True, timeout=900)
+    print("pass environment rejection campaign", flush=True)
+
+
+def storage_rejections() -> None:
+    # ~420 located rejections, one `lean` elaboration each (~20 min serially).
     subprocess.run([sys.executable, str(ROOT / "scripts/solidity_differential/check_storage_rejections.py")],
-                   cwd=ROOT, check=True, timeout=900)
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print("pass storage rejection campaign", flush=True)
+
+
+def abi_rejections() -> None:
     module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
     module_campaign_output("check_market_abi_rejections", "market-rejections", 900)
-    print("pass located rejection campaigns", flush=True)
+    print("pass ABI rejection campaigns", flush=True)
 
 
 def module_campaign_output(module: str, label: str, timeout: int) -> Path:
@@ -669,7 +681,10 @@ def reference_location_mutation() -> None:
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot)."""
     items = [("prefix-checks", 6, lambda: prefix_checks(update_golden)),
-             ("quote-and-rejection-checks", 3, quote_and_rejection_checks),
+             ("storage-rejections", 3, storage_rejections),
+             ("quote-integrity", 1, quote_integrity_check),
+             ("environment-rejections", 1, environment_rejections),
+             ("abi-rejections", 1, abi_rejections),
              ("reference-boundary", 2, reference_boundary_mutations),
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
