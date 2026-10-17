@@ -20,6 +20,11 @@ import Compiler.SolidityImport.Coverage
 import Compiler.SolidityImport.AbiEncoding
 import Compiler.SolidityImport.AbiByteLanes
 import Compiler.SolidityImport.AbiMemory
+import Contracts.SolidityImportSmoke.PhysicalMemoryFrameChecks
+import Compiler.SolidityImport.AbiPhysicalMemory
+import Compiler.SolidityImport.AbiPhysicalCopy
+import Compiler.SolidityImport.AbiMemoryGrid
+import Verity.Core.Model.ByteMemoryInverse
 import Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks
 import Contracts.SolidityImportSmoke.AbiLoweringChecks
 import Contracts.SolidityImportSmoke.AbiCoverageChecks
@@ -530,12 +535,6 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.execStmt_mstore_memory_frame
   Compiler.CompilationModel.Denote.execStmt_mstore_byte_frame
   Compiler.CompilationModel.Denote.fresh_allocation_byte_frame
-  Compiler.CompilationModel.Denote.abiInsertByte_word
-  Compiler.CompilationModel.Denote.abiInsertByte_read
-  Compiler.CompilationModel.Denote.abiInsertByte_frame
-  Compiler.CompilationModel.Denote.abiCopyPrefix_zero
-  Compiler.CompilationModel.Denote.abiCopyPrefix_step
-  Compiler.CompilationModel.Denote.abiCopyBytes_correct
   Compiler.CompilationModel.Denote.execStmt_mstore_abiInsertByte
   Compiler.CompilationModel.Denote.execStmt_mstore_abiCopyPrefix
   Compiler.CompilationModel.Denote.evalExpr_byteWordOffset
@@ -557,6 +556,7 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.abiCopyPrefix_source
   Compiler.CompilationModel.Denote.abiCopyPrefix_live_step
   Compiler.CompilationModel.Denote.abiCopyInputs_bind
+  Compiler.CompilationModel.Denote.abiCopyLoopInvariant_initial_bind
   Compiler.CompilationModel.Denote.abiCopyLoopInvariant_bind
   Compiler.CompilationModel.Denote.abiCopyInputs_afterStore
   Compiler.CompilationModel.Denote.abiCopyLoopInvariant_step
@@ -580,6 +580,59 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.execStmtList_packedBuffer
   Compiler.CompilationModel.Denote.abiReserve_wrapBelow
   Compiler.CompilationModel.Denote.execStmtList_reserve_wrapped
+
+  -- Contracts/SolidityImportSmoke/PhysicalMemoryFrameChecks.lean
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.overlapping_window_changes
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.outside_byte_preserved
+
+  -- Compiler/SolidityImport/AbiPhysicalMemory.lean
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical_frame
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical_byte_frame
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_zero
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_prefix
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_byte
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_frame
+  Compiler.CompilationModel.Denote.execStmt_zeroWord_physical
+  -- Compiler.CompilationModel.Denote.evalPhysicalAddBounded  -- private
+  -- Compiler.CompilationModel.Denote.evalPhysicalWordStride  -- private
+  Compiler.CompilationModel.Denote.execStmt_zeroWordBody_physical
+  Compiler.CompilationModel.Denote.execForEachLoop_clear_physical
+  Compiler.CompilationModel.Denote.execStmt_clearWords_physical
+  Compiler.CompilationModel.Denote.abiPhysicalRoundedSize_bounds
+  -- Compiler.CompilationModel.Denote.evalPhysicalRoundedCount  -- private
+  -- Compiler.CompilationModel.Denote.evalPhysicalRoundedSize  -- private
+  Compiler.CompilationModel.Denote.execStmtList_reserve_physical
+  Compiler.CompilationModel.Denote.execStmtList_packedBuffer_physical
+  Compiler.CompilationModel.Denote.execStmtList_reserve_oversized_physical
+  Compiler.CompilationModel.Denote.abiPhysicalReserve_wrapBelow
+  Compiler.CompilationModel.Denote.execStmtList_reserve_wrapped_physical
+  Compiler.CompilationModel.Denote.execStmt_clearPackedBytes_physical
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_coherent
+  Compiler.CompilationModel.Denote.execStmtList_packedBuffer_coherent
+
+  -- Compiler/SolidityImport/AbiPhysicalCopy.lean
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_grid
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_byte_grid
+  Compiler.CompilationModel.Denote.abiMemoryByte_physical
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_physical_byte
+  Compiler.CompilationModel.Denote.execStmt_mstore_abiInsertByte_physical
+
+  -- Compiler/SolidityImport/AbiMemoryGrid.lean
+  Compiler.CompilationModel.Denote.abiInsertByte_word
+  Compiler.CompilationModel.Denote.abiInsertByte_read
+  Compiler.CompilationModel.Denote.abiInsertByte_frame
+  Compiler.CompilationModel.Denote.abiCopyPrefix_zero
+  Compiler.CompilationModel.Denote.abiCopyPrefix_step
+  Compiler.CompilationModel.Denote.abiCopyBytes_correct
+
+  -- Verity/Core/Model/ByteMemoryInverse.lean
+  Compiler.CompilationModel.DenoteMemory.byteDigitsValue_succ
+  Compiler.CompilationModel.DenoteMemory.byteDigitsValue_bound
+  Compiler.CompilationModel.DenoteMemory.boundedDigits_of_byteDigitsValue
+  Compiler.CompilationModel.DenoteMemory.valueWord_wordValue
+  Compiler.CompilationModel.DenoteMemory.physicalByte_word_grid
+  Compiler.CompilationModel.DenoteMemory.physicalByte_word_grid_value
 
   -- Contracts/SolidityImportSmoke/SolidityAbiPrimitiveChecks.lean
   Compiler.CompilationModel.SolidityImport.SolidityAbi.prefix_load
@@ -7976,4 +8029,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7333 theorems/lemmas (5282 public, 2051 private, 0 sorry'd)
+-- Total: 7371 theorems/lemmas (5316 public, 2055 private, 0 sorry'd)

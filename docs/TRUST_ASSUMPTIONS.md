@@ -1594,9 +1594,14 @@ storage-pointer locals remain rejected with located diagnostics.
 
 `ContractState.byteMemory` and the pure operations in `PhysicalMemory` provide
 byte-addressed memory with exact overlapping-write and outside-byte frame proofs.
-Current executors still use the legacy `memory` field. The two fields are not
-automatically coherent: preservation of legacy word observations requires the
-explicit `PhysicalMemory.Coherent` predicate. These carrier proofs do not expand
+Canonical memory stores now update physical bytes and recompute the complete
+legacy `memory` observation. Arbitrary supplied initial fields are not
+automatically coherent: preservation of pre-existing word observations requires
+the explicit `PhysicalMemory.Coherent` predicate. The `DenoteMemory` store
+soundness law states the actual physical update; its historical isolated-word
+helper is not asserted to model overlapping writes. Basic byte-memory laws are
+shared from `Verity.Core.ByteMemory`. Legacy word-valued external calls clear
+the raw byte-return buffer, as recorded by their complete-state success law. These carrier proofs do not expand
 the importer support set or establish physical-memory execution equivalence.
 
 # Byte-exact external-call boundary prototype
@@ -1717,6 +1722,21 @@ rollback. The source/IR status observations erase payloads; their equations do
 not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
 broader proof consumers still require migration and full exact-head validation
 before release; the unchanged golden and boundary tests are not that gate.
+
+
+### ABI memory proof integration
+
+The ABI reserve, clearing and byte-insertion proofs use the canonical physical
+memory update. Disjoint word observations require nonoverlapping 32-byte
+windows and a coherent input world; different starting addresses alone do not
+establish a frame. Whole-world postconditions retain overlapping word windows,
+allocation-word writes and zero-length copy behavior. The former aligned-grid
+algebra is retained in `AbiMemoryGrid` and connected to physical byte reads by
+`ByteMemoryInverse` and `AbiPhysicalCopy`; it is never substituted for actual
+execution. `AbiPhysicalMemory` supplies bounded loop and allocation composition.
+These modules are explicitly enrolled in the generated axiom inventory. This
+proof integration adds no importer admission, Solidity approximation, oracle,
+project axiom, or EVM resource-equivalence claim.
 
 ### Imported typed-interface `uint256` staticcall
 
