@@ -2771,7 +2771,7 @@ mutual
               (fun loopState => execStmtListWithEvents fields events loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -3158,7 +3158,7 @@ mutual
               (fun loopState => execStmtList fields loopState body)
               256 state bits
         | none => .revert
-    | _, .revertReturndata => .revert
+    | _, .revertEmpty | _, .revertReturndata => .revert
     | state, .externalCallBind resultVars _externalName args =>
         match evalExprList fields state args with
         | some _ =>
@@ -4795,7 +4795,7 @@ mutual
               (fun loopState => execStmtListWithHelpers spec fields fuel loopState body)
               256 state bits
         | none => .revert
-    | .revertReturndata => .revert
+    | .revertEmpty | .revertReturndata => .revert
     | .externalCallBind resultVars _externalName args =>
         match evalExprListWithHelpers spec fields fuel state args with
         | some _ =>
@@ -6510,7 +6510,7 @@ private theorem execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux
   | .returndataCopy destOffset sourceOffset size =>
       exact execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_returndataCopy
         spec fields fuel state destOffset sourceOffset size hsurface
-  | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
+  | .revertEmpty | .revertReturndata => simp [execStmtWithHelpers, execStmtWithEvents]
   | .emit _ args =>
       simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
       have hall : args.all (fun expr => exprTouchesUnsupportedHelperSurface expr == false) = true := by

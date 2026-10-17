@@ -97,7 +97,7 @@ mutual
     | .ite condition yes no =>
         exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
     | .panicCode code => exprCovered code
-    | .revertReturndata | .stop => true
+    | .revertEmpty | .revertReturndata | .stop => true
     | .emit _ args => exprListCovered args
     | .setStorage _ value => exprCovered value
     | .setStructMember _ key _ value => exprCovered key && exprCovered value
@@ -117,7 +117,7 @@ mutual
     | .tstore offset value => exprCovered offset && exprCovered value
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
-    | .revertReturndata => true
+    | .revertEmpty | .revertReturndata => true
     | .emit _ args => exprListCovered args
     | .stop => true
     | .returnBytes _ => true
@@ -266,9 +266,14 @@ theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
            { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
        | none => .revert) := rfl
 
+theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .revertEmpty = .revertWithData [] := rfl
+
 theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
-    execStmt oracle fields state .revertReturndata = .revertWithData (state.world.returndata.flatMap wordBytes) := rfl
+    execStmt oracle fields state .revertReturndata = .revertWithData
+      (state.rawReturndata.getD (state.world.returndata.flatMap wordBytes)) := rfl
 
 theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
