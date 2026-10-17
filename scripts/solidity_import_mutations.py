@@ -531,21 +531,21 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    'import-scalar-array-validation',
                    'import-scalar-array-length',
                    'import-abi-length-for-capture', 'import-abi-length-for-zero', 'import-abi-array-length-calldata', 'import-abi-array-length-memory',
-                   'import-market-root-offset',
-                   'import-market-root-size',
-                   'import-market-calldata-array-size',
-                   'import-market-memory-panic',
-                   'import-market-struct-source-stride',
-                   'import-market-struct-pointer-stride',
-                   'import-market-struct-validation',
-                   'import-market-calldata-element-stride',
-                   'import-market-memory-element-stride',
-                   'import-market-member-validation',
-                   'import-market-root-scalar-validation',
-                   'import-market-memory-scalar-read',
-                   'import-market-calldata-scalar-read',
-                   'import-market-calldata-root-validation',
-                   'import-market-calldata-index-bounds',
+                   'import-nested-dynamic-struct-root-offset',
+                   'import-nested-dynamic-struct-root-size',
+                   'import-nested-dynamic-struct-calldata-array-size',
+                   'import-nested-dynamic-struct-memory-panic',
+                   'import-nested-dynamic-struct-struct-source-stride',
+                   'import-nested-dynamic-struct-struct-pointer-stride',
+                   'import-nested-dynamic-struct-struct-validation',
+                   'import-nested-dynamic-struct-calldata-element-stride',
+                   'import-nested-dynamic-struct-memory-element-stride',
+                   'import-nested-dynamic-struct-member-validation',
+                   'import-nested-dynamic-struct-root-scalar-validation',
+                   'import-nested-dynamic-struct-memory-scalar-read',
+                   'import-nested-dynamic-struct-calldata-scalar-read',
+                   'import-nested-dynamic-struct-calldata-root-validation',
+                   'import-nested-dynamic-struct-calldata-index-bounds',
                    'import-dynamic-root-parameter-offset')
 
 # Removing an order guard must change a located rejection to admission.
@@ -637,7 +637,8 @@ def storage_rejections(part: int) -> None:
 
 def abi_rejections() -> None:
     module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
-    module_campaign_output("check_market_abi_rejections", "market-rejections", 900)
+    module_campaign_output("check_nested_dynamic_struct_abi_rejections",
+                           "nested-dynamic-struct-rejections", 900)
     print("pass ABI rejection campaigns", flush=True)
 
 

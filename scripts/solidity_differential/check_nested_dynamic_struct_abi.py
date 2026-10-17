@@ -1,46 +1,44 @@
-"""Compare complete full-Market ABI decoding across A/B/C."""
+"""Compare complete nested dynamic struct ABI decoding across A/B/C."""
 import argparse
-import hashlib
 import json
 from pathlib import Path
 from .anvil import Anvil, SequenceAdapter as EVMAdapter
 from .engine import HarnessError, command, solc_compile, write_json
 from .identity import ImplementationIdentity
+from .imported_types import DIRECTORY, imported_type_paths, validate_imported_types
 from .stateful import replay_three_routes, shrink_sequence
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--source-fixture', type=Path, default=Path('Contracts/SolidityImportSmoke/MarketAbi.sol'))
-    parser.add_argument('--model-driver', type=Path, default=Path('Contracts/SolidityImportSmoke/MarketAbiModel.lean'))
+    parser.add_argument('--source-fixture', type=Path, default=Path('Contracts/SolidityImportSmoke/NestedDynamicStructAbi.sol'))
+    parser.add_argument('--model-driver', type=Path, default=Path('Contracts/SolidityImportSmoke/NestedDynamicStructAbiModel.lean'))
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     fixture = args.source_fixture.resolve()
     driver = args.model_driver.resolve()
-    interface = fixture.parent / 'pinned-midnight/IMidnight.sol'
-    manifest = json.loads((interface.parent / 'provenance.json').read_text())
-    if (manifest['repository'] != 'morpho-org/midnight'
-            or manifest['sha256'] != 'b1a0cbcd9de9ce3781bd12cdd0a8665361f988fd23d0219217ff4e7981710475'
-            or manifest['commit'] != '96d31343e993329e7a593dde46516a2c0cbcd142'
-            or manifest['path'] != 'src/interfaces/IMidnight.sol'
-            or hashlib.sha256(interface.read_bytes()).hexdigest() != manifest['sha256']):
-        raise HarnessError('pinned Midnight interface identity differs')
-    write_json(output / 'midnight-provenance.json', manifest)
+    try:
+        manifest = validate_imported_types(fixture.parent)
+    except ValueError as error:
+        raise HarnessError(str(error)) from error
+    write_json(output / 'imported-types-manifest.json', manifest)
+    interface_name = DIRECTORY + '/interfaces/INestedRecord.sol'
+    interface = fixture.parent / interface_name
     source = solc_compile({'language': 'Solidity', 'sources': {
         fixture.name: {'content': fixture.read_text()},
-        'pinned-midnight/IMidnight.sol': {'content': interface.read_text()}},
+        interface_name: {'content': interface.read_text()}},
         'settings': {'evmVersion': 'osaka', 'viaIR': True, 'optimizer': {'enabled': True, 'runs': 466},
             'outputSelection': {'*': {'*': ['evm.bytecode.object', 'evm.methodIdentifiers']}}}},
-        fixture.parent, output / 'source')['contracts'][fixture.name]['MarketAbi']['evm']
-    market = '(uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address)'
-    names = [location + suffix + '(' + market + ',uint256)'
+        fixture.parent, output / 'source')['contracts'][fixture.name]['NestedDynamicStructAbi']['evm']
+    record = '(uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address)'
+    names = [location + suffix + '(' + record + ',uint256)'
              for location in ('memory', 'calldata')
-             for suffix in ('Unused', 'Maturity', 'TokenLate', 'TokenSecond', 'Midnight', 'Length')]
+             for suffix in ('Unused', 'Deadline', 'TokenLate', 'TokenSecond', 'Origin', 'Length')]
     selectors = {name.split('(')[0]: int(source['methodIdentifiers'][name], 16) for name in names}
     write_json(output / 'selectors.json', [{'name': name, 'selector': selector} for name, selector in selectors.items()])
-    identity = ImplementationIdentity(driver, extra_inputs=[fixture, interface, interface.parent / "provenance.json"])
+    identity = ImplementationIdentity(driver, extra_inputs=[fixture, *imported_type_paths(fixture.parent)])
     write_json(output / 'implementation.json', identity.manifest)
     command(['lake', 'env', 'lean', '--run', driver, 'compile', output / 'selectors.json', output / 'model.yul'],
             log=output / 'compile.log')
@@ -76,7 +74,7 @@ def main():
     canonical_words = [64, 1, 31337, 2, 3, 256, 999, 500, 4, 5, 1, 6, 77, 88, 9]
     variants = {'canonical': canonical_words}
     for label, index, value in [
-        ('dirty-midnight', 3, 2**160), ('dirty-unused-oracle', 14, 2**160),
+        ('dirty-origin', 3, 2**160), ('dirty-unused-oracle', 14, 2**160),
         ('dirty-token', 11, 2**160), ('invalid-array-offset', 5, 2**64),
         ('backwards-array-offset', 5, 2**256-32), ('empty-array', 10, 0),
         ('length-uint64-max', 10, 2**64-1), ('length-uint64-overflow', 10, 2**64),
@@ -108,12 +106,12 @@ def main():
                 second = name.endswith('TokenSecond')
                 token = name.endswith('TokenLate') or second
                 oversized = variant.startswith('length-')
-                eager_invalid = variant in ('dirty-midnight', 'dirty-unused-oracle', 'dirty-token',
+                eager_invalid = variant in ('dirty-origin', 'dirty-unused-oracle', 'dirty-token',
                     'invalid-array-offset', 'backwards-array-offset', 'truncated-array',
                     'dirty-second-oracle', 'dirty-second-token')
                 error = None
-                returned = 7 if name.endswith('Unused') else 999 if name.endswith('Maturity') else 17 if second else 6
-                if name.endswith('Midnight'):
+                returned = 7 if name.endswith('Unused') else 999 if name.endswith('Deadline') else 17 if second else 6
+                if name.endswith('Origin'):
                     returned = flag if variant == 'overlapping-root' else 2
                 if variant in ('truncated-root', 'backwards-root'):
                     error = '0x'
@@ -123,7 +121,7 @@ def main():
                     error = '0x'
                 elif flag == 0:
                     error = error_first
-                elif name.endswith('Midnight') and variant == 'dirty-midnight':
+                elif name.endswith('Origin') and variant == 'dirty-origin':
                     error = '0x'
                 elif name.endswith('Length'):
                     returned = 0 if variant == 'empty-array' else 2 if variant in ('two', 'dirty-second-oracle', 'dirty-second-token') else 1
@@ -196,10 +194,10 @@ def main():
         seed = candidate if replayed and replayed[0]['signature'] == failure['signature'] else transactions
         witness = shrink_sequence(seed, lambda calls: replay_three_routes(calls, adapters)['divergences'], max_attempts=100)
         write_json(output / 'witness.json', witness)
-        raise HarnessError(f"full-Market ABI divergence: {output / 'campaign.json'}")
+        raise HarnessError(f"nested dynamic struct ABI divergence: {output / 'campaign.json'}")
     write_json(output / 'complete.json', {'exit': 0, 'cases': len(transactions),
-        'scope': 'actual imported full-Market source/public Denote/compiled EVM controls'})
-    print(f'All {len(transactions)} full-Market ABI cases agree: {output}')
+        'scope': 'actual imported nested dynamic struct source/public Denote/compiled EVM controls'})
+    print(f'All {len(transactions)} nested dynamic struct ABI cases agree: {output}')
 
 
 if __name__ == '__main__':

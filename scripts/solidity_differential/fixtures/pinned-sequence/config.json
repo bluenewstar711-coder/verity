@@ -1,0 +1,51 @@
+{
+  "project": "repository",
+  "revision": "filled in by check_pinned_sequence_fixture",
+  "entry": "src/RoleRegistry.sol",
+  "contract": "RoleRegistry",
+  "settings": {"evmVersion": "osaka", "viaIR": true,
+               "optimizer": {"enabled": true, "runs": 466},
+               "metadata": {"bytecodeHash": "none"}},
+  "signatures": [
+    "setAdmin(address)", "setOperator(address)", "setAuditor(address)",
+    "enableLevel(uint256)", "setLimit(address,uint256,uint256)",
+    "setUsed(bytes32,uint128,address)", "setDelegate(address,bool,address)"
+  ],
+  "initialStorage": [{"label": "admin", "value": "sender:0"}],
+  "prefix": [
+    {"signature": "setOperator(address)", "args": ["sender:1"], "sender": 0},
+    {"signature": "setAuditor(address)", "args": ["sender:2"], "sender": 0},
+    {"signature": "setAuditor(address)", "args": ["sender:2"], "sender": 0},
+    {"signature": "enableLevel(uint256)", "args": [1000000000000000000], "sender": 0},
+    {"signature": "enableLevel(uint256)", "args": [1000000000000000001], "sender": 0},
+    {"signature": "enableLevel(uint256)", "args": [1000000000000000000], "sender": 0},
+    {"signature": "setLimit(address,uint256,uint256)", "args": ["sender:2", 0, 7000000000000], "sender": 1},
+    {"signature": "setLimit(address,uint256,uint256)", "args": ["sender:2", 4, 0], "sender": 1},
+    {"signature": "setLimit(address,uint256,uint256)", "args": ["sender:2", 1, 65536000000000000], "sender": 1},
+    {"signature": "setLimit(address,uint256,uint256)", "args": ["sender:2", 1, 7000000000000], "sender": 0},
+    {"signature": "setDelegate(address,bool,address)", "args": ["sender:1", true, "sender:0"], "sender": 0},
+    {"signature": "setUsed(bytes32,uint128,address)", "args": ["0x00", 5, "sender:0"], "sender": 1},
+    {"signature": "setUsed(bytes32,uint128,address)", "args": ["0x00", 4, "sender:0"], "sender": 1},
+    {"signature": "setDelegate(address,bool,address)", "args": ["sender:1", false, "sender:0"], "sender": 0},
+    {"signature": "setUsed(bytes32,uint128,address)", "args": ["0x00", 6, "sender:0"], "sender": 1},
+    {"signature": "setAdmin(address)", "args": ["sender:1"], "sender": 0},
+    {"signature": "setOperator(address)", "args": ["sender:2"], "sender": 0},
+    {"signature": "setOperator(address)", "args": ["sender:2"], "sender": 1},
+    {"signature": "setAdmin(address)", "args": ["sender:0"], "sender": 1}
+  ],
+  "arguments": {
+    "setAdmin(address)": [["sender:0", "sender:1", "sender:2"]],
+    "setOperator(address)": [["sender:0", "sender:1", "sender:2"]],
+    "setAuditor(address)": [["sender:0", "sender:1", "sender:2"]],
+    "enableLevel(uint256)": [[0, 1, 999999999999999999, 1000000000000000000,
+                              1000000000000000001,
+                              115792089237316195423570985008687907853269984665640564039457584007913129639935]],
+    "setLimit(address,uint256,uint256)": [["sender:0", "sender:1", "sender:2"], [0, 3, 4, 9],
+                                           [0, 1000000000000, 1000000000001, 65536000000000000]],
+    "setUsed(bytes32,uint128,address)": [["0x00", "0x01", "0x02"],
+                                          [0, 1, 5, 340282366920938463463374607431768211455],
+                                          ["sender:0", "sender:1", "sender:2"]],
+    "setDelegate(address,bool,address)": [["sender:0", "sender:1", "sender:2"], [true, false],
+                                           ["sender:0", "sender:1", "sender:2"]]
+  }
+}

@@ -4,27 +4,27 @@ import Compiler.SolidityImport.TransactionAccess
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.MarketAbiModel
+namespace SolidityImportSmoke.NestedDynamicStructAbiModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "MarketAbi.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "NestedDynamicStructAbi.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
-  contract MarketAbi
-  function memoryUnused(Market,uint256)
-  function memoryMaturity(Market,uint256)
-  function memoryTokenLate(Market,uint256)
-  function memoryTokenSecond(Market,uint256)
-  function memoryMidnight(Market,uint256)
-  function calldataUnused(Market,uint256)
-  function calldataMaturity(Market,uint256)
-  function calldataTokenLate(Market,uint256)
-  function calldataTokenSecond(Market,uint256)
-  function calldataMidnight(Market,uint256)
-  function memoryLength(Market,uint256)
-  function calldataLength(Market,uint256)
+  contract NestedDynamicStructAbi
+  function memoryUnused(NestedRecord,uint256)
+  function memoryDeadline(NestedRecord,uint256)
+  function memoryTokenLate(NestedRecord,uint256)
+  function memoryTokenSecond(NestedRecord,uint256)
+  function memoryOrigin(NestedRecord,uint256)
+  function calldataUnused(NestedRecord,uint256)
+  function calldataDeadline(NestedRecord,uint256)
+  function calldataTokenLate(NestedRecord,uint256)
+  function calldataTokenSecond(NestedRecord,uint256)
+  function calldataOrigin(NestedRecord,uint256)
+  function memoryLength(NestedRecord,uint256)
+  function calldataLength(NestedRecord,uint256)
 def model : CompilationModel := imported.model
-end SolidityImportSmoke.MarketAbiModel
+end SolidityImportSmoke.NestedDynamicStructAbiModel
 
-open Lean Compiler.CompilationModel SolidityImportSmoke.MarketAbiModel
+open Lean Compiler.CompilationModel SolidityImportSmoke.NestedDynamicStructAbiModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -57,28 +57,29 @@ def main (args : List String) : IO UInt32 := do
         let values ← raw.mapM fun word => do
           let some value := word.toNat? | throw (IO.userError "invalid raw word")
           pure value
-        let some fn := model.functions.find? (·.name == name) | throw (IO.userError "unknown ABI probe")
+        let some fn := model.functions.find? (·.name == name)
+          | throw (IO.userError "unknown ABI probe")
         let oracle : Denote.DenoteOracle := ⟨fun _ _ => 0, fun _ _ _ => 0⟩
         let tx : Denote.DenoteTransaction :=
           { sender := 1, functionSelector := selector, args := values }
         let result := Denote.denoteFunction oracle model fn tx Verity.defaultState
         let world := Denote.withTransactionContext Verity.defaultState tx
         unless imported.report.projections.isEmpty && fn.abiDecoding == .explicitPrelude &&
-            fn.params == [{ name := "market", ty := .tuple [.uint256, .address, .address,
+            fn.params == [{ name := "record", ty := .tuple [.uint256, .address, .address,
               .array (.tuple [.address, .uint256, .uint256, .address]),
               .uint256, .uint256, .address, .address] },
               { name := "flag", ty := .uint256 }] do
-          throw (IO.userError "complete full-Market ABI signature/policy mismatch")
+          throw (IO.userError "complete nested dynamic struct ABI signature/policy mismatch")
         let some bindings := Denote.bindExternalParams selector fn.bindingParams values
           | throw (IO.userError "complete scalar ABI fixture unexpectedly failed parameter binding")
         let traced ← IO.ofExcept (SolidityImport.Transactions.traceStraightLine oracle
           (Denote.effectiveFields model) { world, bindings, selector, errors := model.errors }
           fn.body model.events)
         unless traced.touched.isEmpty do
-          throw (IO.userError "pure full-Market fixture accessed storage")
+          throw (IO.userError "pure nested dynamic struct fixture accessed storage")
         let frame ← IO.ofExcept (SolidityImport.Transactions.finishFrame world traced.outcome)
         unless frame.world.events.isEmpty do
-          throw (IO.userError "pure full-Market fixture emitted an event")
+          throw (IO.userError "pure nested dynamic struct fixture emitted an event")
         unless frame.success == result.success do
           throw (IO.userError "public Denote and observed frame statuses disagree")
         if frame.success then

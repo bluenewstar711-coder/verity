@@ -1,4 +1,4 @@
-"""Real importer acceptance/rejection controls for complete Market schemas."""
+"""Real importer acceptance/rejection controls for complete nested dynamic struct schemas."""
 import argparse
 import json
 from pathlib import Path
@@ -12,28 +12,28 @@ p.add_argument('--output',type=Path,required=True)
 out=p.parse_args().output.resolve()
 out.mkdir(parents=True,exist_ok=False)
 repo=Path.cwd()
-interface_path='pinned-midnight/IMidnight.sol'
+interface_path='imported-types/interfaces/INestedRecord.sol'
 interface=(repo/'Contracts/SolidityImportSmoke'/interface_path).read_text()
-contract='pragma solidity 0.8.34;\nimport {Market} from "pinned-midnight/IMidnight.sol";\ncontract C { function f(Market memory market) external pure returns (uint256) { return 7; } }\n'
-variants=[('canonical',interface,contract,'f(Market)',None)]
+contract='pragma solidity 0.8.34;\nimport {NestedRecord} from "imported-types/interfaces/INestedRecord.sol";\ncontract C { function f(NestedRecord memory record) external pure returns (uint256) { return 7; } }\n'
+variants=[('canonical',interface,contract,'f(NestedRecord)',None)]
 for name,old,new,message in [
-    ('signed-root','uint256 maturity;','int256 maturity;','unsupported scalar int256'),
-    ('fixed-array','CollateralParams[] collateralParams;','CollateralParams[2] collateralParams;','fixed arrays are unsupported'),
-    ('nested-array','CollateralParams[] collateralParams;','CollateralParams[][] collateralParams;','expected a flat struct array element'),
-    ('signed-element','uint256 lltv;','int256 lltv;','unsupported scalar int256'),
-    ('dynamic-element','uint256 lltv;','uint256[] lltv;','expected an unsigned scalar type'),
-    ('bytes-element','uint256 lltv;','bytes16 lltv;','unsupported scalar bytes16')]:
+    ('signed-root','uint256 deadline;','int256 deadline;','unsupported scalar int256'),
+    ('fixed-array','RecordItem[] items;','RecordItem[2] items;','fixed arrays are unsupported'),
+    ('nested-array','RecordItem[] items;','RecordItem[][] items;','expected a flat struct array element'),
+    ('signed-element','uint256 weight;','int256 weight;','unsupported scalar int256'),
+    ('dynamic-element','uint256 weight;','uint256[] weight;','expected an unsigned scalar type'),
+    ('bytes-element','uint256 weight;','bytes16 weight;','unsupported scalar bytes16')]:
     if interface.count(old) != 1:
-        raise RuntimeError(f'nonunique pinned Market mutation anchor: {name}')
-    variants.append((name,interface.replace(old,new),contract,'f(Market)',message))
-computed=contract.replace('Market memory market','Market calldata market, uint256 i').replace('return 7;','return uint256(uint160(market.collateralParams[i + 1].token));')
-variants.append(('computed-index',interface,computed,'f(Market, uint256)',None))
+        raise RuntimeError(f'nonunique imported struct mutation anchor: {name}')
+    variants.append((name,interface.replace(old,new),contract,'f(NestedRecord)',message))
+computed=contract.replace('NestedRecord memory record','NestedRecord calldata record, uint256 i').replace('return 7;','return uint256(uint160(record.items[i + 1].token));')
+variants.append(('computed-index',interface,computed,'f(NestedRecord, uint256)',None))
 assign_computed=computed.replace('i + 1','i += 1')
-variants.append(('assignment-index',interface,assign_computed,'f(Market, uint256)','compound assignment expressions are outside this slice'))
-mixed=contract.replace('contract C','struct Tiny { uint256 value; }\ncontract C').replace('Market memory market','Market memory market, Tiny memory other')
-variants.append(('mixed-structs',interface,mixed,'f(Market, Tiny)','mixed static and dynamic struct parameters'))
+variants.append(('assignment-index',interface,assign_computed,'f(NestedRecord, uint256)','compound assignment expressions are outside this slice'))
+mixed=contract.replace('contract C','struct Tiny { uint256 value; }\ncontract C').replace('NestedRecord memory record','NestedRecord memory record, Tiny memory other')
+variants.append(('mixed-structs',interface,mixed,'f(NestedRecord, Tiny)','mixed static and dynamic struct parameters'))
 results=[]
-project_parent=repo/'.lake/imported-market-rejections'
+project_parent=repo/'.lake/imported-nested-struct-rejections'
 project_parent.mkdir(parents=True,exist_ok=True)
 project_root=Path(tempfile.mkdtemp(prefix=out.name+'-',dir=project_parent))
 for name,interface_text,source,signature,message in variants:
@@ -63,7 +63,7 @@ for name,interface_text,source,signature,message in variants:
     else:
         assert proc.returncode!=0 and not artifact.exists(),log
         assert message in log,log
-        assert re.search(r'(?:Case\.sol|pinned-midnight/IMidnight\.sol):\d+:\d+:',log),log
+        assert re.search(r'(?:Case\.sol|imported-types/interfaces/INestedRecord\.sol):\d+:\d+:',log),log
     results.append({'name':name,'accepted':proc.returncode==0,'expected':message or 'accepted'})
     write_json(out/'results.json',results)
     print('PASS',name,flush=True)

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.34;
 
-import {Market} from "pinned-midnight/interfaces/IMidnight.sol";
+import {NestedRecord} from "imported-types/interfaces/INestedRecord.sol";
 
-import {IdLib} from "pinned-midnight/libraries/IdLib.sol";
+import {RecordHashLib} from "imported-types/libraries/RecordHashLib.sol";
 
 struct HashStatic { uint128 small; address who; bool enabled; bytes32 tag; }
 struct HashArrays { uint128 tag; uint128[] left; uint256[] right; }
@@ -29,14 +29,14 @@ contract AbiHashing {
         return keccak256(abi.encode(left, right));
     }
 
-    function marketMemory(Market memory market, uint256 flag) external pure returns (bytes32) {
+    function recordMemory(NestedRecord memory record, uint256 flag) external pure returns (bytes32) {
         require(flag != 0, "first");
-        return keccak256(abi.encode(market));
+        return keccak256(abi.encode(record));
     }
 
-    function marketCalldata(Market calldata market, uint256 flag) external pure returns (bytes32) {
+    function recordCalldata(NestedRecord calldata record, uint256 flag) external pure returns (bytes32) {
         require(flag != 0, "first");
-        return keccak256(abi.encode(market));
+        return keccak256(abi.encode(record));
     }
 
     function staticRoot(HashStatic calldata value) external pure returns (bytes32) {
@@ -54,8 +54,8 @@ contract AbiHashing {
         return keccak256(abi.encodePacked(a, b, c, d, e));
     }
 
-    function idMarket(Market memory market) external pure returns (bytes32) {
-        return IdLib.toId(market);
+    function recordKey(NestedRecord memory record) external pure returns (bytes32) {
+        return RecordHashLib.toKey(record);
     }
 
     function prefix0(uint256 value) external pure returns (bytes32) {

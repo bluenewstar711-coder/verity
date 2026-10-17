@@ -1,11 +1,11 @@
-"""Compare generated Market ABI variants using public Denote and real EVMs."""
+"""Compare generated nested dynamic struct ABI variants using public Denote and real EVMs."""
 import argparse
 import json
 import shutil
 from pathlib import Path
 import sys
 from .engine import command, write_json, HarnessError
-from .programs import market_abi_source
+from .programs import nested_dynamic_struct_abi_source
 from .check_storage import canonical_observations
 
 
@@ -15,23 +15,23 @@ def main():
     args = parser.parse_args()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    source = Path('Contracts/SolidityImportSmoke/MarketAbi.sol').read_text()
-    template = Path('Contracts/SolidityImportSmoke/MarketAbiModel.lean').read_text()
-    anchor = 'from "Contracts/SolidityImportSmoke" entry "MarketAbi.sol"'
+    source = Path('Contracts/SolidityImportSmoke/NestedDynamicStructAbi.sol').read_text()
+    template = Path('Contracts/SolidityImportSmoke/NestedDynamicStructAbiModel.lean').read_text()
+    anchor = 'from "Contracts/SolidityImportSmoke" entry "NestedDynamicStructAbi.sol"'
     if template.count(anchor) != 1:
         raise HarnessError('nonunique ABI source anchor')
     baseline = None
     for variant in ('baseline', 'condition', 'bindings', 'collision'):
         directory = output / variant
         directory.mkdir()
-        shutil.copytree(Path('Contracts/SolidityImportSmoke/pinned-midnight'), directory / 'pinned-midnight')
-        fixture = directory / 'MarketAbi.sol'
-        fixture.write_text(market_abi_source(source, variant))
+        shutil.copytree(Path('Contracts/SolidityImportSmoke/imported-types'), directory / 'imported-types')
+        fixture = directory / 'NestedDynamicStructAbi.sol'
+        fixture.write_text(nested_dynamic_struct_abi_source(source, variant))
         if variant == 'collision' and fixture.read_text().count('_verity_slice_tmp_0_memory = flag') != 12:
             raise HarnessError('collision variant must use the actual first decoder name')
         driver = directory / 'Driver.lean'
-        driver.write_text(template.replace(anchor, f'from "{directory}" entry "MarketAbi.sol"'))
-        command([sys.executable, '-m', 'solidity_differential.check_market_abi',
+        driver.write_text(template.replace(anchor, f'from "{directory}" entry "NestedDynamicStructAbi.sol"'))
+        command([sys.executable, '-m', 'solidity_differential.check_nested_dynamic_struct_abi',
             '--source-fixture', fixture, '--model-driver', driver,
             '--output', directory / 'campaign'], timeout=1800, log=directory / 'check.log')
         if variant == 'collision':
@@ -50,7 +50,7 @@ def main():
                 {'variant': variant, 'baseline': baseline, 'actual': observable})
             raise HarnessError('ABI variant changed observable behavior')
     write_json(output / 'complete.json', {'exit': 0, 'variants': 4, 'cases': 1632})
-    print(f'All Market ABI variants agree: {output}')
+    print(f'All nested dynamic struct ABI variants agree: {output}')
 
 
 if __name__ == '__main__':

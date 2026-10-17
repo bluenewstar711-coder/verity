@@ -1211,8 +1211,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] unsupported struct member compound assignment type bytes4'),
-        ('midnight-position-and-fee-positive',
-         (root / 'Contracts/SolidityImportSmoke/MidnightPositionAndFeeSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+        ('packed-struct-mapping-ternary-tuple-positive',
+         (root / 'Contracts/SolidityImportSmoke/PackedStructMappingAndTernaryTupleSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
@@ -1414,7 +1414,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
             else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
             else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
-            else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
+            else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function entries(bytes32,address)\n  function slotOf(bytes32,address,uint256)\n  function interpolatedRate(bytes32,uint256)\n  function previewEntry(bytes32,address,uint256)' if name == 'packed-struct-mapping-ternary-tuple-positive'
             else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
             else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
             else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'

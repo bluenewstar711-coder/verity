@@ -1145,7 +1145,7 @@ binder has separate kernel-checked flat/nested offset and rejection witnesses.
 These finite checks are not a general solc ABI-decoder equivalence proof.
 
 The importer currently lowers only flat scalar structs through this full ABI
-path. Nested structs, arrays, dynamic `Market` parameters and partial-byte
+path. Nested structs, arrays, nested dynamic struct parameters and partial-byte
 calldata remain outside it. Dynamic structs use the experimental explicit-prelude boundary described
 below; historical scalar projections are no longer an import fallback. Read-time guards use the empty returndata buffer
 within the present fragment, which has no external calls; adding external calls
@@ -1178,11 +1178,11 @@ fails at its original AST node. Complete memory structs, scalar arrays and flat 
 materialized before source statements; calldata scalar members and array
 headers are checked at reads. Computed array indices and mixed static/dynamic
 struct parameter lists remain rejected until their ordering/loading is covered.
-The imported ten-function pinned Market fixture passes 340 A/B/C controls,
+The imported twelve-function nested dynamic struct fixture passes 408 A/B/C controls,
 including eager/lazy address checks and malformed array payloads. Scalar-array
 and two-dynamic-root fixtures pass 96 and 132 controls respectively. Their
 three, four and four equivalent variants pass strict observation comparisons;
-the corrected Market generated-name collision additionally checks that all five
+the corrected nested-struct generated-name collision additionally checks that all six
 memory decoders rename the colliding temporary. Twenty runtime lowering mutants
 have successful positive controls and reproduced deletion-minimal divergences.
 The permanent axiom audit includes the bounded full-state smoke proofs, which
@@ -1273,7 +1273,7 @@ A compiler or harness error never counts as mutation detection.
 ### ABI encoding and packed Keccak buffers (experimental)
 
 The new encoding lowering consumes complete admitted schemas; it does not
-recognize IdLib names or substitute a market-member projection. A dynamic root
+recognize library names or substitute a struct-member projection. A dynamic root
 is encoded with its top-level offset, tuple heads and inline array element
 words. Memory arrays of structs contain pointers on input and inline words in
 the encoded output. Calldata fields are checked when consumed; memory fields
@@ -1299,9 +1299,10 @@ separate obligation; no solc equivalence proof is claimed.
 
 The focused differential compares exact outputs to independent eth_abi and
 eth_hash calculations as well as all three execution routes, including the
-85-byte IdLib outer preimage and prefixes spanning word boundaries. The two
-vendored hashing dependencies are exact files from Midnight96d31343, recorded
-in hashing-provenance.json. No pilot golden or pilot provenance is changed.
+85-byte library key-derivation outer preimage and prefixes spanning word
+boundaries. The two construct-generic imported hashing dependencies are
+byte-pinned in imported-types/manifest.json and the harness. No pilot golden
+or pilot provenance is changed.
 These focused results are not full Midnight import coverage or release gates;
 the focused mutation, generated-equivalent and rejection campaigns have local
 receipts, but complete representation proof obligations and exact-head release

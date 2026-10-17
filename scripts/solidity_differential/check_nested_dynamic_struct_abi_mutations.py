@@ -1,4 +1,4 @@
-"""Runtime mutations of full Market decoding and struct-array member reads."""
+"""Runtime mutations of nested dynamic struct decoding and struct-array member reads."""
 import json
 import os
 from pathlib import Path
@@ -7,72 +7,72 @@ import sys
 from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 from .mutations import snapshot
 
-MUTANTS = {'import-market-root-offset': ('Compiler/SolidityImport/AbiLowering.lean',
+MUTANTS = {'import-nested-dynamic-struct-root-offset': ('Compiler/SolidityImport/AbiLowering.lean',
                                ', guard (.le rawOffset (.literal (2^64-1)))',
                                ', guard (.literal 1)'),
- 'import-market-root-size': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-root-size': ('Compiler/SolidityImport/AbiLowering.lean',
                              ', guard (.logicalNot (.slt (.sub .calldatasize (.localVar binding)) (.literal '
                              '(32*tupleHeadWords))))',
                              ', guard (.literal 1)'),
- 'import-market-calldata-array-size': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-calldata-array-size': ('Compiler/SolidityImport/AbiLowering.lean',
                                        '(.sub .calldatasize (.mul (.literal (32*elementWords)) (.localVar '
                                        'lengthBinding))))) ]',
                                        '(.sub .calldatasize (.mul (.literal 0) (.localVar lengthBinding))))) '
                                        ']'),
- 'import-market-memory-panic': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-memory-panic': ('Compiler/SolidityImport/AbiLowering.lean',
                                 'Stmt.ite condition [] [.panicCode (.literal 0x41)]\n  [ guard (.le relative',
                                 'Stmt.ite condition [] [.panicCode (.literal 0x32)]\n'
                                 '  [ guard (.le relative'),
- 'import-market-struct-source-stride': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-struct-source-stride': ('Compiler/SolidityImport/AbiLowering.lean',
                                         '[ .letVar source (.add data (.mul (.localVar index) (.literal '
                                         '(32*fields.length))))',
                                         '[ .letVar source (.add data (.mul (.localVar index) (.literal '
                                         '32)))'),
- 'import-market-struct-pointer-stride': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-struct-pointer-stride': ('Compiler/SolidityImport/AbiLowering.lean',
                                          '(.mul (.localVar index) (.literal 32))) (.localVar element)',
                                          '(.mul (.localVar index) (.literal 64))) (.localVar element)'),
- 'import-market-struct-validation': ('Compiler/SolidityImport/AbiLowering.lean',
+ 'import-nested-dynamic-struct-struct-validation': ('Compiler/SolidityImport/AbiLowering.lean',
                                      'let checks := if bound = 2^256 then [] else [guard (.lt value '
                                      '(.literal bound))]\n'
                                      '    checks ++',
                                      'let checks := if bound = 2^256 then [] else [guard (.literal 1)]\n'
                                      '    checks ++'),
- 'import-market-calldata-element-stride': ('Compiler/SolidityImport/Import.lean',
+ 'import-nested-dynamic-struct-calldata-element-stride': ('Compiler/SolidityImport/Import.lean',
                                            '(.add (.localVar data) (.mul key.expr (.literal '
                                            '(32*fields.length)))) false pre)',
                                            '(.add (.localVar data) (.mul key.expr (.literal 32))) false pre)'),
- 'import-market-memory-element-stride': ('Compiler/SolidityImport/Import.lean',
+ 'import-nested-dynamic-struct-memory-element-stride': ('Compiler/SolidityImport/Import.lean',
                                          '(.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal '
                                          '32)))) true pre)',
                                          '(.mload (.add (.add array (.literal 32)) (.mul key.expr (.literal '
                                          '64)))) true pre)'),
- 'import-market-member-validation': ('Compiler/SolidityImport/Import.lean',
+ 'import-nested-dynamic-struct-member-validation': ('Compiler/SolidityImport/Import.lean',
                                      'let pre := if !inMemory && bound < 2^256 then\n'
                                      '              pre.push (AbiLowering.guard (.lt value (.literal '
                                      'bound))) else pre',
                                      'let pre := if !inMemory && bound < 2^256 then\n'
                                      '              pre.push (AbiLowering.guard (.literal 1)) else pre'),
- 'import-market-root-scalar-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
+ 'import-nested-dynamic-struct-root-scalar-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                           'if bound < 2^256 then body := body ++ [guard (.lt value (.literal '
                                           'bound))]\n'
                                           '        body := body ++ [.mstore destination value]',
                                           'if bound < 2^256 then body := body ++ [guard (.literal 1)]\n'
                                           '        body := body ++ [.mstore destination value]'),
- 'import-market-memory-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
+ 'import-nested-dynamic-struct-memory-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                       'if inMemory then ([], .mload (.add (.localVar plan.memoryPointer) '
                                       '(.literal (32*index))))',
                                       'if inMemory then ([], .mload (.add (.localVar plan.memoryPointer) '
                                       '(.literal (32*(index+1)))))'),
- 'import-market-calldata-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
+ 'import-nested-dynamic-struct-calldata-scalar-read': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                         'let value := Expr.calldataload (.add (.localVar '
                                         'plan.calldataPointer) (.literal (32*index)))',
                                         'let value := Expr.calldataload (.add (.localVar '
                                         'plan.calldataPointer) (.literal (32*(index+1))))'),
- 'import-market-calldata-root-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
+ 'import-nested-dynamic-struct-calldata-root-validation': ('Compiler/SolidityImport/AbiRootLowering.lean',
                                             '(if bound < 2^256 then [guard (.lt value (.literal bound))] '
                                             'else [], value)',
                                             '(if bound < 2^256 then [guard (.literal 1)] else [], value)'),
- 'import-market-calldata-index-bounds': ('Compiler/SolidityImport/Import.lean',
+ 'import-nested-dynamic-struct-calldata-index-bounds': ('Compiler/SolidityImport/Import.lean',
                                          '            let checks := AbiLowering.staticArrayHead (.localVar (mem.abiStem ++ "_calldata"))\n'
                                          '              memberIndex fields.length header length data\n'
                                          '            let pre := pre ++ checks.toArray ++ key.pre ++ #[.ite (.lt key.expr '
@@ -86,7 +86,7 @@ MUTANTS = {'import-market-root-offset': ('Compiler/SolidityImport/AbiLowering.le
 def run(directory, output):
     environment = dict(os.environ)
     environment['PYTHONPATH'] = str(directory / 'scripts')
-    result = subprocess.run([sys.executable, '-m', 'solidity_differential.check_market_abi',
+    result = subprocess.run([sys.executable, '-m', 'solidity_differential.check_nested_dynamic_struct_abi',
         '--output', str(output)], cwd=directory, env=environment,
         text=True, capture_output=True, timeout=1200)
     output.with_suffix('.log').write_text(result.stdout + result.stderr)
