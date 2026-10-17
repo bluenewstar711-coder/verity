@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from .anvil import Anvil
-from .engine import HarnessError, command, solc_compile, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, solc_compile, write_json
 
 PREFIX = bytes.fromhex('600b380380600b5f395ff3')
 
@@ -29,7 +29,7 @@ def main():
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     command(['lake', 'build', 'Verity.Core.Model.DenoteCreate2', 'Compiler.SolidityImport.Transactions'],
-            log=out / 'build.log')
+            timeout=MUTANT_BUILD_TIMEOUT, log=out / 'build.log')
     if args.parent_opcode:
         command(['lake', 'build', 'Contracts.SolidityImportSmoke.Create2OpcodeChecks'],
                 log=out / 'opcode-build.log')
