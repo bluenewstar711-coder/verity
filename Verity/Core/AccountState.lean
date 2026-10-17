@@ -34,8 +34,8 @@ theorem storageAt_writeStorage (account : AccountState) (slot query : Nat) (valu
     by_cases zero : value.val = 0
     · have valueZero : value = 0 := Uint256.ext zero
       subst value
-      simp [writeStorage, storageAt, Std.TreeMap.getD_erase]
-    · simp [writeStorage, storageAt, zero, Std.TreeMap.getD_insert]
+      simp [writeStorage, storageAt]
+    · simp [writeStorage, storageAt, zero]
   · have reverse : slot ≠ query := Ne.symm same
     by_cases zero : value.val = 0
     · have valueZero : value = 0 := Uint256.ext zero
@@ -69,9 +69,8 @@ theorem storageAt_writeStorageValues (account : AccountState) (slots : List Nat)
     rw [ih, storageAt_writeStorage]
     by_cases same : query = slot
     · subst query
-      cases rest.contains slot <;> simp [List.contains_cons]
-    · have reverse : slot ≠ query := Ne.symm same
-      by_cases member : query ∈ rest <;> simp [List.contains_cons, same, reverse, member]
+      cases rest.contains slot <;> simp
+    · by_cases member : query ∈ rest <;> simp [same, member]
 
 /-- Osaka's collision predicate. Nonempty storage alone is not a collision:
 creation clears it when both nonce and code are empty. EIP-7610 is a different

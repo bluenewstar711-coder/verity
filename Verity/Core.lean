@@ -1823,6 +1823,112 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
   funext slot
   simp [transientStorage, modifySlots]
 
+/-! Physical-slot lenses agree with the legacy lenses on every storage channel;
+they additionally synchronize the self account, which these views ignore. -/
+
+@[simp] theorem sender_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).returndata = s.returndata := rfl
+@[simp] theorem storageArray_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageArray = s.storageArray := rfl
+@[simp] theorem sender_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).sender = s.sender := rfl
+@[simp] theorem thisAddress_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).returndata = s.returndata := rfl
+@[simp] theorem storageArray_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storage_writePhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.writePhysicalSlots targets value).storage slot = value := by
+  have hmem := mem_of_contains_true h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storage_writePhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.writePhysicalSlots targets value).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, writePhysicalSlots]
+
+@[simp] theorem transientStorage_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, writePhysicalSlots]
+
+@[simp] theorem storage_modifyPhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.modifyPhysicalSlots targets f).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storage_modifyPhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.modifyPhysicalSlots targets f).storage slot = f (s.storage slot) := by
+  have hmem := mem_of_contains_true h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, modifyPhysicalSlots]
+
+@[simp] theorem transientStorage_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, modifyPhysicalSlots]
+
 @[simp] theorem storage_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifyTransientSlots targets f).storage = s.storage := by
