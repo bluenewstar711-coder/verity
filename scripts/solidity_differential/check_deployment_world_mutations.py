@@ -7,11 +7,13 @@ comparison with an archived semantic divergence is accepted.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
+from .mutations import release, snapshot
 
 MUTANTS = {
     'denote-create2-drop-nonce': (
@@ -57,17 +59,22 @@ def main():
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    source = Path('Verity/Core/Model/DenoteCreate2.lean')
-    original = source.read_text()
-    original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     head = command(['git', 'rev-parse', 'HEAD']).strip()
     if command(['git', 'status', '--porcelain']).strip():
         raise HarnessError('creation mutations require a clean exact checkout')
+    # Mutate a private snapshot: concurrent campaigns read the parent checkout.
+    repo = out / 'snapshot'
+    snapshot(repo)
+    env = dict(os.environ, PYTHONPATH=str(repo / 'scripts'))
+    source = repo / 'Verity/Core/Model/DenoteCreate2.lean'
+    original = source.read_text()
+    original_hash = hashlib.sha256(source.read_bytes()).hexdigest()
     def run(directory, ids=None, require_divergence=False):
         argv = [sys.executable, '-m', 'solidity_differential.check_deployment_world', '--output', directory]
         if ids is not None: argv += ['--case-ids', *map(str, ids)]
         with (directory.parent / (directory.name + '.log')).open('x') as log:
-            result = subprocess.run(list(map(str, argv)), stdout=log, stderr=subprocess.STDOUT, timeout=300)
+            result = subprocess.run(list(map(str, argv)), cwd=repo, env=env, stdout=log,
+                                    stderr=subprocess.STDOUT, timeout=MUTANT_BUILD_TIMEOUT + 300)
         source_rows = json.loads((directory / 'source-observations.json').read_text())
         model_rows = json.loads((directory / 'model-observations.json').read_text())
         if len(source_rows) != len(model_rows):
@@ -123,7 +130,7 @@ def main():
         source.write_text(original)
         if hashlib.sha256(source.read_bytes()).hexdigest() != original_hash:
             raise HarnessError('creation mutation failed to restore implementation')
-        command(['lake', 'build', 'Verity.Core.Model.DenoteCreate2'], log=out / 'restored-build.log')
+        release(repo)
     if command(['git', 'rev-parse', 'HEAD']).strip() != head or command(['git', 'status', '--porcelain']).strip():
         raise HarnessError('creation mutation checkout identity changed')
     write_json(out / 'complete.json', {'head': head, 'exit': 0, 'mutants': len(results),

@@ -7,11 +7,12 @@ never count as detection. This is A/B opcode calibration, not imported A/B/C.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 
 
 MUTANTS = {
@@ -54,8 +55,14 @@ def main():
     head = command(['git', 'rev-parse', 'HEAD']).strip()
     saved = args.source_campaign.resolve() if args.source_campaign else out / 'source'
     if args.source_campaign is None:
-        command([sys.executable, '-m', 'solidity_differential.check_deployment_world',
-                 '--parent-opcode', '--output', saved], log=out / 'source.log')
+        # The child resolves `solidity_differential` from this checkout's scripts.
+        env = dict(os.environ, PYTHONPATH=str(repo / 'scripts'))
+        with (out / 'source.log').open('x') as log:
+            result = subprocess.run([sys.executable, '-m', 'solidity_differential.check_deployment_world',
+                                     '--parent-opcode', '--output', str(saved)], env=env, stdout=log,
+                                    stderr=subprocess.STDOUT, timeout=MUTANT_BUILD_TIMEOUT + 300)
+        if result.returncode:
+            raise HarnessError('opcode source campaign failed; see source.log')
     input_data = json.loads((saved / 'input.json').read_text())
     expected = json.loads((saved / 'source-observations.json').read_text())
     request = json.loads((saved / 'source.input.json').read_text())
@@ -91,7 +98,8 @@ def main():
         write_json(directory / 'input.json', payload)
         with (directory / 'build.log').open('x') as log:
             built = subprocess.run(['lake', 'build', 'Verity.Core.Model.Create2Opcode'],
-                                   cwd=work, stdout=log, stderr=subprocess.STDOUT, timeout=180)
+                                   cwd=work, stdout=log, stderr=subprocess.STDOUT,
+                                   timeout=MUTANT_BUILD_TIMEOUT)
         if built.returncode:
             raise HarnessError('opcode mutant failed to build; not a detection')
         with (directory / 'execution.log').open('x') as log:
