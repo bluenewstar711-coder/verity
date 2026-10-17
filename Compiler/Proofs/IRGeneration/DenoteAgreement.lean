@@ -71,9 +71,44 @@ theorem bindAgree {α β : Type} {o₁ o₂ : Option α} {f g : α → Option β
   cases h
   exact congrArg _ (funext hf)
 
+/-! ## Byte-call scope of the agreement
+
+`Denote` executes closed byte transports (`ExternalCallModule.byteTransport`)
+against an explicit byte adversary and keeps their exact return buffer in
+`DenoteState.rawReturndata`; `SourceSemantics` has neither. The agreement below
+is therefore stated for statements without byte transports, executed from
+frames whose raw buffer is empty. Such statements never install a raw buffer
+(`execStmt_rawFree`), so the hypothesis is an invariant of the whole run. The
+IR proof fragments never contain byte transports (`SupportedStmtList` admits
+only `ecmPureHashing` modules, and the contract surface rejects every ECM). -/
+
+mutual
+/-- No closed byte transport occurs in the statement or its nested bodies. -/
+def stmtByteFree : Stmt → Bool
+  | .ecm mod _ => mod.byteTransport.isNone
+  | .ite _ thenBranch elseBranch => stmtListByteFree thenBranch && stmtListByteFree elseBranch
+  | .forEach _ _ body | .forEachSetBit _ _ body | .unsafeBlock _ body => stmtListByteFree body
+  | .matchAdt _ _ branches => branchesByteFree branches
+  | _ => true
+
+def stmtListByteFree : List Stmt → Bool
+  | [] => true
+  | stmt :: rest => stmtByteFree stmt && stmtListByteFree rest
+
+def branchesByteFree : List (String × List String × List Stmt) → Bool
+  | [] => true
+  | (_, _, body) :: rest => stmtListByteFree body && branchesByteFree rest
+end
+
+/-- Every continuing or returning frame still has an empty raw buffer. -/
+def outcomeRawFree : StmtOutcome → Prop
+  | .continue st | .stop st | .return _ st => st.rawReturndata = none
+  | .revert | .revertWithData _ => True
+
 /-! ## Expression-level agreement -/
 
-theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
+theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState)
+    (hraw : s.rawReturndata = none) :
     ∀ e : Expr,
       Denote.evalExpr sourceOracle fields s e =
         SourceSemantics.evalExpr fields (toRuntimeState s) e
@@ -90,10 +125,16 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .intrinsic .. | .forkIfAtLeast .. | .mulDiv512Down .. | .mulDiv512Up ..
   | .adtConstruct .. | .adtTag .. | .adtField ..
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
-  | .blockTimestamp | .blockNumber | .blobbasefee | .calldatasize
-  | .returndataSize => rfl
+  | .blockTimestamp | .blockNumber | .blobbasefee | .calldatasize => rfl
+  | .returndataSize => by
+      show some ((s.rawReturndata.map List.length).getD s.world.returndataSize) = _
+      rw [hraw]
+      rfl
+  | .returndataOptionalBoolAt a =>
+      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => by
+        simp only [hraw]
+        rfl
   | .bitNot a | .logicalNot a | .mload a | .tload a | .calldataload a | .extcodesize a
-  | .returndataOptionalBoolAt a
   | .mapping _ a | .mappingWord _ a _ | .mappingPackedWord _ a _ _
   | .mappingUint _ a | .mappingChain _ [a] | .structMember _ a _
   | .storageArrayElement _ a
@@ -103,7 +144,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .arrayElementDynamicMemberLength _ a _
   | .arrayElementDynamicMemberDataOffset _ a _
   | .memoryArrayElement _ a =>
-      bindAgree (denote_evalExpr_eq fields s a) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ => rfl
   | .add a b | .sub a b | .mul a b | .div a b | .sdiv a b | .mod a b | .smod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .shl a b | .shr a b | .sar a b
   | .byte a b | .signextend a b | .eq a b | .ge a b | .gt a b | .sgt a b
@@ -112,20 +153,20 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
   | .keccak256 a b | .mapping2 _ a b | .mapping2Word _ a b _
   | .mappingChain _ [a, b]
   | .structMember2 _ a b _ =>
-      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s b) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ => rfl
   | .mulDivDown a b c | .mulDivUp a b c =>
-      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s b) fun _ =>
-          bindAgree (denote_evalExpr_eq fields s c) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ =>
+          bindAgree (denote_evalExpr_eq fields s hraw c) fun _ => rfl
   | .arrayElementDynamicMemberElement _ a _ b =>
-      bindAgree (denote_evalExpr_eq fields s a) fun _ =>
-        bindAgree (denote_evalExpr_eq fields s b) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s hraw a) fun _ =>
+        bindAgree (denote_evalExpr_eq fields s hraw b) fun _ => rfl
   | .ite c t e =>
-      bindAgree (denote_evalExpr_eq fields s c) fun v => by
+      bindAgree (denote_evalExpr_eq fields s hraw c) fun v => by
         by_cases h : (v != 0) = true
-        · simpa [h] using denote_evalExpr_eq fields s t
-        · simpa [h] using denote_evalExpr_eq fields s e
+        · simpa [h] using denote_evalExpr_eq fields s hraw t
+        · simpa [h] using denote_evalExpr_eq fields s hraw e
   -- Both evaluators guard the reserved `exp` builtin lane on the same name
   -- test, so the arms agree branch-for-branch.
   | .externalCall _ [base, exponent] => by
@@ -133,17 +174,18 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState) :
           x = y → (if c then x else none) = (if c then y else none) := by
         intro c x y h; cases c <;> simp [h]
       exact guard _ _ _
-        (bindAgree (denote_evalExpr_eq fields s base) fun _ =>
-          bindAgree (denote_evalExpr_eq fields s exponent) fun _ => rfl)
+        (bindAgree (denote_evalExpr_eq fields s hraw base) fun _ =>
+          bindAgree (denote_evalExpr_eq fields s hraw exponent) fun _ => rfl)
 
-theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState) :
+theorem denote_evalExprList_eq (fields : List Field) (s : DenoteState)
+    (hraw : s.rawReturndata = none) :
     ∀ es : List Expr,
       Denote.evalExprList sourceOracle fields s es =
         SourceSemantics.evalExprList fields (toRuntimeState s) es
   | [] => rfl
   | e :: rest =>
-      bindAgree (denote_evalExpr_eq fields s e) fun _ =>
-        bindAgree (denote_evalExprList_eq fields s rest) fun _ => rfl
+      bindAgree (denote_evalExpr_eq fields s hraw e) fun _ =>
+        bindAgree (denote_evalExprList_eq fields s hraw rest) fun _ => rfl
 
 /-! ## Statement-level agreement: outcome conversion and write bridges -/
 
