@@ -770,6 +770,8 @@ def main() -> None:
         if unknown:
             parser.error(f"unknown task: {', '.join(sorted(unknown))}")
         selected = [item for item in selected if item[0] in args.task]
+        if not selected:
+            parser.error("--task names no task in this shard; check --list for the right shard")
     if args.list:
         for name, _, _ in selected:
             print(name)
@@ -786,7 +788,7 @@ def main() -> None:
         try:
             try:
                 run()
-            except BaseException as error:
+            except (Exception, SystemExit) as error:
                 print(f"RETRY {name} after failure: {error}", file=sys.stderr, flush=True)
                 run()
         finally:
@@ -797,7 +799,9 @@ def main() -> None:
         for future in as_completed(futures):
             try:
                 future.result()
-            except BaseException as error:  # SystemExit/CalledProcessError from a task
+            except KeyboardInterrupt:
+                raise
+            except (Exception, SystemExit) as error:
                 failures.append(futures[future])
                 print(f"FAIL {futures[future]}: {error}", file=sys.stderr, flush=True)
     if failures:
