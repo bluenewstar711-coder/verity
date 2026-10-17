@@ -552,9 +552,13 @@ compiles to the canonical 36-byte `Panic(uint256)` ABI payload (selector
 `0x4e487b71`, followed by code `0x11` or `0x12`). Direct Lean helper execution
 retains compatibility diagnostic strings; macro-generated compilation bypasses
 that path and does not encode those strings as `Error(string)`.
-`Compiler.Proofs.IRGeneration.PanicPayloadIR` proves the abstract memory writes
-and revert result for every in-range code and both typed constructors; its
-interpreter does not observe returned bytes. Separately,
+`Compiler.Proofs.IRGeneration.PanicPayloadIR` proves the complete physical
+poststate after the two overlapping stores, including all overlapping word
+observations, and the revert result for every in-range code and both typed
+constructors. The former isolated-word-map result is not valid for physical
+memory. Its interpreter still does not observe revert offsets, lengths or
+returned bytes; the regression counterexamples retain that explicit limitation
+while requiring the complete physical memory state. Separately,
 `Compiler.Proofs.YulGeneration.PanicPayloadBytes` proves the exact 36-byte
 payload for the emitted panic AST, using EVMYulLean's byte-addressed `mstore`
 and `evmRevert` operations for arbitrary initial memory. This local fragment
@@ -1737,3 +1741,15 @@ execution. `AbiPhysicalMemory` supplies bounded loop and allocation composition.
 These modules are explicitly enrolled in the generated axiom inventory. This
 proof integration adds no importer admission, Solidity approximation, oracle,
 project axiom, or EVM resource-equivalence claim.
+
+
+### Physical memory resources in frame proofs
+
+`Compiler.Proofs.Frames.Resource.mem lo hi` denotes physical bytes in the
+half-open interval `[lo, hi)`. Its store footprint spans 32 bytes. The previous
+interpretation as word starting offsets, with a one-entry footprint, is false
+for overlapping EVM stores and is not retained as a frame claim. All binding,
+static context, coupling composition and execution obligations remain explicit.
+`ownedEq_word_window` recovers a complete contained 32-byte word observation
+when both supplied worlds satisfy the physical/word coherence relation; the
+physical byte frame itself requires no coherence assumption.

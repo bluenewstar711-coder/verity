@@ -582,6 +582,8 @@ end Verity.AxiomAudit
 
   -- Contracts/SolidityImportSmoke/PhysicalMemoryFrameChecks.lean
   SolidityImportSmoke.PhysicalMemoryFrameChecks.overlapping_window_changes
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.store_footprint_is_32_bytes
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.overlapping_byte_not_disjoint
   SolidityImportSmoke.PhysicalMemoryFrameChecks.outside_byte_preserved
 
   -- Compiler/SolidityImport/AbiPhysicalMemory.lean
@@ -2465,6 +2467,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/Frames.lean
   Compiler.Proofs.Frames.Resource.disjoint_comm
+  Compiler.Proofs.Frames.Resource.ownedEq_word_window
   Compiler.Proofs.Frames.Resource.ownedEq_refl
   Compiler.Proofs.Frames.Resource.ownedEq_symm
   Compiler.Proofs.Frames.Resource.ownedEq_trans
@@ -8028,4 +8031,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7370 theorems/lemmas (5315 public, 2055 private, 0 sorry'd)
+-- Total: 7373 theorems/lemmas (5318 public, 2055 private, 0 sorry'd)

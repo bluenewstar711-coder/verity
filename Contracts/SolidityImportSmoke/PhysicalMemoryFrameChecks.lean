@@ -1,4 +1,5 @@
 import Compiler.SolidityImport.AbiPhysicalMemory
+import Compiler.Proofs.Frames
 
 namespace SolidityImportSmoke.PhysicalMemoryFrameChecks
 open Compiler.CompilationModel Compiler.CompilationModel.Denote
@@ -11,6 +12,17 @@ theorem overlapping_window_changes :
     (match execStmt oracle [] state (.mstore (.literal 0) (.literal 1)) with
     | .continue after => (after.world.memory 1).val
     | _ => 0) = 256 := by decide
+
+/-- The computable footprint covers all 32 written bytes. -/
+theorem store_footprint_is_32_bytes :
+    Compiler.Proofs.Frames.Stmt.writeFootprint (.mstore (.literal 0) (.literal 1)) =
+      some [.mem 0 32] := by rfl
+
+/-- An offset inside the stored word cannot receive a disjoint frame. -/
+theorem overlapping_byte_not_disjoint :
+    ¬ Compiler.Proofs.Frames.Resource.Disjoint (.mem 1 2) (.mem 0 32) := by
+  change ¬ (2 ≤ 0 ∨ 32 ≤ 1)
+  decide
 
 /-- The byte frame covers arbitrary inputs, not only coherent aligned worlds. -/
 theorem outside_byte_preserved (oracle : DenoteOracle) (fields : List Field)
