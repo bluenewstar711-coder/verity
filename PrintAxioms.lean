@@ -3347,6 +3347,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_byteMemory
   Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
@@ -8142,4 +8143,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7451 theorems/lemmas (5383 public, 2068 private, 0 sorry'd)
+-- Total: 7452 theorems/lemmas (5384 public, 2068 private, 0 sorry'd)

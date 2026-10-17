@@ -1778,5 +1778,7 @@ required. No golden or pilot provenance changes are included.
 `PhysicalMemory` supplies exact source store and transient-store head/continuation
 equations. Its physical-memory correspondence requires equality of the byte
 carriers explicitly; legacy word-view equality alone cannot justify an arbitrary
-physical write. Propagating that stronger relation through whole-function proofs
-is a remaining integration obligation.
+physical write. `FunctionBody.Base` now includes byte-carrier equality in both public and
+constructor runtime/IR relations, and frame initialization copies the physical
+carrier explicitly. Propagating that stronger relation through the remaining
+whole-function statement proofs is a remaining integration obligation.
