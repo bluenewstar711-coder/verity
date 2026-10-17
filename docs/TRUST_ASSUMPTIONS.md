@@ -1722,3 +1722,18 @@ rollback. The source/IR status observations erase payloads; their equations do
 not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
 broader proof consumers still require migration and full exact-head validation
 before release; the unchanged golden and boundary tests are not that gate.
+
+
+### ABI memory proof integration
+
+The ABI reserve, clearing and byte-insertion proofs use the canonical physical
+memory update. Disjoint word observations require nonoverlapping 32-byte
+windows and a coherent input world; different starting addresses alone do not
+establish a frame. Whole-world postconditions retain overlapping word windows,
+allocation-word writes and zero-length copy behavior. The former aligned-grid
+algebra is retained in `AbiMemoryGrid` and connected to physical byte reads by
+`ByteMemoryInverse` and `AbiPhysicalCopy`; it is never substituted for actual
+execution. `AbiPhysicalMemory` supplies bounded loop and allocation composition.
+These modules are explicitly enrolled in the generated axiom inventory. This
+proof integration adds no importer admission, Solidity approximation, oracle,
+project axiom, or EVM resource-equivalence claim.
