@@ -132,9 +132,9 @@ def denoteResultMatchesNativeOn
     (DenoteAgreement.toSourceResult denote) native
 
 /-- Compose function-level denote/source agreement with source-to-native
-correctness: on the event-free fragment, the compiler-free denotation of a
-function matches native execution whenever the trusted source interpretation
-does. -/
+correctness: on the event-free, byte-transport-free fragment, the compiler-free
+denotation of a function matches native execution whenever the trusted source
+interpretation does. -/
 theorem denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn
     {observableSlots : List Nat}
     {spec : CompilationModel.CompilationModel}
@@ -143,6 +143,7 @@ theorem denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn
     {initialWorld : Verity.ContractState}
     {native : Except Compiler.Proofs.YulGeneration.Backends.NativeLoweringError YulResult}
     (hnoEvents : spec.events = [])
+    (hbyteFree : DenoteAgreement.stmtListByteFree fn.body = true)
     (hSource :
       sourceResultMatchesNativeOn observableSlots
         (SourceSemantics.interpretFunction spec fn tx initialWorld) native) :
@@ -151,7 +152,7 @@ theorem denoteResultMatchesNativeOn_of_sourceResultMatchesNativeOn
         (DenoteAgreement.ofIRTransaction tx) initialWorld)
       native := by
   unfold denoteResultMatchesNativeOn
-  rw [DenoteAgreement.denoteFunction_eq spec fn tx initialWorld hnoEvents]
+  rw [DenoteAgreement.denoteFunction_eq spec fn tx initialWorld hnoEvents hbyteFree]
   exact hSource
 
 /-- File-local supported-compiler correctness theorem over native EVMYulLean

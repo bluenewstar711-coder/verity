@@ -1780,5 +1780,44 @@ equations. Its physical-memory correspondence requires equality of the byte
 carriers explicitly; legacy word-view equality alone cannot justify an arbitrary
 physical write. `FunctionBody.Base` now includes byte-carrier equality in both public and
 constructor runtime/IR relations, and frame initialization copies the physical
-carrier explicitly. Propagating that stronger relation through the remaining
-whole-function statement proofs is a remaining integration obligation.
+carrier explicitly. The whole-function statement proofs now carry that stronger
+relation: `runtimeStateMatchesIR_writePhysicalMemoryValue` replaces the former
+isolated-word memory update for `mstore`, `return` and their compiled IR, and
+requires no word-view coherence because both sides recompute the complete word
+view from the same written carrier. A compiled `mstore` reduces its offset modulo
+`2^256`, while the source store does not, so each source/IR store step uses the
+evaluated offset's EVM-word bound.
+
+Source and canonical Denote `return` now perform the same physical 32-byte store
+at offset 0 that the compiled `mstore(0, v); return(0, 32)` performs; previously
+Denote updated only the legacy word view and disagreed with the source semantics
+on the byte carrier. The source `emit` scratch stores
+(`SourceSemantics.eventScratchWorldAfterEmit?`) are likewise physical stores of
+the signature chunk words and normalized unindexed heads at
+`(ptr + 32 * i) mod 2^256`. The event bridge proves that every such key keeps the
+residue of the free-memory pointer modulo 32, so distinct keys below the scratch
+limit address disjoint byte extents and read back exactly. Compiled `calldatacopy`
+still updates only the legacy word view on both the source and IR sides; it
+preserves the byte-carrier relation but is not a physical copy.
+
+The ABI event observables (`AbiEventObservable`, `AbiDynamicEventObservable`)
+read physical memory: their log payload is the ABI word block reduced to EVM
+words (`yulLogDataWords_applyStores_abiBlockWrites`), which equals the encoded
+words whenever they are below `2^256`. The pure `applyWrites` layout lemmas remain
+facts about the historical word-map algorithm.
+
+### Byte-call scope of the Denote/source agreement
+
+`Denote` executes closed byte transports against an explicit byte adversary and
+keeps their exact return buffer in `DenoteState.rawReturndata`; `SourceSemantics`
+models neither. `DenoteAgreement.denote_evalExpr_eq` therefore holds on frames
+without a raw buffer, and `execStmt_eq` / `execStmtList_eq` additionally require
+`stmtByteFree` / `stmtListByteFree`. `execStmt_rawFree` proves that byte-free
+statements never install a raw buffer, so the hypothesis is an invariant of a
+whole run started from an empty buffer. `denote_eq_sourceSemantics` keeps its
+statement: the supported contract surface rejects every ECM, which implies
+byte-freeness (`stmtListByteFree_of_contractSurfaceClosed`). Theorems quantified
+over arbitrary function bodies (`denoteFunction_eq`, `denote_sound`,
+`denote_sound_with_helpers` and the EndToEnd denote-headed wrappers) take
+`stmtListByteFree fn.body = true` explicitly; without it they would equate a byte
+adversary's response with the legacy word oracle, which is false.
