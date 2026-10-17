@@ -1707,6 +1707,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_head
   Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_abiBlockWrites
   Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_getElem
+  Compiler.Proofs.AbiMemoryLayout.applyStores_write_memory
+  -- Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_extent_ge  -- private
+  Compiler.Proofs.AbiMemoryLayout.applyStores_abiBlockWrites_head
+  Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_applyStores_abiBlockWrites
+  Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_applyStores_abiBlockWrites_of_lt
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_length
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_layout
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_head
@@ -2989,6 +2994,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEach_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_rawFree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_agree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_eq
@@ -3002,6 +3013,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteEquivalence.control_flow_constructor
   Compiler.Proofs.IRGeneration.DenoteEquivalence.revert_constructor
   Compiler.Proofs.IRGeneration.DenoteEquivalence.statement_list_composition
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.stmtByteFree_of_contractSurfaceClosed
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.stmtListByteFree_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_functionSelector
   Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_args
   Compiler.Proofs.IRGeneration.DenoteEquivalence.effectiveFields_eq
@@ -3031,6 +3044,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.findDynamicArrayElementAtSlot_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorageAt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorage_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_revertData
   Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_revertedResult
   Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_successResult
   Compiler.Proofs.IRGeneration.DenoteAgreement.denoteFunction_eq
@@ -3171,8 +3185,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_log
 
   -- Compiler/Proofs/IRGeneration/EventObservable.lean
+  Compiler.Proofs.IRGeneration.evalIRExpr_memory_insensitive
+  Compiler.Proofs.IRGeneration.evalIRExprs_memory_insensitive
   Compiler.Proofs.IRGeneration.evalIRExpr_mem_insensitive
   Compiler.Proofs.IRGeneration.evalIRExprs_mem_insensitive
+  Compiler.Proofs.IRGeneration.evalIRExprs_writePhysicalMemoryValue
+  Compiler.Proofs.IRGeneration.applyStores_eq_memory_update
+  Compiler.Proofs.IRGeneration.applyStores_getVar
+  Compiler.Proofs.IRGeneration.evalIRExprs_applyStores
   Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_expr_block
   Compiler.Proofs.IRGeneration.normalizeEventWord_memInsensitive
   Compiler.Proofs.IRGeneration.scalarEventUnindexedStoresFrom_shape
@@ -3588,7 +3608,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cons_eq_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv_with_internals
-  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setBothMemory
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_writePhysicalMemoryValue
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setTransientStorage
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_setMemory
@@ -3883,12 +3903,18 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_let  -- private
   -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_expr  -- private
   -- Compiler.Proofs.IRGeneration.eventIRState_set_memory_eq_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_twice  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_getVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_write  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memory_update  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_memory_update  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_evtPtr_add  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_cons  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_eq_words  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_legacy  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_legacy  -- private
-  -- Compiler.Proofs.IRGeneration.eventSignatureScratchStore_memoryRel  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureScratchStores_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureTopic_of_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_topic0  -- private
@@ -3903,7 +3929,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus_any  -- private
-  -- Compiler.Proofs.IRGeneration.eventUnindexedScratchStore_memoryRel  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedStore_one_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedEntryOk_memory  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedEntriesOk_memory  -- private
@@ -3929,9 +3954,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval  -- private
   -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval_values  -- private
   -- Compiler.Proofs.IRGeneration.eventScratchKey_injective_of_lt  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_preserve_before  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_head  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventScratchKey_mod32  -- private
+  -- Compiler.Proofs.IRGeneration.eventScratchKey_disjoint  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_byte_outside  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memory_of_write  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_head  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_eq_signature  -- private
   -- Compiler.Proofs.IRGeneration.eventChunkBytes32_length  -- private
   -- Compiler.Proofs.IRGeneration.eventByteWordCount_le_self  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureWords_length  -- private
@@ -3947,9 +3976,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_getElem_val  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_eq_of_getElem  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_preserve_before  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_head  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_getElem  -- private
   -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_length  -- private
   -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_getElem  -- private
   -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_of_writeUnindexedScratch  -- private
@@ -3957,7 +3983,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_one  -- private
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_two  -- private
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_three  -- private
-  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_updatePhysical  -- private
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_setVar  -- private
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit_scratch  -- private
   -- Compiler.Proofs.IRGeneration.eventBindingsExactlyMatch_after_emit  -- private
@@ -4335,6 +4361,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.uint256_or_val_eq_lor_mod  -- private
   -- Compiler.Proofs.IRGeneration.uint256_not_val_eq_xor_allOnes_mod  -- private
   -- Compiler.Proofs.IRGeneration.uint256_shl_val_eq_mul_pow_mod  -- private
+  -- Compiler.Proofs.IRGeneration.byteMemory_modifyTransientSlots  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves  -- private
@@ -4989,7 +5016,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventFromResolvedArgs?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
-  Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchWorldAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
   -- Compiler.Proofs.IRGeneration.SourceSemantics.findEntry_filter_ne_eq_findEntry  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne
@@ -8143,4 +8170,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7452 theorems/lemmas (5384 public, 2068 private, 0 sorry'd)
+-- Total: 7479 theorems/lemmas (5403 public, 2076 private, 0 sorry'd)
