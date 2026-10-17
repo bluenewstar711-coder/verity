@@ -1753,3 +1753,30 @@ static context, coupling composition and execution obligations remain explicit.
 `ownedEq_word_window` recovers a complete contained 32-byte word observation
 when both supplied worlds satisfy the physical/word coherence relation; the
 physical byte frame itself requires no coherence assumption.
+
+
+### Physical Error(string) payload proof
+
+`PhysicalPayloadStores` describes sequential stores through the actual byte
+carrier, with complete poststates, preserved storage/events and byte frames.
+`ErrorStringPayloadIR` uses this operation for literal and pointer-relative
+stores rather than the historical isolated word-map update. The pure
+`applyWrites` helper and its header facts remain facts about that old algorithm;
+they no longer certify interpreter execution.
+
+The executed Error(string) theorem preserves all three original header claims
+and adds the exact physical poststate. Its nonwrapping extent premise is
+necessary: logical string lengths and offsets are unbounded naturals, while
+actual stores normalize words and addresses. Recovered bounded chunk/header
+lemmas prove every UTF-8 message byte and zero-padding byte, and
+`execIRStmts_revertWithMessage_payload_slice` connects the complete physical
+slice to actual compiler-emitted execution. This IR interpreter still has no
+revert-data carrier or revert-range observation; these memory facts do not
+claim captured EVM revert bytes. The existing EVM differential checks remain
+required. No golden or pilot provenance changes are included.
+
+`PhysicalMemory` supplies exact source store and transient-store head/continuation
+equations. Its physical-memory correspondence requires equality of the byte
+carriers explicitly; legacy word-view equality alone cannot justify an arbitrary
+physical write. Propagating that stronger relation through whole-function proofs
+is a remaining integration obligation.

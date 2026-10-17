@@ -140,6 +140,17 @@ import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.PhysicalAbiBytes
+import Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex
+import Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores
+import Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes
+import Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringWords
+import Compiler.Proofs.IRGeneration.PhysicalMemory
+import Compiler.Proofs.IRGeneration.PhysicalPayloadStores
 import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
@@ -3149,7 +3160,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.errorStringWrites_mem0
   Compiler.Proofs.IRGeneration.errorStringWrites_mem4
   Compiler.Proofs.IRGeneration.errorStringWrites_mem36
+  Compiler.Proofs.IRGeneration.MstoreWrites.storeTrace
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_physical
+  -- Compiler.Proofs.IRGeneration.ecm_chunker_eq  -- private
+  -- Compiler.Proofs.IRGeneration.errorStringWrites_physical  -- private
   Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_payload_slice
   Compiler.Proofs.IRGeneration.execIRStmt_mstore_ptr
   Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_block
   Compiler.Proofs.IRGeneration.execIRStmt_log
@@ -4855,6 +4871,101 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiBytes.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.chunk_length_le
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.chunks_flatten
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.padded_length
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.fold_bound
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.word_bounded
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiChunkIndex.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_count
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_get
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.read_original
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.read_padding
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiChunkStores.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_length
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_extent
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_zipIdx
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.dataWrites_eq
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.read_chunk
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiWordBytes.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.byte_encoding_unbounded
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.byte_encoding
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.word_encoding
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiWordRecovery.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.paddedWord_list
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.paddedWord_value
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_recovery
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_padding_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.stored_chunk_byte
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringBytes.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.selector_encoding  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.wordBytes_length
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.padding_extent
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_length
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.full_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.full_padding_byte
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_selector_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_offset_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_length_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_original_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_padding_byte  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_slice
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringExecution.lean
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.trace
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.shape
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.execute
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringHeader.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.zeroOffset  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.fourOffset  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.lengthOffset  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.selector_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.offset_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.length_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.data_preserves_header
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_header_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_selector_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_offset_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_length_byte
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringWords.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.applyStores_coherent  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.full_coherent
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.selector_tail_agrees  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.selector_word
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.offset_word
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.length_word
+
+  -- Compiler/Proofs/IRGeneration/PhysicalMemory.lean
+  Compiler.Proofs.IRGeneration.writePhysicalMemoryValue_matches
+  Compiler.Proofs.IRGeneration.source_mstore_of_eval
+  Compiler.Proofs.IRGeneration.source_mstore_cons_of_eval
+  Compiler.Proofs.IRGeneration.source_tstore_of_eval
+  Compiler.Proofs.IRGeneration.source_tstore_cons_of_eval
+
+  -- Compiler/Proofs/IRGeneration/PhysicalPayloadStores.lean
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_stores
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_storage
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_events
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_byte_outside
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_append
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_byte_written
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_stores_revert
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_trace_revert
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.StoreTrace.append
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.StoreTrace.hexStores
 
   -- Compiler/Proofs/IRGeneration/Returndata.lean
   Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
@@ -8031,4 +8142,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7373 theorems/lemmas (5318 public, 2055 private, 0 sorry'd)
+-- Total: 7451 theorems/lemmas (5383 public, 2068 private, 0 sorry'd)
