@@ -953,7 +953,7 @@ SPEC['expected_job_if_conditions']['import-mutations'] = (
     "needs.checks.result == 'success' && needs.build.result == 'success' && "
     "needs.changes.outputs.build == 'true'")
 SPEC['expected_job_runs_on']['import-mutations'] = '[self-hosted, linux, x64, verity, build]'
-SPEC['expected_job_timeouts']['import-mutations'] = 150
+SPEC['expected_job_timeouts']['import-mutations'] = 210
 SPEC['expected_job_strategy_fail_fast']['import-mutations'] = False
 SPEC['expected_build_commands'].remove('solidity_import_mutations.py')
 SPEC['expected_downloaded_artifacts'] = {
