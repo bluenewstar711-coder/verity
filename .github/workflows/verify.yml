@@ -565,7 +565,10 @@ jobs:
     # Compiler.SolidityImport.Import (~2.7 GiB peak), so `--jobs auto` runs one
     # worker per core, capped by available memory (build-medium hosts differ).
     runs-on: [self-hosted, linux, x64, verity, build, build-medium]
-    timeout-minutes: 150
+    # A shard measured 100-122 minutes on idle hosts and over 150 on nippur
+    # (6 workers) while other runs shared the pool; more shards would only queue
+    # behind the same three build-medium runners.
+    timeout-minutes: 210
     needs: [changes, checks, build]
     if: needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'
     strategy:
