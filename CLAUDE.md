@@ -90,11 +90,13 @@ once before committing, and run the full merge gates once before merging.
 - **Reuse local `.lake` build caches on worker nodes**: In a fresh workspace clone, run `scripts/ci_local_persistence.sh restore-lean` or copy an existing `/var/lib/sandboxed-node/work/*/verity/.lake` cache before building imported `.olean` dependencies.
 - **Keep one persistent REPL daemon** (`python3 scripts/lean_repl_daemon.py start`) and iterate on individual lemmas in `<1–3s` using `load-header` + `check`.
 - **Search existing lemmas first** (`git grep`) before proving arithmetic, bitvector, memory, or storage frame properties from scratch.
-- **Test single fixtures/mutants during development** (e.g., `python3 scripts/solidity_import_mutations.py --filter <name>`) before running the full suite at the end.
+- **Test single fixtures/mutants during development** (e.g., `python3 scripts/solidity_import_mutations.py --task <name>`) and use `--jobs auto` (or `--shard I/N --jobs auto`) for full campaigns.
+- **Check zero Lean warning regressions before pushing**: Prefix intentionally unused proof hypotheses with `_` (e.g. `_aligned`) and verify `python3 scripts/check_lean_warning_regression.py --log lake-build.log`.
 - **Keep PRs small and single-purpose**: one Solidity construct family, one proof refactoring slice, or one CI/harness instrument per PR. Stage files explicitly (`git add <paths>`), never `git add -A`.
 
 ### AVOID (Slow & Error-Prone Anti-Patterns Observed in Subagents)
 - **NEVER run `lake build <Module>` in a background loop with `sleep 60` / `sleep 240` polling build logs** to debug tactic errors.
+- **NEVER run serial unsharded 293-mutant loops or two concurrent full mutation campaigns on the same host** (each mutant rebuilds `Import.lean` using ~2.7 GiB RAM; running two full suites concurrently starves CPU/RAM and hits 600s timeouts).
 - **NEVER invoke `repl` as a one-shot pipe** (`echo '{"cmd": ...}' | lake env repl`) per edit; when the command exits, the loaded environment is destroyed and every call pays the full import cost.
 - **NEVER rely on `cd` persisting across separate `Bash` tool calls** (each tool call resets `cwd` to the workspace root; always pass `-C <dir>` or chain `cd <dir> && ...` in the same command).
 - **NEVER leave scratch notes or status files** (`PROGRESS.md`, `NOTES.md`, `TODO.md`, `.bak` files) in the git worktree, and never stage borrowed helper scripts (`git add -A`) into unrelated feature PRs.

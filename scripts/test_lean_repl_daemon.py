@@ -3,10 +3,7 @@
 
 from __future__ import annotations
 
-import json
-import os
 import stat
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -63,12 +60,13 @@ class LeanReplDaemonTests(unittest.TestCase):
     def test_extract_import_header_and_slice(self) -> None:
         sample = self.root / "Sample.lean"
         sample.write_text(
-            "import Std\nopen Classical\n\ndef foo : Nat := 1\ntheorem bar : foo = 1 := rfl\n",
+            "/- Outer /-\n   inner -/\n   still comment -/\nimport Std\nopen Classical\n\ndef foo : Nat := 1\ntheorem bar : foo = 1 := rfl\n",
             encoding="utf-8",
         )
         header = lean_repl_daemon.extract_import_header(sample, None)
-        self.assertEqual(header.strip(), "import Std\nopen Classical")
-        sliced = lean_repl_daemon.extract_file_slice(sample, 4, 5)
+        self.assertIn("import Std\nopen Classical", header)
+        self.assertNotIn("def foo", header)
+        sliced = lean_repl_daemon.extract_file_slice(sample, 7, 8)
         self.assertIn("def foo : Nat := 1", sliced)
         self.assertIn("theorem bar : foo = 1 := rfl", sliced)
 

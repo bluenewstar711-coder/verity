@@ -16,6 +16,7 @@ re-elaborates thousands of lines on every edit. This script keeps a single
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import signal
@@ -97,10 +98,29 @@ def read_repl_response(stdout) -> dict[str, Any]:
     return json.loads(raw)
 
 
+def has_error_messages(resp: dict[str, Any]) -> bool:
+    if "error" in resp:
+        return True
+    for msg in resp.get("messages", []):
+        if msg.get("severity") == "error":
+            return True
+    if "message" in resp and "env" not in resp and "proofState" not in resp:
+        return True
+    return False
+
+
 def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
-    if socket_path.exists():
-        socket_path.unlink()
     socket_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = Path(f"{socket_path}.lock")
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(lock_fd)
+        return 0
+
+    if socket_path.exists():
+        socket_path.unlink(missing_ok=True)
 
     env = os.environ.copy()
     env.setdefault("LEAN_NUM_THREADS", str(os.cpu_count() or 4))
@@ -111,7 +131,7 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
         env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,
     )
@@ -125,6 +145,7 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
 
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(socket_path))
+    os.chmod(socket_path, 0o600)
     server.listen(8)
 
     def cleanup(*_args: Any) -> None:
@@ -143,6 +164,11 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+        except OSError:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, cleanup)
@@ -160,7 +186,11 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                     data += chunk
                 if not data:
                     continue
-                req = json.loads(data.decode("utf-8"))
+                try:
+                    req = json.loads(data.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    conn.sendall(json.dumps({"error": f"invalid request: {exc}"}).encode("utf-8"))
+                    continue
                 action = req.get("action", "send")
                 if action == "status":
                     resp = {
@@ -176,14 +206,21 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                     conn.sendall(json.dumps({"ok": True, "stopped": True}).encode("utf-8"))
                     cleanup()
 
-                payload = req["payload"]
+                payload = req.get("payload")
+                if not isinstance(payload, dict):
+                    conn.sendall(json.dumps({"error": "missing dict payload"}).encode("utf-8"))
+                    continue
                 mark_header = bool(req.get("mark_header", False))
-                assert proc.stdin is not None and proc.stdout is not None
-                stanza = json.dumps(payload) + "\n\n"
-                proc.stdin.write(stanza)
-                proc.stdin.flush()
-                repl_resp = read_repl_response(proc.stdout)
-                if "env" in repl_resp:
+                try:
+                    assert proc.stdin is not None and proc.stdout is not None
+                    stanza = json.dumps(payload) + "\n\n"
+                    proc.stdin.write(stanza)
+                    proc.stdin.flush()
+                    repl_resp = read_repl_response(proc.stdout)
+                except Exception as exc:
+                    conn.sendall(json.dumps({"error": f"REPL communication error: {exc}"}).encode("utf-8"))
+                    continue
+                if "env" in repl_resp and not has_error_messages(repl_resp):
                     state["last_env"] = repl_resp["env"]
                     if mark_header:
                         state["header_env"] = repl_resp["env"]
@@ -212,15 +249,6 @@ def request_daemon(socket_path: Path, message: dict[str, Any], timeout: float = 
     return json.loads(b"".join(chunks).decode("utf-8"))
 
 
-def has_error_messages(resp: dict[str, Any]) -> bool:
-    for msg in resp.get("messages", []):
-        if msg.get("severity") == "error":
-            return True
-    if "message" in resp and "env" not in resp and "proofState" not in resp:
-        return True
-    return False
-
-
 def extract_file_slice(path: Path, start_line: int, end_line: int | None) -> str:
     lines = path.read_text(encoding="utf-8").splitlines()
     start_idx = max(0, start_line - 1)
@@ -233,15 +261,13 @@ def extract_import_header(path: Path, until_line: int | None) -> str:
     if until_line is not None:
         return "\n".join(lines[:until_line])
     header_lines: list[str] = []
-    in_block_comment = False
+    block_comment_depth = 0
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("/-"):
-            in_block_comment = True
-        if in_block_comment:
+        depth_delta = stripped.count("/-") - stripped.count("-/")
+        if stripped.startswith("/-") or block_comment_depth > 0:
+            block_comment_depth = max(0, block_comment_depth + depth_delta)
             header_lines.append(line)
-            if "-/" in stripped:
-                in_block_comment = False
             continue
         if (
             not stripped
@@ -269,7 +295,7 @@ def cmd_start(args: argparse.Namespace) -> int:
                 print(json.dumps({"status": "already_running", **status}))
                 return 0
         except OSError:
-            socket_path.unlink(missing_ok=True)
+            pass
 
     repl_bin = ensure_repl_binary(
         Path(args.repl_bin) if args.repl_bin else None,
@@ -438,7 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_send.add_argument("--proof-state", type=int, default=None)
     p_send.add_argument("--json", default=None)
     p_send.add_argument("--timeout", type=float, default=300.0)
-    p_send.add_argument("--fail-on-error", action="store_true", default=True)
+    p_send.add_argument("--fail-on-error", action=argparse.BooleanOptionalAction, default=True)
     p_send.set_defaults(func=cmd_send)
 
     p_status = sub.add_parser("status", help="Check daemon status and saved env IDs")
