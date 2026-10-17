@@ -132,7 +132,6 @@ def generated_program(output, count, cases, seed, i, tree, bits):
             divergence = {"metamorphic": str(directory), "reference": str(reference_dir),
                           "rows": [{"line": k, "reference": a, "variant": b} for k, (a, b)
                                    in enumerate(zip(reference.splitlines(), rows.splitlines())) if a != b]}
-            write_json(output / "metamorphic-divergence.json", divergence)
             return reports, [divergence]
         reference, reference_dir = rows, directory
     return reports, []
@@ -164,6 +163,10 @@ def generated_campaign(output, count, cases, seed, jobs=1):
                 reports.extend(program_reports)
                 write_json(output / "program-results.json", reports)
                 if divergences:
+                    # Only the reported (first in program order) divergence is archived;
+                    # concurrent workers never share this file.
+                    if "metamorphic" in divergences[0]:
+                        write_json(output / "metamorphic-divergence.json", divergences[0])
                     return {"programs": len(reports), "divergences": divergences}
         finally:
             for future in futures:
@@ -894,8 +897,6 @@ def stateful_named_helper_return_source(fixture: str, variant: str) -> str:
             '        result = result + 3;\n        return result;\n    }',
             '        result = result + 1;\n    }':
             '        result = result + 1;\n        return result;\n    }',
-            '        result = result + 5;\n    }':
-            '        result = result + 5;\n        return result;\n    }',
             '        result = result + 6;\n    }':
             '        result = result + 6;\n        return result;\n    }',
             '        result = result + zero;\n    }':

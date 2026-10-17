@@ -583,11 +583,7 @@ def guard_mutant(mutant: str) -> None:
 
 
 def module_campaign(module: str, label: str, timeout: int, *extra: str) -> dict:
-    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
-    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
-                f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
-    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
-                   cwd=ROOT, check=True, timeout=timeout)
+    output = module_campaign_output(module, label, timeout, *extra)
     return json.loads((output / "complete.json").read_text())
 
 
@@ -645,11 +641,11 @@ def abi_rejections() -> None:
     print("pass ABI rejection campaigns", flush=True)
 
 
-def module_campaign_output(module: str, label: str, timeout: int) -> Path:
+def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -> Path:
     output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
     launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
                 f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
-    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output)],
+    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
                    cwd=ROOT, check=True, timeout=timeout)
     return output
 
@@ -738,7 +734,7 @@ def shard_of(items: list, index: int, count: int) -> list:
     """Deterministic longest-processing-time assignment of tasks to shards."""
     loads = [0] * count
     chosen = []
-    for position, item in enumerate(items):
+    for item in items:
         target = min(range(count), key=lambda s: (loads[s], s))
         loads[target] += item[1]
         if target == index:
@@ -754,7 +750,10 @@ def main() -> None:
     parser.add_argument("--list", action="store_true", help="print the selected tasks and exit")
     parser.add_argument("--task", action="append", help="run only the named task (repeatable)")
     args = parser.parse_args()
-    index, count = (int(part) for part in args.shard.split("/"))
+    try:
+        index, count = (int(part) for part in args.shard.split("/"))
+    except ValueError:
+        parser.error("--shard must be I/N with 0 <= I < N")
     if not 0 <= index < count:
         parser.error("--shard must be I/N with 0 <= I < N")
     if args.jobs == "auto":

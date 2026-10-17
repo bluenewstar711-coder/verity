@@ -2,7 +2,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
-import threading
 
 from .engine import HarnessError, command, write_json
 
@@ -119,13 +118,13 @@ def run_checks(output, checks, transactions, seed, jobs=1):
 
     ``command`` captures subprocess output until the process exits, so a
     multi-check campaign otherwise looks idle for its whole wall time.
-    Checks are independent (each writes its own output directory), so up to
-    ``jobs`` of them run at once; the first failure is raised once every
-    started check has finished.
+    Checks write separate output directories and only read the shared Lake
+    build (prepared up front by ``stateful_campaign``), so up to ``jobs`` of
+    them run at once. Completion is still recorded in check order, and the
+    first failure in that order is raised once every started check finished.
     """
     completed = []
     total = len(checks)
-    lock = threading.Lock()
     # The primary script installs scripts/ on sys.path, but subprocess modules
     # need it explicitly; use a small launcher without altering caller state.
     launcher = ('import os,runpy,sys; sys.path.insert(0,"scripts"); '
@@ -136,17 +135,16 @@ def run_checks(output, checks, transactions, seed, jobs=1):
         print(f'stateful check {index}/{total}: {name}', flush=True)
         argv = [sys.executable, '-c', launcher, args[1], *args[2:]]
         command(argv, timeout=1800, log=output / f'{name}.log')
-        with lock:
-            completed.append(name)
-            write_json(output / 'completed.json', completed)
         print(f'stateful check {index}/{total}: {name} done', flush=True)
 
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = [pool.submit(run, index, name, args)
                    for index, (name, args) in enumerate(checks, start=1)]
         try:
-            for future in futures:
+            for (name, _), future in zip(checks, futures):
                 future.result()
+                completed.append(name)
+                write_json(output / 'completed.json', completed)
         finally:
             for future in futures:
                 future.cancel()
