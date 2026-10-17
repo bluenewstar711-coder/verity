@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import subprocess
 
-from .engine import HarnessError, command, write_json
+from .engine import MUTANT_BUILD_TIMEOUT, HarnessError, command, write_json
 
 
 MUTANTS = {
@@ -51,7 +51,8 @@ def main():
         directory.mkdir(parents=True, exist_ok=False)
         with (directory / 'build.log').open('x') as log:
             result = subprocess.run(['lake', 'build', target], cwd=work,
-                                    stdout=log, stderr=subprocess.STDOUT, timeout=600)
+                                    stdout=log, stderr=subprocess.STDOUT,
+                                    timeout=MUTANT_BUILD_TIMEOUT)
         write_json(directory / 'receipt.json', {'head': head, 'exit': result.returncode,
             'target': target, 'coreSha256': hashlib.sha256(source.read_bytes()).hexdigest(),
             'proofSha256': hashlib.sha256(proof.read_bytes()).hexdigest()})
