@@ -1616,6 +1616,11 @@ mutual
                     externalCallIndex := state.externalCallIndex + 1 }
         | none => .revert
     | state, .ecm mod args =>
+        -- A closed byte transport must not fall through to the legacy
+        -- call-index/word-return oracle. Its byte-exact dispatch is not yet
+        -- connected here; payload-free failure remains an instrumentation
+        -- error in the transaction harness, never a fabricated empty revert.
+        if mod.byteTransport.isSome then .revert else
         match evalExprList oracle fields state args with
         | some _ =>
             if state.externalCallSucceeded state.externalCallIndex then

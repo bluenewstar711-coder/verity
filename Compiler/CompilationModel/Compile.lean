@@ -482,7 +482,7 @@ def compileStmtWithFork (fields : List Field) (events : List EventDef := [])
       let ctx : ECM.CompilationContext := {
         isDynamicFromCalldata := dynamicSource == .calldata
       }
-      let generated ← mod.compile ctx compiledArgs
+      let generated ← mod.compileCanonical ctx compiledArgs
       pure (ecmYulRegion generated)
   | Stmt.returnValues values => do
       if isInternal then

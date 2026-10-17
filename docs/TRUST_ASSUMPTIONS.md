@@ -1589,3 +1589,68 @@ trailing bytes of the final word on long writes, and zero out stale long-storage
 words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
 bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
 storage-pointer locals remain rejected with located diagnostics.
+# Byte-exact external-call boundary prototype
+
+`Verity.Core.Model.ByteExternalCall` defines requests and responses using
+`List UInt8`, retaining arbitrary-length return and revert payloads. Its
+adversary is an explicit parameter with a proved static-success world
+preservation obligation. Failure has no committed world by construction;
+access traces survive call failure and outer rollback. The world parameter
+must contain all account state and logs, and accesses must identify accounts
+and slots when connected to execution.
+
+`Verity.Core.Model.DenoteByteExternalCalls` attaches that carrier to the actual
+`DenoteState`, `ContractState` and account-qualified `StorageKey` types. Its
+executable call step preserves caller bindings, retains failed-call accesses,
+and rolls back all storage keys and events on an outer frame failure. Raw
+returndata remains in a separate byte buffer; it does not update the legacy
+word-valued `ContractState.returndata`.
+
+`Compiler.SolidityImport.ByteCallTransactions.bubble` connects failed raw
+responses to the existing `Transactions.finishFrame` using
+`StmtOutcome.revertWithData`. It restores the entire entry world and retains
+the touched-access trace. A successful child response is explicitly rejected
+by this bubbling operation. It does not decode a successful interface return
+or implement a call instruction.
+
+`Compiler.Modules.SolidityStaticCall.uint256Module` is a development ECM
+transport for static interface calls with one `uint256` result. Unlike the
+exact-size Oracle module, it accepts at least 32 return bytes, decodes the
+first word, rejects shorter successful data and bubbles failure bytes. No
+callee interface behavior is assumed (`axioms := []`); the adversary determines
+the response. Its compilation `proofStatus` remains `.assumed`: 17 real-EVM
+solc-versus-generated-Yul cases validate the transport, but no Yul translation
+proof or importer integration is claimed. Denote execution and quotation must
+be completed before any Solidity source call is admitted.
+
+`DenoteByteExternalCalls.decodeStaticUint256` now uses the byte response to
+produce the canonical Denote return/revert outcome. Through the unchanged
+transaction finisher, its status and exact return/revert bytes agree with all
+17 recorded A/C oracle-transport cases. Three compiled decoder mutations are
+detected. This is a response-decoder check; B request construction, adversary
+dispatch, cross-account traces, and complete imported-function A/B/C execution
+are still unverified.
+
+The composed static step now constructs the request using bounded selector,
+address and ABI-word types and supplies it to the adversary. The readonly mock
+constructor can depend on the complete request and current world, and preserves
+the world by construction. Focused tests check calldata encoding, request-dependent
+target dispatch, raw failure bytes and account-qualified touched slots. The
+canonical statement interpreter, compiled importer quotation and full replay
+adapter still do not use this step.
+
+Closed ECM transport data now participate in module identity, quotation and
+canonical compiler dispatch. Metadata must match the descriptor's canonical
+module; for tagged modules the compiler ignores the opaque closure and compiles
+from the descriptor. Quotation reconstructs that same module. This closes the
+function-quotation gap without selecting semantics by module name. Until its
+byte dispatch is connected, canonical Denote rejects tagged transports rather
+than routing them through the legacy word-return/call-index oracle. The emitted
+Yul is byte-identical to the independently validated A/C transport.
+
+This is an independent boundary prototype. The importer, canonical Denote
+ECM execution, EVM gas accounting, cross-account tracing, and compiled-model
+equivalence are not yet connected to it. No new external Solidity construct
+is admitted by this module, and its lemmas do not prove an external contract's
+behavior. Real-EVM observations remain separate validation evidence until
+the same requests and responses execute through all three routes.
