@@ -8,10 +8,10 @@ def selectorWord (selector : Nat) : Nat :=
   (selector % selectorModulus) * (2 ^ selectorShift)
 
 def calldataloadWord (selector : Nat) (calldata : List Nat) (offset : Nat) : Nat :=
-  if offset = 0 then
-    selectorWord selector
-  else if offset < 4 then
-    0
+  if offset < 4 then
+    -- The trailing selector bytes followed by the leading ABI data bytes.
+    ((selector % (2 ^ (8 * (4 - offset)))) * (2 ^ (8 * (28 + offset))) +
+      (calldata.getD 0 0 % evmModulus) / (2 ^ (8 * (4 - offset)))) % evmModulus
   else
     -- EVM-faithful byte-addressed read. The `calldata : List Nat` is the data
     -- region (starting at byte 4), each entry a 32-byte big-endian word. A read
@@ -33,18 +33,9 @@ theorem calldataloadWord_lt_modulus (selector : Nat) (calldata : List Nat) (offs
   have hmod : 0 < evmModulus := by decide
   unfold calldataloadWord
   split
-  · unfold selectorWord
-    calc
-      (selector % selectorModulus) * 2 ^ selectorShift <
-          selectorModulus * 2 ^ selectorShift :=
-        Nat.mul_lt_mul_of_pos_right (Nat.mod_lt _ (by decide)) (by decide)
-      _ = evmModulus := by rfl
-  split
-  · exact hmod
-  dsimp
-  split
   · exact Nat.mod_lt _ hmod
-  · exact Nat.mod_lt _ hmod
+  · dsimp only []
+    split <;> exact Nat.mod_lt _ hmod
 
 /-- Memory word offsets written by `calldatacopy dst src size` under the
 word-addressed memory model used by the source semantics and the IR

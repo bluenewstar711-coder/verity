@@ -750,7 +750,7 @@ def denoteScalarBody
       { world := { world with blockTimestamp := Verity.Core.Uint256.ofNat timestamp }
         bindings := bindings } body with
   | .stop state | .continue state | .return _ state => state.observedReturnWords
-  | .revert | .revertWithData _ => none
+  | .revert | .revertWithData _ | .interpretationError _ | .exceptional _ => none
 
 private theorem boolAnd2 {a b : Bool} (h : (a && b) = true) : a = true ∧ b = true := by
   cases a <;> cases b <;> simp_all
@@ -764,6 +764,7 @@ A revert has no successor state. -/
 def preservesWorld (origin : DenoteState) : StmtOutcome → Prop
   | .continue next | .stop next | .return _ next => next.world = origin.world
   | .revert | .revertWithData _ => True
+  | .interpretationError _ | .exceptional _ => False
 
 mutual
 
@@ -836,6 +837,8 @@ theorem execStmtList_slice_world
         simpa [preservesWorld, hExec] using hone
       · simp [preservesWorld]
       · simp [preservesWorld]
+      · simp [preservesWorld, hExec] at hone
+      · simp [preservesWorld, hExec] at hone
 
 end
 

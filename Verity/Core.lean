@@ -15,6 +15,7 @@ import Verity.Core.FiniteSet
 import Verity.Core.Intrinsics
 import Verity.Core.StorageAttr
 import Verity.Core.ByteMemory
+import Verity.Core.Model.Create2Accounts
 
 namespace Verity
 
@@ -422,6 +423,11 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- Explicit nonce/code/balance projection for creation effects. A client
+      initializing live EVM accounts must supply their actual projection.
+      Keeping this in the world ensures transaction snapshots retain it.
+      This field alone does not supply CREATE2 execution semantics. -/
+  creationAccounts : Core.Model.Create2Accounts.Accounts := fun _ => {}
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
       data; `returndatasize()` is `32 * returndata.length`. -/

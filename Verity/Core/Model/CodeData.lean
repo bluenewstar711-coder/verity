@@ -173,7 +173,16 @@ def create2AddressFromMemory (memory : Nat → Uint256)
     (offset size salt : Uint256) (deployer : Address) : Address :=
   create2Address salt
     (Uint256.ofNat (KeccakEngine.byteArrayToNatBE
-      (memoryBytes memory offset.val size.val))) deployer
+      (KeccakEngine.keccak256 (memoryBytes memory offset.val size.val)))) deployer
+
+/-- Pin both EIP-1014 hashes: initcode is hashed before its digest enters the
+    outer CREATE2 preimage. This equation rejects the raw-initcode mutation. -/
+theorem create2AddressFromMemory_eq_hashed_initcode (memory : Nat → Uint256)
+    (offset size salt : Uint256) (deployer : Address) :
+    create2AddressFromMemory memory offset size salt deployer =
+      create2Address salt
+        (Uint256.ofNat (KeccakEngine.byteArrayToNatBE
+          (KeccakEngine.keccak256 (memoryBytes memory offset.val size.val)))) deployer := rfl
 
 @[simp] theorem natBytesBE_size (width n : Nat) :
     (natBytesBE width n).size = width := by
