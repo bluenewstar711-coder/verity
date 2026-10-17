@@ -707,11 +707,13 @@ def tasks(update_golden: bool) -> list:
 
 
 def auto_jobs() -> int:
-    """One worker per usable core, bounded by memory.
+    """One worker per usable core minus two, bounded by memory.
 
     Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
     peak) plus its campaign; budget 4 GiB per worker so hosts with less memory
-    than cores (or a cgroup cap) do not swap.
+    than cores (or a cgroup cap) do not swap. Campaigns also run their own
+    `lean --run` and anvil processes, so two cores stay free for them: with one
+    worker per core, campaign subprocesses overran their time budgets.
     """
     cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
     limits = []
@@ -727,7 +729,7 @@ def auto_jobs() -> int:
     except (OSError, ValueError):
         pass
     by_memory = min(limits) // (4 << 30) if limits else cores
-    return max(1, min(cores, by_memory))
+    return max(1, min(cores - 2, by_memory))
 
 
 def shard_of(items: list, index: int, count: int) -> list:
@@ -777,10 +779,16 @@ def main() -> None:
     failures = []
 
     def timed(name, run):
-        # Durations feed the shard weights in `tasks()`.
+        # Durations feed the shard weights in `tasks()`. A failed task runs once
+        # more in a fresh snapshot: a surviving mutant fails both attempts, while
+        # a campaign that overran a time budget on a loaded host gets a retry.
         start = time.monotonic()
         try:
-            run()
+            try:
+                run()
+            except BaseException as error:
+                print(f"RETRY {name} after failure: {error}", file=sys.stderr, flush=True)
+                run()
         finally:
             print(f"task {name}: {time.monotonic() - start:.0f}s", flush=True)
 
