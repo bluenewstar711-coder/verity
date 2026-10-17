@@ -2291,10 +2291,22 @@ def stateful_ecdsa_merkle_checkpoints_storage_slot_source(fixture: str, variant:
             'stepKey', 'stepVal', 'newVal', 'msgHash', 'sig65', 'signer1', 'signer2',
             'badSig', 'badErr', 'badArg', 'labelSlot', 'payloadSlot', 'payloadLen',
             'recentVal', 'lowerVal', 'sibling', 'leaf', 'pairRoot',
+            # Wrapper struct, helper, and library names are recognized structurally.
+            'StorageSlotSlice40', 'StringSlot', 'BytesSlot', 'getStringSlot', 'getBytesSlot',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
-        return re.sub(token, lambda m: m.group(0) + '_renamed'
-                      if m.group(0) in names else m.group(0), fixture)
+        renamed = re.sub(token, lambda m: m.group(0) + '_renamed'
+                         if m.group(0) in names else m.group(0), fixture)
+        # The single `string`/`bytes` wrapper member need not be called `value`.
+        for before, after in {'string value;': 'string contents;',
+                              'bytes value;': 'bytes contents;'}.items():
+            if renamed.count(before) != 1:
+                raise ValueError('ecdsa-merkle-checkpoints-storage-slot variant anchor changed')
+            renamed = renamed.replace(before, after)
+        member_reads = len(re.findall(r'\.value\b', renamed))
+        if member_reads < 10:
+            raise ValueError('ecdsa-merkle-checkpoints-storage-slot variant anchor changed')
+        return re.sub(r'\.value\b', '.contents', renamed)
     if variant == 'expanded-ecdsa-merkle-checkpoints-storage-slot':
         replacements = {
             'uint8 v = (input & 1) == 0 ? 27 : 28;':
@@ -2325,6 +2337,9 @@ def stateful_create2_clones_msgdata_deque_source(fixture: str, variant: str) -> 
             'c2Custom', 'c2Self', 'cloneCustom', 'cloneSelf',
             'cHash', 'leadNoise', 'tailKeep', 'govActionHash', 'poppedTail',
             'backKeep', 'backTarget', 'backNoise', 'remGov', 'remBack',
+            # Bounded-range pop helpers are recognized structurally, not by name.
+            'DoubleEndedQueueSlice41', 'Bytes32Deque', '_begin', '_end', '_data',
+            'popFront', 'popBack', 'pushFront', 'pushBack', 'frontIndex', 'backIndex',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'

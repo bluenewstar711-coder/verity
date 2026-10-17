@@ -1064,6 +1064,7 @@ contract C {
         diagnostic = 'deque pop while loop body must be empty'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 library DoubleEndedQueue {
+ error QueueEmpty();
  struct Bytes32Deque {
   uint128 _begin;
   uint128 _end;
@@ -1072,6 +1073,7 @@ library DoubleEndedQueue {
  function popFront(Bytes32Deque storage deque) internal returns (bytes32 value) {
   unchecked {
    uint128 frontIndex = deque._begin;
+   if (frontIndex == deque._end) revert QueueEmpty();
    value = deque._data[frontIndex];
    delete deque._data[frontIndex];
    deque._begin = frontIndex + 1;
