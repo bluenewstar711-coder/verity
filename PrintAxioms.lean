@@ -603,6 +603,7 @@ import Compiler.Proofs.IRGeneration.NativeSourceDynamicThirdStore
 import Compiler.Proofs.IRGeneration.NativeSourceDynamicTransportReturn
 import Compiler.Proofs.IRGeneration.NativeSourceDynamicTwoStores
 import Compiler.Proofs.IRGeneration.NativeSourceElementAllocationDecodes
+import Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer
 import Compiler.Proofs.IRGeneration.NativeSourceEmptyCopy
 import Compiler.Proofs.IRGeneration.NativeSourceEmptyPayload
 import Compiler.Proofs.IRGeneration.NativeSourceEmptyRevert
@@ -9759,6 +9760,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.NativeSourceElementAllocationDecodes.decode824
   Compiler.Proofs.IRGeneration.NativeSourceElementAllocationDecodes.decode825
 
+  -- Compiler/Proofs/IRGeneration/NativeSourceElementFreePointer.lean
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.push_continue
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.load_continue
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.pushed_pc
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.read_execute
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.read_gas
+  Compiler.Proofs.IRGeneration.NativeSourceElementFreePointer.read_frame
+
   -- Compiler/Proofs/IRGeneration/NativeSourceEmptyCopy.lean
   Compiler.Proofs.IRGeneration.NativeSourceEmptyCopy.write_zero
   Compiler.Proofs.IRGeneration.NativeSourceEmptyCopy.first_memory
@@ -15249,4 +15258,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 12488 theorems/lemmas (10086 public, 2402 private, 0 sorry'd)
+-- Total: 12494 theorems/lemmas (10092 public, 2402 private, 0 sorry'd)

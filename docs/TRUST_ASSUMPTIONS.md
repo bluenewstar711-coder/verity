@@ -4736,3 +4736,5 @@ The remaining address-helper scanner certificates are complete: all nine bounded
 `NativeSourceArrayElementOutcome` proves actual canonical eight-instruction acceptance at817/exact28gas and twelve-instruction short-span rejection with exact empty revert bytes/exact34gas. Rejection follows natural remaining-byte bounds, with explicit signed-size/cursor bounds. Element allocation and full iteration remain open; CREATE2 admission stays closed.
 
 `NativeSourceElementAllocationDecodes` verifies pinned817..825 allocation entry: PUSH64/MLOAD/SWAP1/PUSH128/DUP3/ADD/SWAP1 and both immediates. Actual memory expansion, free-pointer bounds and complete allocation remain open; CREATE2 admission stays closed.
+
+`NativeSourceElementFreePointer` proves the pinned 817 PUSH64 / 819 MLOAD execution prefix with actual memory-expansion gas and exact memory/world frames. Its six laws retain explicit code, PC, stack-depth and gas hypotheses; this does not establish whole CREATE2 equivalence or enable importer admission. Checked interactively with Lean REPL v4.31.0; production build and global exact-head gates are separately required.
