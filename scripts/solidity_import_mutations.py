@@ -472,7 +472,7 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -636,6 +636,10 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
                and r["witness"]["transactions"] for r in hashing["results"]):
         raise SystemExit("hashing mutants require minimal reproduced runtime witnesses")
     print("pass ABI hashing mutations")
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=1800)
+    print("pass canonical byte-call and exact empty-revert mutations")
     print("import mutations passed")
 
 
