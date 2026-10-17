@@ -87,15 +87,17 @@ once before committing, and run the full merge gates once before merging.
 
 ### DO (Fast & Reliable)
 - **Always set `LEAN_NUM_THREADS=$(nproc)`** on every `lake` or `lean` command.
+- **Reuse local `.lake` build caches on worker nodes**: In a fresh workspace clone, run `scripts/ci_local_persistence.sh restore-lean` or copy an existing `/var/lib/sandboxed-node/work/*/verity/.lake` cache before building imported `.olean` dependencies.
 - **Keep one persistent REPL daemon** (`python3 scripts/lean_repl_daemon.py start`) and iterate on individual lemmas in `<1–3s` using `load-header` + `check`.
 - **Search existing lemmas first** (`git grep`) before proving arithmetic, bitvector, memory, or storage frame properties from scratch.
 - **Test single fixtures/mutants during development** (e.g., `python3 scripts/solidity_import_mutations.py --filter <name>`) before running the full suite at the end.
-- **Keep PRs small and single-purpose**: one Solidity construct family, one proof refactoring slice, or one CI/harness instrument per PR.
+- **Keep PRs small and single-purpose**: one Solidity construct family, one proof refactoring slice, or one CI/harness instrument per PR. Stage files explicitly (`git add <paths>`), never `git add -A`.
 
 ### AVOID (Slow & Error-Prone Anti-Patterns Observed in Subagents)
 - **NEVER run `lake build <Module>` in a background loop with `sleep 60` / `sleep 240` polling build logs** to debug tactic errors.
 - **NEVER invoke `repl` as a one-shot pipe** (`echo '{"cmd": ...}' | lake env repl`) per edit; when the command exits, the loaded environment is destroyed and every call pays the full import cost.
-- **NEVER leave scratch notes or status files** (`PROGRESS.md`, `NOTES.md`, `TODO.md`, `.bak` files) in the git worktree.
+- **NEVER rely on `cd` persisting across separate `Bash` tool calls** (each tool call resets `cwd` to the workspace root; always pass `-C <dir>` or chain `cd <dir> && ...` in the same command).
+- **NEVER leave scratch notes or status files** (`PROGRESS.md`, `NOTES.md`, `TODO.md`, `.bak` files) in the git worktree, and never stage borrowed helper scripts (`git add -A`) into unrelated feature PRs.
 - **NEVER write monolithic tactic scripts (>30 lines)** or unconstrained `simp` calls over huge definitions; they cause `maxHeartbeats` timeouts and brittle proofs.
 - **NEVER drop work silently during rebases/merges**: inspect both sides of every conflict, keep every improvement, and fold duplicate PRs explicitly before closing.
 
