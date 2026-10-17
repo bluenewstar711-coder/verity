@@ -380,7 +380,7 @@ def writeUintSlots (world : Verity.ContractState) (slots : List Nat) (value : Na
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map wordNormalize
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeStorageWordSlot (world : Verity.ContractState) (slot wordOffset value : Nat) :
     Verity.ContractState :=
@@ -394,7 +394,7 @@ def writeStorageWordSlots (world : Verity.ContractState) (slots : List Nat) (wor
   let word : Verity.Core.Uint256 := value
   let addr := Verity.wordToAddress word
   let targets := slots.map (fun slot => wordNormalize (slot + wordOffset))
-  (world.writeSlots targets word).writeAddrSlots targets addr
+  (world.writePhysicalSlots targets word).writeAddrSlots targets addr
 
 def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
@@ -439,7 +439,7 @@ def writeUintFieldSlots (fields : List Field) (fieldName : String)
             world.modifyTransientSlots targets
               (fun current => packedWordWrite current.val value packed)
           else
-            world.modifySlots targets
+            world.modifyPhysicalSlots targets
               (fun current => packedWordWrite current.val value packed)
       | none =>
           if field.isTransient then writeTransientTargets world slots value
@@ -468,7 +468,7 @@ def writeMappingTargets (fields : List Field) (fieldName : String)
   if fieldIsTransient fields fieldName then
     writeTransientTargets world targets value
   else
-    world.writeSlots (targets.map wordNormalize) (value : Verity.Core.Uint256)
+    world.writePhysicalSlots (targets.map wordNormalize) (value : Verity.Core.Uint256)
 
 def writeAddressKeyedMappingSlots
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
@@ -499,7 +499,7 @@ def writeAddressKeyedMappingChainSlots
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map (fun slot => wordNormalize (mappingSlotChain slot keys))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordSlots
     (world : Verity.ContractState) (slots : List Nat) (key wordOffset value : Nat) :
@@ -508,7 +508,7 @@ def writeAddressKeyedMappingWordSlots
   let targets :=
     slots.map (fun slot =>
       wordNormalize (Compiler.Proofs.abstractMappingSlot slot key + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def readFixedUint128ArrayElement
     (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
@@ -527,7 +527,7 @@ def writeFixedUint128ArrayElementSlots
     let offset := (index % 2) * 128
     let packed : PackedBits := { offset := offset, width := 128 }
     let targets := slots.map (fun slot => wordNormalize (slot + index / 2))
-    some (world.modifySlots targets (fun current => packedWordWrite current.val value packed))
+    some (world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed))
   else
     none
 
@@ -538,7 +538,7 @@ def writeAddressKeyedMappingPackedWordSlots
   let targets :=
     slots.map (fun slot =>
       wordNormalize (Compiler.Proofs.abstractMappingSlot slot key + wordOffset))
-  world.modifySlots targets (fun current => packedWordWrite current.val value packed)
+  world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMappingPackedWordFieldSlots
     (fields : List Field) (fieldName : String)
@@ -562,7 +562,7 @@ def writeAddressKeyedMapping2PackedWordSlots
       wordNormalize
         (Compiler.Proofs.abstractMappingSlot
           (Compiler.Proofs.abstractMappingSlot slot key1) key2 + wordOffset))
-  world.modifySlots targets (fun current => packedWordWrite current.val value packed)
+  world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMapping2PackedWordFieldSlots
     (fields : List Field) (fieldName : String)
@@ -635,7 +635,7 @@ def writeAddressKeyedMapping2WordSlots
       (Compiler.Proofs.abstractMappingSlot
         (Compiler.Proofs.abstractMappingSlot slot key1)
         key2 + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordFieldSlots
     (fields : List Field) (fieldName : String)

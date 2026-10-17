@@ -85,12 +85,14 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
     throw "duplicate foreign initial storage slot"
   unless externalStorage.isEmpty || byteCalls.adversary.isSome do
     throw "foreign initial storage requires an explicit byte-call environment"
-  let mut world := Verity.defaultState.withStorageWords fun key =>
+  let foreignWorld := Verity.defaultState.withStorageWords fun key =>
     match key with
-    | .slot slot => Uint256.ofNat ((storage.find? (·.1 == slot)).map Prod.snd |>.getD 0)
     | .contractSlot owner slot => Uint256.ofNat
         ((externalStorage.find? (·.1 == (owner, slot))).map Prod.snd |>.getD 0)
     | _ => 0
+  let mut world := storage.foldl
+    (fun current entry => current.writePhysicalSlot entry.1 (Uint256.ofNat entry.2))
+    { foreignWorld with thisAddress := Address.ofNat account }
   let externalFns := model.functions.filter fun fn =>
     !fn.isInternal && !isInteropEntrypointName fn.name
   let dispatch := externalFns.map fun fn =>
@@ -162,6 +164,9 @@ def execute (model : CompilationModel) (oracle : DenoteOracle) (input : Json)
     let touched := touched.eraseDups
     let slots := (touched ++ observed).eraseDups
     world := result.frame.world
+    unless slots.all (fun (owner, slot) => owner != account || world.readSlot slot ==
+        (world.accountWorld (Address.ofNat account)).storageAt slot) do
+      throw "model flat/account storage observations are incoherent"
     rows := rows.push (Json.mkObj [
       ("id", toJson ident), ("status", toJson (if result.frame.success then "ok" else "revert")),
       ("data", toJson (hexBytes result.frame.data)),

@@ -41,6 +41,8 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('create2-parent-opcode', ['-m', 'solidity_differential.check_deployment_world',
+        '--parent-opcode', '--output', str(output / 'create2-parent-opcode')]))
     checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
         '--output', str(output / 'hashing-programs')]))
     checks.append(('hashing-rejections', ['-m', 'solidity_differential.check_hashing_rejections',

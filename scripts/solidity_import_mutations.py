@@ -650,6 +650,41 @@ def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -
     return output
 
 
+def deployment_world_mutations() -> None:
+    results = json.loads((module_campaign_output("check_deployment_world_mutations", "deployment-world-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-create2-drop-nonce", "denote-create2-empty-code", "denote-create2-drop-value",
+             "denote-create2-drop-deposit", "denote-create2-ignore-collision"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] for row in results)):
+        raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
+    print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def create2_opcode_mutations() -> None:
+    results = json.loads((module_campaign_output("check_create2_opcode_mutations", "create2-opcode-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"create2-initcode-word-cost", "create2-eip150-divisor", "create2-parent-refund",
+             "create2-memory-expansion"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in results)):
+        raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
+    print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def account_storage_mutations() -> None:
+    results = json.loads((module_campaign_output("check_account_storage_mutations", "account-storage-conformance",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-physical-slot-account", "denote-physical-batch-account", "denote-physical-modify-account"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
+                       and row['kind'] == 'kernel-conformance-rejection' for row in results)):
+        raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
+    print("pass three account storage kernel conformance mutations (not runtime witnesses)", flush=True)
+
+
 def block_mutation() -> None:
     block_result = module_campaign("check_block_mutations", "block-mutations", MUTANT_TIMEOUT)
     if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
@@ -707,7 +742,10 @@ def tasks(update_golden: bool) -> list:
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
              ("reference-location", 1, reference_location_mutation),
-             ("byte-call", 1, byte_call_mutations)]
+             ("byte-call", 1, byte_call_mutations),
+             ("deployment-world", 1, deployment_world_mutations),
+             ("create2-opcode", 1, create2_opcode_mutations),
+             ("account-storage", 1, account_storage_mutations)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
