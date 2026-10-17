@@ -75,6 +75,9 @@ def main():
             if cached.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             elif not target.exists() and not target.is_symlink():
+                # Directory order is filesystem dependent: a root-level file
+                # can precede every directory entry.
+                target.parent.mkdir(parents=True, exist_ok=True)
                 target.symlink_to(cached.resolve())
         mutant_env = dict(env, LEAN_PATH=str(lib) + ':' + lean_path)
         for module in MODULES:
