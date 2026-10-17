@@ -3,9 +3,11 @@
     ".github/workflows/**",
     ".github/ISSUE_TEMPLATE/**",
     "artifacts/**",
+    "artifacts/*",
     "docs/**",
     "docs-site/**",
     "Makefile",
+    "PrintAxioms.lean",
     "README.md"
   ],
   "build_paths": [
@@ -84,6 +86,7 @@
     "timeout-watchdog",
     "build",
     "build-audits",
+    "import-mutations",
     "build-compiler-binaries",
     "compiler-audits",
     "compiler-regressions",
@@ -101,6 +104,7 @@
   ],
   "medium_runner_jobs": [
     "build-audits",
+    "import-mutations",
     "build-compiler-binaries",
     "compiler-audits",
     "foundry-gas-calibration",
@@ -167,6 +171,7 @@
       "checks",
       "build",
       "build-audits",
+      "import-mutations",
       "build-compiler-binaries",
       "compiler-audits",
       "compiler-regressions",
@@ -174,6 +179,11 @@
       "foundry",
       "foundry-patched",
       "foundry-multi-seed"
+    ],
+    "import-mutations": [
+      "changes",
+      "checks",
+      "build"
     ]
   },
   "expected_job_if_conditions": {
@@ -191,7 +201,8 @@
     "foundry": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
     "foundry-patched": "needs.changes.outputs.compiler == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)",
     "foundry-multi-seed": "needs.changes.outputs.compiler == 'true' && github.event_name != 'pull_request'",
-    "failure-hints": "always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')"
+    "failure-hints": "always() && github.event_name == 'pull_request' && contains(join(needs.*.result, ','), 'failure')",
+    "import-mutations": "needs.checks.result == 'success' && needs.build.result == 'success' && needs.changes.outputs.build == 'true'"
   },
   "expected_job_runs_on": {
     "closed-pr-cleanup": "[self-hosted, linux, verity, fastlane]",
@@ -208,14 +219,15 @@
     "foundry": "[self-hosted, linux, x64, verity, build]",
     "foundry-patched": "[self-hosted, linux, x64, verity, build]",
     "foundry-multi-seed": "[self-hosted, linux, x64, verity, build]",
-    "failure-hints": "[self-hosted, linux, verity, fastlane]"
+    "failure-hints": "[self-hosted, linux, verity, fastlane]",
+    "import-mutations": "[self-hosted, linux, x64, verity, build]"
   },
   "expected_job_timeouts": {
     "closed-pr-cleanup": 5,
     "changes": 5,
     "checks": 45,
     "timeout-watchdog": 5,
-    "build": "${{ fromJSON((github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.clean_build)) && '60' || '35') }}",
+    "build": 120,
     "build-audits": 20,
     "build-compiler-binaries": 360,
     "compiler-audits": 45,
@@ -224,11 +236,13 @@
     "foundry-gas-calibration": 15,
     "foundry": 30,
     "foundry-patched": 60,
-    "foundry-multi-seed": 75
+    "foundry-multi-seed": 75,
+    "import-mutations": 210
   },
   "expected_job_strategy_fail_fast": {
     "foundry": false,
-    "foundry-multi-seed": false
+    "foundry-multi-seed": false,
+    "import-mutations": false
   },
   "expected_job_outputs": {
     "changes": {
@@ -279,11 +293,11 @@
   "expected_step_contracts": {
     "changes": [
       {
-        "uses": "actions/checkout@v6"
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
       },
       {
         "id": "filter",
-        "uses": "dorny/paths-filter@v4"
+        "uses": "dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"
       },
       {
         "id": "effective",
@@ -299,7 +313,7 @@
     ],
     "checks": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "path": "checks-${{ github.run_id }}-${{ github.run_attempt }}"
         }
@@ -315,7 +329,7 @@
     ],
     "timeout-watchdog": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "path": "watchdog-${{ github.run_id }}-${{ github.run_attempt }}"
         }
@@ -330,7 +344,7 @@
     ],
     "build": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -370,7 +384,7 @@
       },
       {
         "name": "Upload prepared Lean workspace build",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "lean-workspace-build",
           "path": "lean-workspace-build.tar"
@@ -378,7 +392,7 @@
       },
       {
         "name": "Save current run Lake cache",
-        "uses": "actions/cache/save@v5",
+        "uses": "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25",
         "if": "success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true'",
         "with": {
           "path": ".lake",
@@ -387,7 +401,7 @@
       },
       {
         "name": "Save Lake packages cache",
-        "uses": "actions/cache/save@v5",
+        "uses": "actions/cache/save@caa296126883cff596d87d8935842f9db880ef25",
         "if": "success() && needs.changes.outputs.build == 'true' && steps.setup-lean.outputs.using-sticky-disks != 'true' && steps.setup-lean.outputs.cache-hit != 'true'",
         "with": {
           "path": ".lake",
@@ -397,7 +411,7 @@
     ],
     "build-audits": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -420,14 +434,14 @@
       {
         "name": "Download prepared Lean workspace build",
         "if": "steps.local-restore-lean-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-build"
         }
       },
       {
         "name": "Upload axiom dependency report",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "axiom-dependency-report",
           "path": "axiom-report.md\naxiom-report-raw.log"
@@ -436,7 +450,7 @@
     ],
     "build-compiler-binaries": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -444,7 +458,7 @@
       {
         "name": "Restore compiler ccache fallback cache",
         "if": "env.VERIFY_CLEAN_BUILD != 'true'",
-        "uses": "actions/cache/restore@v5",
+        "uses": "actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25",
         "with": {
           "path": "${{ runner.temp }}/compiler-ccache-cache",
           "key": "compiler-ccache-cache-${{ env.VERIFY_CACHE_BUCKET }}-${{ runner.os }}-${{ hashFiles('lean-toolchain') }}-${{ hashFiles('lakefile.lean') }}-${{ hashFiles('lake-manifest.json') }}-${{ github.run_id }}"
@@ -457,7 +471,7 @@
       {
         "name": "Download prepared Lean workspace build",
         "if": "steps.local-restore-lean-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-build"
         }
@@ -476,7 +490,7 @@
       },
       {
         "name": "Upload difftest interpreter",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "difftest-interpreter",
           "path": ".lake/build/bin/difftest-interpreter"
@@ -484,7 +498,7 @@
       },
       {
         "name": "Upload compiler binaries",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "verity-compiler-binaries",
           "path": "compiler/bin",
@@ -493,7 +507,7 @@
       },
       {
         "name": "Upload compiler workspace build",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "lean-workspace-compiler-build",
           "path": "lean-workspace-compiler-build.tar",
@@ -502,7 +516,7 @@
       },
       {
         "name": "Upload generated Yul",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "generated-yul",
           "path": "compiler/yul"
@@ -510,7 +524,7 @@
       },
       {
         "name": "Upload patched Yul",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "generated-yul-patched",
           "path": "compiler/yul-patched"
@@ -518,7 +532,7 @@
       },
       {
         "name": "Upload smoke Yul",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "generated-yul-smoke",
           "path": "compiler/yul-smoke"
@@ -526,7 +540,7 @@
       },
       {
         "name": "Upload patched smoke Yul",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "generated-yul-patched-smoke",
           "path": "compiler/yul-patched-smoke"
@@ -534,7 +548,7 @@
       },
       {
         "name": "Upload patch coverage report",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "patch-coverage-report",
           "path": "compiler/patch-report.tsv"
@@ -542,7 +556,7 @@
       },
       {
         "name": "Upload static gas report",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "static-gas-report",
           "path": "gas-report-static.tsv"
@@ -550,7 +564,7 @@
       },
       {
         "name": "Upload patched static gas report",
-        "uses": "actions/upload-artifact@v7",
+        "uses": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "with": {
           "name": "static-gas-report-patched",
           "path": "gas-report-static-patched.tsv"
@@ -559,7 +573,7 @@
     ],
     "compiler-audits": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -583,7 +597,7 @@
       {
         "name": "Download prepared Lean workspace build",
         "if": "steps.local-restore-lean-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-build"
         }
@@ -595,7 +609,7 @@
       {
         "name": "Download compiler workspace build",
         "if": "steps.local-restore-compiler-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-compiler-build"
         }
@@ -607,7 +621,7 @@
     ],
     "compiler-regressions": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -631,7 +645,7 @@
       {
         "name": "Download prepared Lean workspace build",
         "if": "steps.local-restore-lean-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-build"
         }
@@ -643,7 +657,7 @@
       {
         "name": "Download compiler workspace build",
         "if": "steps.local-restore-compiler-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-compiler-build"
         }
@@ -667,7 +681,7 @@
     ],
     "lean-profile": [
       {
-        "uses": "actions/checkout@v6"
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
       },
       {
         "name": "Setup Lean",
@@ -681,7 +695,7 @@
     ],
     "foundry-gas-calibration": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -693,7 +707,7 @@
     ],
     "foundry": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -705,7 +719,7 @@
       {
         "name": "Download compiler binaries",
         "if": "steps.local-restore-compiler-binaries.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "verity-compiler-binaries",
           "path": "compiler/bin"
@@ -718,7 +732,7 @@
     ],
     "foundry-patched": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -730,7 +744,7 @@
       {
         "name": "Download prepared Lean workspace build",
         "if": "steps.local-restore-lean-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-build"
         }
@@ -742,7 +756,7 @@
       {
         "name": "Download compiler workspace build",
         "if": "steps.local-restore-compiler-workspace.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "lean-workspace-compiler-build"
         }
@@ -758,7 +772,7 @@
     ],
     "foundry-multi-seed": [
       {
-        "uses": "actions/checkout@v6",
+        "uses": "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
         "with": {
           "submodules": "recursive"
         }
@@ -770,7 +784,7 @@
       {
         "name": "Download compiler binaries",
         "if": "steps.local-restore-compiler-binaries.outcome != 'success'",
-        "uses": "actions/download-artifact@v7",
+        "uses": "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131",
         "with": {
           "name": "verity-compiler-binaries",
           "path": "compiler/bin"
@@ -784,7 +798,7 @@
     "failure-hints": [
       {
         "name": "Post CI failure hints",
-        "uses": "actions/github-script@v7",
+        "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
         "env": {
           "NEEDS_JSON": "${{ toJson(needs) }}"
         },
@@ -833,6 +847,7 @@
     "python3 scripts/generate_evmyullean_capability_report.py --check",
     "python3 scripts/generate_evmyullean_native_lowering_report.py --check",
     "python3 scripts/generate_print_axioms.py --check",
+    "python3 scripts/generate_trust_surface_report.py --check",
     "python3 scripts/lean_lint.py --only proof_length",
     "python3 scripts/check_issue_1060_integrity.py",
     "python3 -m unittest discover -s scripts -p 'test_*.py' -v"
@@ -840,8 +855,7 @@
   "expected_checks_other_commands": [],
   "expected_build_commands": [
     "check_lean_warning_regression.py --log lake-build.log",
-    "setup_solc_import.py",
-    "solidity_import_mutations.py"
+    "setup_solc_import.py"
   ],
   "required_build_run_commands": [
     "lake build PrintAxioms",
@@ -964,6 +978,9 @@
     "build-audits": [
       "lean-workspace-build"
     ],
+    "import-mutations": [
+      "lean-workspace-build"
+    ],
     "build-compiler-binaries": [
       "lean-workspace-build"
     ],
@@ -1000,6 +1017,9 @@
   },
   "expected_downloaded_artifact_paths": {
     "build-audits": [
+      null
+    ],
+    "import-mutations": [
       null
     ],
     "build-compiler-binaries": [

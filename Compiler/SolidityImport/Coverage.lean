@@ -7,7 +7,7 @@ The Solidity-slice importer (`Compiler/SolidityImport`) emits only a small,
 explicitly listed fragment of the deep `CompilationModel`.  This module is the
 machine-checked side of that contract:
 
-* `exprCovered` / `stmtCovered` / `stmtListCovered` are the decidable
+* `exprCovered` / `executableStmtCovered` / `executableStmtListCovered` are the decidable
   whitelists of `Expr` / `Stmt` constructors the importer may emit.  A
   constructor is whitelisted only when `Compiler.CompilationModel.Denote`
   gives it a dedicated arm — never the catch-all `none` / `.revert` fallback.
@@ -16,7 +16,7 @@ machine-checked side of that contract:
   or its meaning changes, the pin stops compiling, so the whitelist cannot
   silently drift away from the semantics.
 
-The importer refuses to register a slice whose body fails `stmtListCovered`,
+The importer refuses to register a slice whose body fails `executableStmtListCovered`,
 and registers the passing verdict as a theorem proved by `decide`.
 
 This predicate is deliberately *not* `SupportedFunction`: that predicate is
@@ -37,16 +37,25 @@ constructor (including `paramDynamicMember*`, `paramDynamicStaticComposite`,
 `mulDiv512*`, raw calls, `internalCall`, `intrinsic`, `forkIfAtLeast`, ADTs,
 `arrayElementWord`, `mappingChain`, and any future constructor) is rejected. -/
 def exprCovered : Expr → Bool
+  | .calldataload offset | .mload offset | .tload offset => exprCovered offset
+  | .calldatasize => true
   | .literal _ => true
   | .param _ => true
+  | .storage _ => true
   | .localVar _ => true
   | .blockTimestamp => true
+  | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
-  | .add a b | .sub a b | .mul a b | .div a b
+  | .storageArrayElement _ index => exprCovered index
+  | .add a b | .sub a b | .mul a b | .div a b | .mod a b
+  | .slt a b | .sgt a b | .sdiv a b | .smod a b | .sar a b
+  | .byte a b | .signextend a b
   | .lt a b | .gt a b | .le a b | .ge a b | .eq a b
-  | .bitAnd a b | .bitXor a b => exprCovered a && exprCovered b
-  | .logicalNot a => exprCovered a
+  | .shl a b | .shr a b | .keccak256 a b | .bitAnd a b | .bitOr a b | .bitXor a b => exprCovered a && exprCovered b
+  | .bitNot a | .logicalNot a => exprCovered a
+  | .externalCall name [base, exponent] =>
+      name == builtinExpName && exprCovered base && exprCovered exponent
   | _ => false
 
 /-- Every expression in the list is covered. -/
@@ -58,7 +67,7 @@ def exprListCovered : List Expr → Bool
 
 mutual
 
-/-- Statements the slice importer may emit, mirrored against `Denote.execStmt`.
+/-- Read-only statements, mirrored against `Denote.execStmt`.
 Multi-value returns are covered: `Stmt.returnValues` records the resolved words
 in `DenoteState.observedReturnWords` and finishes with `.stop`. -/
 def stmtCovered : Stmt → Bool
@@ -67,6 +76,8 @@ def stmtCovered : Stmt → Bool
   | .ite cond thenBranch elseBranch =>
       exprCovered cond && stmtListCovered thenBranch && stmtListCovered elseBranch
   | .panic _ => true
+  | .require condition _ => exprCovered condition
+  | .requireError condition _ args => exprCovered condition && exprListCovered args
   | .returnValues args => exprListCovered args
   | _ => false
 
@@ -77,11 +88,272 @@ def stmtListCovered : List Stmt → Bool
 
 end
 
+mutual
+  /-- Statements admitted in a loop whose ABI memory header is hoisted.
+  Explicit memory writes and unknown/call constructors are excluded, recursively. -/
+  def abiHeaderPreservingStmt : Stmt → Bool
+    | .tstore offset value => exprCovered offset && exprCovered value
+    | .forEach _ count body => exprCovered count && abiHeaderPreservingList body
+    | .ite condition yes no =>
+        exprCovered condition && abiHeaderPreservingList yes && abiHeaderPreservingList no
+    | .panicCode code => exprCovered code
+    | .revertReturndata | .stop => true
+    | .emit _ args => exprListCovered args
+    | .setStorage _ value => exprCovered value
+    | .setStructMember _ key _ value => exprCovered key && exprCovered value
+    | .setStructMember2 _ key1 key2 _ value =>
+        exprCovered key1 && exprCovered key2 && exprCovered value
+    | statement => stmtCovered statement
+  def abiHeaderPreservingList : List Stmt → Bool
+    | [] => true
+    | head :: tail => abiHeaderPreservingStmt head && abiHeaderPreservingList tail
+end
+
+/- Executable coverage includes writes; `stmtCovered` retains its read-only
+meaning and its original world-preservation theorems. -/
+mutual
+  def executableStmtCovered : Stmt → Bool
+    | .mstore offset value => exprCovered offset && exprCovered value
+    | .tstore offset value => exprCovered offset && exprCovered value
+    | .panicCode code => exprCovered code
+    | .forEach _ count body => exprCovered count && executableStmtListCovered body
+    | .revertReturndata => true
+    | .emit _ args => exprListCovered args
+    | .stop => true
+    | .returnBytes _ => true
+    | .setStorage _ value => exprCovered value
+    | .setStorageArrayElement _ index value => exprCovered index && exprCovered value
+    | .setStructMember _ key _ value => exprCovered key && exprCovered value
+    | .setStructMember2 _ key1 key2 _ value =>
+        exprCovered key1 && exprCovered key2 && exprCovered value
+    | .ite condition yes no =>
+        exprCovered condition && executableStmtListCovered yes && executableStmtListCovered no
+    | statement => stmtCovered statement
+  def executableStmtListCovered : List Stmt → Bool
+    | [] => true
+    | head :: tail => executableStmtCovered head && executableStmtListCovered tail
+end
+
+theorem evalExpr_calldataload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.calldataload offset) = (do
+      let resolvedOffset ← evalExpr oracle fields state offset
+      some (calldataloadWord state.selector state.world.calldata resolvedOffset)) := rfl
+
+theorem evalExpr_calldatasize_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    evalExpr oracle fields state .calldatasize = some state.world.calldataSize.val := rfl
+
+theorem evalExpr_mload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.mload offset) = (do
+      let resolved ← evalExpr oracle fields state offset
+      some (state.world.memory resolved).val) := rfl
+
+theorem evalExpr_tload_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset : Expr) :
+    evalExpr oracle fields state (.tload offset) = (do
+      let resolved ← evalExpr oracle fields state offset
+      some (state.world.readTransient resolved).val) := rfl
+
+theorem evalExpr_shl_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (shift value : Expr) :
+    evalExpr oracle fields state (.shl shift value) = (do
+      let shiftValue ← evalExpr oracle fields state shift
+      let word ← evalExpr oracle fields state value
+      pure (Verity.Core.Uint256.shl shiftValue word).val) := rfl
+
+theorem evalExpr_shr_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (shift value : Expr) :
+    evalExpr oracle fields state (.shr shift value) = (do
+      let shiftValue ← evalExpr oracle fields state shift
+      let word ← evalExpr oracle fields state value
+      pure (Verity.Core.Uint256.shr shiftValue word).val) := rfl
+
+theorem evalExpr_keccak256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset size : Expr) :
+    evalExpr oracle fields state (.keccak256 offset size) = (do
+      let address ← evalExpr oracle fields state offset
+      let length ← evalExpr oracle fields state size
+      some (oracle.keccakMemorySlice state.world.memory address length)) := rfl
+
+theorem evalExpr_slt_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.slt a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (boolWord (decide (
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs) : Int) <
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs) : Int))))) := rfl
+
+theorem evalExpr_sgt_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sgt a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (boolWord (decide (
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs) : Int) <
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs) : Int))))) := rfl
+
+theorem evalExpr_sdiv_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sdiv a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (Verity.Core.Int256.div
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs))
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs))).toUint256.val) := rfl
+
+theorem evalExpr_smod_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.smod a b) = (do
+      let lhs ← evalExpr oracle fields state a
+      let rhs ← evalExpr oracle fields state b
+      pure (Verity.Core.Int256.mod
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs))
+        (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs))).toUint256.val) := rfl
+
+theorem evalExpr_byte_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.byte a b) = (do
+      let index ← evalExpr oracle fields state a
+      let value ← evalExpr oracle fields state b
+      pure (Verity.Core.Uint256.byte
+        (Verity.Core.Uint256.ofNat index)
+        (Verity.Core.Uint256.ofNat value)).val) := rfl
+
+theorem evalExpr_signextend_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.signextend a b) = (do
+      let byteIdx ← evalExpr oracle fields state a
+      let value ← evalExpr oracle fields state b
+      pure (Verity.Core.Uint256.signextend
+        (Verity.Core.Uint256.ofNat byteIdx)
+        (Verity.Core.Uint256.ofNat value)).val) := rfl
+
+theorem execStmt_mstore_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset value : Expr) :
+    execStmt oracle fields state (.mstore offset value) =
+      (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
+       | some address, some resolved => .continue { state with world := { state.world with
+           memory := fun o => if o = address then resolved else state.world.memory o } }
+       | _, _ => .revert) := rfl
+
+theorem execStmt_tstore_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (offset value : Expr) :
+    execStmt oracle fields state (.tstore offset value) =
+      (match evalExpr oracle fields state offset, evalExpr oracle fields state value with
+       | some resolvedOffset, some resolvedValue =>
+           let resolvedOffset := wordNormalize resolvedOffset
+           .continue { state with world := state.world.writeTransient resolvedOffset resolvedValue }
+       | _, _ => .revert) := rfl
+
+theorem execStmt_panicCode_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (code : Expr) :
+    execStmt oracle fields state (.panicCode code) =
+      (match evalExpr oracle fields state code with
+       | some value => .revertWithData (panicBytes value)
+       | none => .revert) := rfl
+
+theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) (count : Expr) (body : List Stmt) :
+    execStmt oracle fields state (.forEach name count body) =
+      (match evalExpr oracle fields state count with
+       | some bound => execForEachLoop name
+           (fun next => execStmtList oracle fields next body)
+           { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
+       | none => .revert) := rfl
+
+theorem execStmt_revertReturndata_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .revertReturndata = .revertWithData (state.world.returndata.flatMap wordBytes) := rfl
+
+theorem execStmt_stop_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) :
+    execStmt oracle fields state .stop =
+      .stop { state with observedStop := true } := rfl
+
+theorem execStmt_setStorage_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) (value : Expr) :
+    execStmt oracle fields state (.setStorage name value) =
+      (match findFieldWriteSlots fields name, evalExpr oracle fields state value with
+       | some slots, some resolved =>
+           .continue { state with world := writeUintFieldSlots fields name state.world slots resolved }
+       | _, _ => .revert) := rfl
+
+theorem execStmt_setStorageArrayElement_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName : String) (index value : Expr) :
+    execStmt oracle fields state (.setStorageArrayElement fieldName index value) =
+      (match findFieldWithResolvedSlot fields fieldName,
+          evalExpr oracle fields state index,
+          evalExpr oracle fields state value with
+       | some ({ ty := .dynamicArray _, .. }, slot), some idx, some resolved =>
+           match storageArraySetAt (state.world.readArray slot) idx resolved with
+           | some updated =>
+               .continue { state with world := writeStorageArray state.world slot updated }
+           | none => .revert
+       | some ({ ty := .fixedArrayUint128 size, .. }, _), some idx, some resolved =>
+           match findFieldWriteSlots fields fieldName >>= fun slots =>
+               writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
+           | some world => .continue { state with world := world }
+           | none => .revert
+       | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+           .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
+       | _, _, _ => .revert) := rfl
+
+theorem execStmt_require_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (condition : Expr) (message : String) :
+    execStmt oracle fields state (.require condition message) =
+      (match evalExpr oracle fields state condition with
+       | some value => if value != 0 then .continue state
+           else .revertWithData (errorStringBytes message)
+       | none => .revert) := rfl
+
+theorem execStmt_requireError_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (condition : Expr) (name : String) (args : List Expr) :
+    execStmt oracle fields state (.requireError condition name args) =
+      (match evalExpr oracle fields state condition with
+       | some value => if value != 0 then .continue state else
+           match evalExprList oracle fields state args with
+           | none => .revert
+           | some values => match customErrorBytes oracle state.errors name values with
+               | some bytes => .revertWithData bytes
+               | none => .revert
+       | none => .revert) := rfl
+
 /-! ## Arm pins: expressions
 
 Each pin restates the dedicated `Denote.evalExpr` arm.  They are proved by
 `rfl`, so deleting the arm (falling back to the catch-all `none`) or changing
 the arm's meaning breaks the build here. -/
+
+theorem evalExpr_storage_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (name : String) :
+    evalExpr oracle fields state (.storage name) =
+      (match findFieldWithResolvedSlot fields name with
+       | some (field, slot) =>
+           let rawWord := (readFieldWord state.world field slot).val
+           match field.packedBits with
+           | none => some rawWord
+           | some packed => some (Verity.Core.Uint256.and
+               (Verity.Core.Uint256.shr packed.offset rawWord) (packedMaskNat packed)).val
+       | none => none) := rfl
+
+theorem evalExpr_storageArrayElement_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName : String) (index : Expr) :
+    evalExpr oracle fields state (.storageArrayElement fieldName index) =
+      (do
+        let idx ← evalExpr oracle fields state index
+        match findFieldWithResolvedSlot fields fieldName with
+        | some ({ ty := .dynamicArray _, .. }, slot) =>
+            match (state.world.readArray slot)[idx]? with
+            | some value => some value.val
+            | none => none
+        | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
+            readFixedUint128ArrayElement state.world slot size idx
+        | some (field@{ ty := .uint256, .. }, _) =>
+            some (readFieldWord state.world field idx).val
+        | _ => none) := rfl
 
 theorem evalExpr_literal_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (n : Nat) :
@@ -98,6 +370,30 @@ theorem evalExpr_localVar_arm (oracle : DenoteOracle) (fields : List Field)
 theorem evalExpr_blockTimestamp_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .blockTimestamp = some s.world.blockTimestamp.val := rfl
+
+theorem evalExpr_blockNumber_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .blockNumber = some s.world.blockNumber.val := rfl
+
+theorem evalExpr_chainid_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .chainid = some s.world.chainId.val := rfl
+
+theorem evalExpr_caller_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .caller = some s.world.sender.val := rfl
+
+theorem evalExpr_contractAddress_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .contractAddress = some s.world.thisAddress.val := rfl
+
+theorem evalExpr_selfBalance_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .selfBalance = some s.world.selfBalance.val := rfl
+
+theorem evalExpr_txOrigin_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) :
+    evalExpr oracle fields s .txOrigin = some s.world.txOrigin.val := rfl
 
 theorem evalExpr_add_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :
@@ -130,6 +426,14 @@ theorem evalExpr_div_arm (oracle : DenoteOracle) (fields : List Field)
         let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields s a
         let rhs : Verity.Core.Uint256 := ← evalExpr oracle fields s b
         pure (lhs / rhs).val) := rfl
+
+theorem evalExpr_mod_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a b : Expr) :
+    evalExpr oracle fields s (.mod a b) =
+      (do
+        let lhs : Verity.Core.Uint256 := ← evalExpr oracle fields s a
+        let rhs : Verity.Core.Uint256 := ← evalExpr oracle fields s b
+        pure (lhs % rhs).val) := rfl
 
 theorem evalExpr_lt_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :
@@ -179,6 +483,14 @@ theorem evalExpr_bitAnd_arm (oracle : DenoteOracle) (fields : List Field)
         let rhs ← evalExpr oracle fields s b
         pure (Verity.Core.Uint256.and lhs rhs).val) := rfl
 
+theorem evalExpr_bitOr_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a b : Expr) :
+    evalExpr oracle fields s (.bitOr a b) =
+      (do
+        let lhs ← evalExpr oracle fields s a
+        let rhs ← evalExpr oracle fields s b
+        pure (Verity.Core.Uint256.or lhs rhs).val) := rfl
+
 theorem evalExpr_bitXor_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :
     evalExpr oracle fields s (.bitXor a b) =
@@ -186,6 +498,33 @@ theorem evalExpr_bitXor_arm (oracle : DenoteOracle) (fields : List Field)
         let lhs ← evalExpr oracle fields s a
         let rhs ← evalExpr oracle fields s b
         pure (Verity.Core.Uint256.xor lhs rhs).val) := rfl
+
+theorem evalExpr_bitNot_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (a : Expr) :
+    evalExpr oracle fields s (.bitNot a) =
+      (do
+        let value ← evalExpr oracle fields s a
+        pure (Verity.Core.Uint256.not value).val) := rfl
+
+theorem evalExpr_sar_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (a b : Expr) :
+    evalExpr oracle fields state (.sar a b) =
+      (do
+        let lhs ← evalExpr oracle fields state a
+        let rhs ← evalExpr oracle fields state b
+        pure (Verity.Core.Int256.sar
+          (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat lhs))
+          (Verity.Core.Int256.ofUint256 (Verity.Core.Uint256.ofNat rhs))).toUint256.val) := rfl
+
+theorem evalExpr_externalCall_builtinExp_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (base exponent : Expr) :
+    evalExpr oracle fields s (.externalCall builtinExpName [base, exponent]) =
+      (do
+        let baseVal ← evalExpr oracle fields s base
+        let exponentVal ← evalExpr oracle fields s exponent
+        pure (Verity.Core.Uint256.powEff
+          (Verity.Core.Uint256.ofNat baseVal)
+          (Verity.Core.Uint256.ofNat exponentVal)).val) := rfl
 
 /-- `Expr.logicalOr` and `Expr.logicalAnd` are eager in `evalExpr`, so they are
 not slice constructors. `Expr.paramDynamicHeadWord` is an ABI-head read and is
@@ -246,6 +585,79 @@ theorem evalExpr_structMember2_arm (oracle : DenoteOracle) (fields : List Field)
 
 /-! ## Arm pins: statements -/
 
+theorem execStmt_emit_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (eventName : String) (args : List Expr) :
+    execStmt oracle fields state (.emit eventName args) =
+      (
+        match evalExprList oracle fields state args with
+        | some resolved =>
+            -- Event-less semantics: matches `SourceSemantics.execStmt`'s `.emit`
+            -- arm, which calls the event helpers with an empty `EventDef` list.
+            .continue { state with
+              world := {
+                state.world with
+                events := state.world.events ++
+                  [{ name := eventName
+                     args := valuesAsEventArgs resolved
+                     indexedArgs := [] }] } }
+        | none => .revert) := rfl
+
+
+theorem execStmt_setStructMember_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName memberName : String) (key value : Expr) :
+    execStmt oracle fields state (.setStructMember fieldName key memberName value) =
+      (
+        match findFieldWriteSlots fields fieldName,
+            findStructMembers fields fieldName,
+            evalExpr oracle fields state key,
+            evalExpr oracle fields state value with
+        | some slots@(_ :: _), some members, some resolvedKey, some resolved =>
+            match findStructMember members memberName with
+            | some { wordOffset := wordOffset, packed := none, .. } =>
+                .continue
+                  { state with
+                      world := writeAddressKeyedMappingWordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMappingPackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey wordOffset packed resolved }
+                else
+                  .revert
+            | _ => .revert
+        | _, _, _, _ => .revert) := rfl
+
+theorem execStmt_setStructMember2_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (fieldName memberName : String) (key1 key2 value : Expr) :
+    execStmt oracle fields state (.setStructMember2 fieldName key1 key2 memberName value) =
+      (
+        match findFieldWriteSlots fields fieldName,
+            findStructMembers fields fieldName,
+            evalExpr oracle fields state key1,
+            evalExpr oracle fields state key2,
+            evalExpr oracle fields state value with
+        | some slots@(_ :: _), some members, some resolvedKey1, some resolvedKey2, some resolved =>
+            match findStructMember members memberName with
+            | some { wordOffset := wordOffset, packed := none, .. } =>
+                .continue
+                  { state with
+                      world := writeAddressKeyedMapping2WordFieldSlots
+                        oracle fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset resolved }
+            | some { wordOffset := wordOffset, packed := some packed, .. } =>
+                if packedBitsValid packed then
+                  .continue
+                    { state with
+                        world := writeAddressKeyedMapping2PackedWordFieldSlots oracle
+                          fields fieldName state.world slots resolvedKey1 resolvedKey2 wordOffset packed resolved }
+                else
+                  .revert
+            | _ => .revert
+        | _, _, _, _, _ => .revert) := rfl
+
+
+
 theorem execStmt_letVar_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (name : String) (value : Expr) :
     execStmt oracle fields s (.letVar name value) =
@@ -294,7 +706,7 @@ theorem execStmt_returnValues_arm (oracle : DenoteOracle) (fields : List Field)
     execStmt oracle fields s (.returnValues args) =
       (match evalExprList oracle fields s args with
       | some resolved =>
-          .stop { s with observedReturnWords := some (resolved.map wordNormalize) }
+          .stop { s with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
       | none => .revert) := rfl
 
 /-- A `returnValues` statement terminates the statement list: later statements
@@ -304,12 +716,26 @@ theorem execStmtList_returnValues_stop_arm (oracle : DenoteOracle) (fields : Lis
     (s : DenoteState) (a b : Nat) :
     execStmtList oracle fields s
         [.returnValues [.literal a, .literal b], .panic .arithmeticOverflow] =
-      .stop { s with observedReturnWords := some [wordNormalize a, wordNormalize b] } := by
+      .stop { s with observedReturnWords := some [wordNormalize a, wordNormalize b], observedStop := false } := by
   simp [execStmtList, execStmt, evalExprList, evalExpr, wordNormalize]
+
+/-- Dynamic `bytes` / `string` returns are denoted: `returnBytesWords` resolves
+the offset and length bindings, reads the padded 32-byte words, and records
+`[32, len] ++ words` in `observedReturnWords`. -/
+theorem execStmt_returnBytes_arm (oracle : DenoteOracle) (fields : List Field)
+    (s : DenoteState) (name : String) :
+    execStmt oracle fields s (.returnBytes name) =
+      (match dynamicArrayBinding? s.bindings name with
+      | some (dataOffset, length) =>
+          .stop { s with
+            observedReturnWords := some (returnBytesWords s.selector s.world.calldata
+              s.world.memory (name.startsWith "_verity_memret_") dataOffset length)
+            observedStop := false }
+      | none => .revert) := rfl
 
 /-- Every function body of a model is in the slice whitelist. -/
 def modelImportCovered (model : CompilationModel) : Bool :=
-  model.functions.all fun fn => stmtListCovered fn.body
+  model.functions.all fun fn => executableStmtListCovered fn.body
 
 /-- Level A: run a body on scalar bindings. Arguments are Solidity words, not
 ABI-decoded calldata. `some` is the source-order return list of a successful
@@ -363,6 +789,23 @@ theorem execStmt_slice_world
         simpa [preservesWorld, execStmt, hEval, hnot] using
           execStmtList_slice_world oracle fields state elseBranch helse
   · simp [preservesWorld, execStmt]
+  · rename_i condition message
+    cases hEval : evalExpr oracle fields state condition with
+    | none => simp [preservesWorld, execStmt, hEval]
+    | some value =>
+        by_cases hzero : value = 0 <;>
+          simp [preservesWorld, execStmt, hEval, hzero]
+  · rename_i condition name args
+    cases hEval : evalExpr oracle fields state condition with
+    | none => simp [preservesWorld, execStmt, hEval]
+    | some value =>
+        by_cases hzero : value = 0
+        · cases hArgs : evalExprList oracle fields state args with
+          | none => simp [preservesWorld, execStmt, hEval, hzero, hArgs]
+          | some values =>
+              cases hBytes : customErrorBytes oracle state.errors name values <;>
+                simp [preservesWorld, execStmt, hEval, hzero, hArgs, hBytes]
+        · simp [preservesWorld, execStmt, hEval, hzero]
   · rename_i args
     cases hEval : evalExprList oracle fields state args <;>
       simp [preservesWorld, execStmt, hEval]

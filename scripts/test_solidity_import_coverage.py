@@ -10,7 +10,7 @@ from subprocess import CompletedProcess
 import unittest
 from pathlib import Path
 
-from solidity_import_coverage import classify, position, spelling, summarize, checkout, MeasurementError, inventory, dependencies, probe, refresh_report, main
+from solidity_import_coverage import classify, position, spelling, summarize, checkout, MeasurementError, inventory, dependencies, probe, refresh_report, main, milestone_summary, excluded_functions, markdown, MANIFEST
 
 
 class CoverageTests(unittest.TestCase):
@@ -165,6 +165,56 @@ class CoverageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(MeasurementError, 'full commit SHA'):
                 checkout({'id': 'test', 'commit': 'main'}, Path(tmp), True)
+
+    def test_probe_uses_target_profile_when_present(self):
+        fn = {'kind': 'function', 'name': 'getApr', 'types': [], 'declaring_contract': 'IdleCreditVault',
+              'file': 'contracts/strategies/idle/IdleCreditVault.sol', 'line': 10, 'column': 5}
+        target = {'entry': 'contracts/strategies/idle/IdleCreditVault.sol', 'contract': 'IdleCreditVault',
+                  'profile': {'solc': '0.8.10+commit.fc410830', 'evmVersion': 'london',
+                              'viaIR': False, 'optimizerRuns': 999999, 'bytecodeHash': 'none'}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            with patch('solidity_import_coverage.run', return_value=CompletedProcess([], 0, 'COVERAGE_IMPORT_OK\n', '')):
+                result = probe(fn, target, root, root, root, 10)
+            self.assertEqual(result['status'], 'importable')
+            probe_text = (root / 'Probe.lean').read_text()
+            self.assertIn('solc := "0.8.10+commit.fc410830"', probe_text)
+            self.assertIn('evmVersion := "london"', probe_text)
+            self.assertIn('viaIR := false', probe_text)
+            self.assertIn('optimizerRuns := some 999999', probe_text)
+
+    def test_exclude_functions_milestone_is_manifest_driven(self):
+        rows = [{'name': 'multicall', 'status': 'rejected',
+                 'blocker': {'construct': 'X', 'reason': 'y'}},
+                {'name': 'supply', 'status': 'importable'},
+                {'name': 'withdraw', 'status': 'error'}]
+        self.assertIsNone(milestone_summary({'id': 'any'}, rows))
+        self.assertIsNone(milestone_summary({'id': 'any', 'exclude_functions': []}, rows))
+        m = milestone_summary({'id': 'any', 'exclude_functions': ['multicall']}, rows)
+        self.assertEqual(m['excluded_functions'], ['multicall'])
+        self.assertEqual((m['functions'], m['importable'], m['errors']), (2, 1, 1))
+        self.assertFalse(m['complete'])
+        self.assertEqual(m['first_blocker_histogram'], [])
+        report = {'scope': 's', 'complete': False, 'summary': {'first_blocker_histogram': []},
+                  'contracts': [{'project': 'any', 'contract': 'C', 'functions': [],
+                                 'summary': summarize(rows), 'milestone': m}]}
+        self.assertIn('any:C milestone (excluding only `multicall`): 1/2; unknown: 1.',
+                      markdown(report))
+
+    def test_exclude_functions_must_be_distinct_names(self):
+        for bad in ('multicall', [''], [1], ['a', 'a']):
+            with self.assertRaisesRegex(ValueError, 'exclude_functions'):
+                excluded_functions({'id': 'any', 'exclude_functions': bad})
+
+    def test_manifest_exclusions_are_data_not_code(self):
+        manifest = json.loads(MANIFEST.read_text())
+        for project in manifest['projects']:
+            excluded_functions(project)
+        source = (Path(__file__).parent / 'solidity_import_coverage.py').read_text()
+        for project in manifest['projects']:
+            self.assertNotIn(f"== '{project['id']}'", source)
+        midnight = [p for p in manifest['projects'] if p['id'] == 'midnight']
+        self.assertEqual([p.get('exclude_functions') for p in midnight], [['multicall']])
 
 
 if __name__ == '__main__':

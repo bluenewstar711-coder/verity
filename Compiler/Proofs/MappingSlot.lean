@@ -57,21 +57,72 @@ private def solidityMappingSlot_ffi (baseSlot key : Nat) : Nat :=
 def solidityMappingSlot (baseSlot key : Nat) : Nat :=
   EvmYul.fromByteArrayBigEndian (KeccakEngine.keccak256 (abiEncodeMappingSlot baseSlot key))
 
+/-- `EvmYul.UInt256.ofNat` reduces its argument modulo `2^256`. -/
+theorem evmYul_uint256_ofNat_mod (n : Nat) :
+    EvmYul.UInt256.ofNat (n % Compiler.Constants.evmModulus) = EvmYul.UInt256.ofNat n := by
+  unfold EvmYul.UInt256.ofNat
+  simp only [Id.run]
+  congr 1
+  apply Fin.ext
+  simp [Fin.ofNat, EvmYul.UInt256.size]
+
+/-- The ABI encoding only sees base slot and key modulo `2^256`. -/
+theorem abiEncodeMappingSlot_mod (baseSlot key : Nat) :
+    abiEncodeMappingSlot (baseSlot % Compiler.Constants.evmModulus)
+        (key % Compiler.Constants.evmModulus) =
+      abiEncodeMappingSlot baseSlot key := by
+  simp only [abiEncodeMappingSlot, evmYul_uint256_ofNat_mod]
+
+/-- The mapping-slot derivation only sees base slot and key modulo `2^256`.
+    In particular `solidityMappingSlot b k = solidityMappingSlot b (k + 2^256)`,
+    which is why `solidityMappingSlot_injective` must be range-restricted. -/
+theorem solidityMappingSlot_mod (baseSlot key : Nat) :
+    solidityMappingSlot (baseSlot % Compiler.Constants.evmModulus)
+        (key % Compiler.Constants.evmModulus) =
+      solidityMappingSlot baseSlot key := by
+  unfold solidityMappingSlot
+  rw [abiEncodeMappingSlot_mod]
+
 /-- Collision-resistance of Solidity mapping-slot derivation
-    `keccak256(abi.encode(key, baseSlot))`.
+    `keccak256(abi.encode(key, baseSlot))` on in-range (`< 2^256`) base
+    slots and keys, i.e. on the 64-byte ABI words actually hashed.
 
     **Not** injectivity of keccak256 on arbitrary `ByteArray`s (256-bit
-    output, infinite domain). See `docs/AXIOMS.md`. -/
+    output, infinite domain). The range hypotheses are required: the ABI
+    encoding reduces both arguments modulo `2^256` (`solidityMappingSlot_mod`),
+    so an unrestricted statement over `Nat` is refutable
+    (`solidityMappingSlot 0 0 = solidityMappingSlot 0 (2^256)`).
+    See `docs/AXIOMS.md`. -/
 axiom solidityMappingSlot_injective
     (base₁ key₁ base₂ key₂ : Nat) :
+    base₁ < Compiler.Constants.evmModulus →
+    key₁ < Compiler.Constants.evmModulus →
+    base₂ < Compiler.Constants.evmModulus →
+    key₂ < Compiler.Constants.evmModulus →
     solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
     base₁ = base₂ ∧ key₁ = key₂
 
+/-- Unbounded consequence of `solidityMappingSlot_injective`: equal derived
+    slots force equal base slots and keys modulo `2^256`. -/
+theorem solidityMappingSlot_injective_mod (base₁ key₁ base₂ key₂ : Nat)
+    (h : solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂) :
+    base₁ % Compiler.Constants.evmModulus = base₂ % Compiler.Constants.evmModulus ∧
+      key₁ % Compiler.Constants.evmModulus = key₂ % Compiler.Constants.evmModulus := by
+  have hpos : 0 < Compiler.Constants.evmModulus := by decide
+  apply solidityMappingSlot_injective _ _ _ _
+    (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos) (Nat.mod_lt _ hpos)
+  rw [solidityMappingSlot_mod, solidityMappingSlot_mod]
+  exact h
+
 theorem solidityMappingSlot_ne {base₁ key₁ base₂ key₂ : Nat}
+    (hb₁ : base₁ < Compiler.Constants.evmModulus)
+    (hk₁ : key₁ < Compiler.Constants.evmModulus)
+    (hb₂ : base₂ < Compiler.Constants.evmModulus)
+    (hk₂ : key₂ < Compiler.Constants.evmModulus)
     (h : base₁ ≠ base₂ ∨ key₁ ≠ key₂) :
     solidityMappingSlot base₁ key₁ ≠ solidityMappingSlot base₂ key₂ := by
   intro heq
-  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₂ heq with ⟨hb, hk⟩
+  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₂ hb₁ hk₁ hb₂ hk₂ heq with ⟨hb, hk⟩
   cases h with
   | inl hbase => exact hbase hb
   | inr hkey => exact hkey hk
@@ -271,25 +322,41 @@ theorem abstractMappingSlot_lt_evmModulus (baseSlot key : Nat) :
 
 theorem abstractNestedMappingSlot_injective
     (base₁ key₁ key₂ base₂ key₁' key₂' : Nat)
+    (hb₁ : base₁ < Compiler.Constants.evmModulus)
+    (hk₁ : key₁ < Compiler.Constants.evmModulus)
+    (hk₂ : key₂ < Compiler.Constants.evmModulus)
+    (hb₂ : base₂ < Compiler.Constants.evmModulus)
+    (hk₁' : key₁' < Compiler.Constants.evmModulus)
+    (hk₂' : key₂' < Compiler.Constants.evmModulus)
     (h : abstractNestedMappingSlot base₁ key₁ key₂ =
       abstractNestedMappingSlot base₂ key₁' key₂') :
     base₁ = base₂ ∧ key₁ = key₁' ∧ key₂ = key₂' := by
   have hinj :=
     solidityMappingSlot_injective
       (solidityMappingSlot base₁ key₁) key₂
-      (solidityMappingSlot base₂ key₁') key₂' (by
+      (solidityMappingSlot base₂ key₁') key₂'
+      (solidityMappingSlot_lt_evmModulus _ _) hk₂
+      (solidityMappingSlot_lt_evmModulus _ _) hk₂' (by
         simpa [abstractNestedMappingSlot, abstractMappingSlot] using h)
   rcases hinj with ⟨hinner, hkey2⟩
-  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₁' hinner with ⟨hbase, hkey1⟩
+  rcases solidityMappingSlot_injective base₁ key₁ base₂ key₁' hb₁ hk₁ hb₂ hk₁' hinner
+    with ⟨hbase, hkey1⟩
   exact ⟨hbase, hkey1, hkey2⟩
 
 theorem abstractNestedMappingSlot_ne
     {base₁ key₁ key₂ base₂ key₁' key₂' : Nat}
+    (hb₁ : base₁ < Compiler.Constants.evmModulus)
+    (hk₁ : key₁ < Compiler.Constants.evmModulus)
+    (hk₂ : key₂ < Compiler.Constants.evmModulus)
+    (hb₂ : base₂ < Compiler.Constants.evmModulus)
+    (hk₁' : key₁' < Compiler.Constants.evmModulus)
+    (hk₂' : key₂' < Compiler.Constants.evmModulus)
     (h : base₁ ≠ base₂ ∨ key₁ ≠ key₁' ∨ key₂ ≠ key₂') :
     abstractNestedMappingSlot base₁ key₁ key₂ ≠
       abstractNestedMappingSlot base₂ key₁' key₂' := by
   intro heq
-  rcases abstractNestedMappingSlot_injective base₁ key₁ key₂ base₂ key₁' key₂' heq
+  rcases abstractNestedMappingSlot_injective base₁ key₁ key₂ base₂ key₁' key₂'
+      hb₁ hk₁ hk₂ hb₂ hk₁' hk₂' heq
     with ⟨hb, hk1, hk2⟩
   rcases h with h | h | h
   · exact h hb
@@ -309,5 +376,42 @@ theorem solidityMappingSlot_add_wordOffset_lt_evmModulus
     (h : wordOffset < Compiler.Constants.evmModulus - solidityMappingSlot baseSlot key) :
     solidityMappingSlot baseSlot key + wordOffset < Compiler.Constants.evmModulus := by
   exact solidityMappingSlot_add_lt_evmModulus baseSlot key wordOffset h
+
+/-! ### Hashed mapping-chain layout (interpretation of `StorageKey.mapChain`)
+
+The executable plane keeps nested / struct mapping words under the symbolic
+key `Verity.StorageKey.mapChain baseSlot keys wordOffset`. Their Solidity
+storage location folds `keccak256(key ‖ acc)` left-to-right over the key path
+and adds the word offset modulo `2^256`. None of the facts below use
+`solidityMappingSlot_injective`. -/
+
+/-- Solidity storage location of word `wordOffset` of the value stored under
+    the key path `keys` of the mapping rooted at `baseSlot`. -/
+def mappingChainSlotLocation (baseSlot : Nat) (keys : List Nat) (wordOffset : Nat) : Nat :=
+  (keys.foldl solidityMappingSlot baseSlot + wordOffset) % Compiler.Constants.evmModulus
+
+theorem mappingChainSlotLocation_single (baseSlot key wordOffset : Nat) :
+    mappingChainSlotLocation baseSlot [key] wordOffset =
+      mappingSlotLocation baseSlot key wordOffset := rfl
+
+theorem mappingChainSlotLocation_pair (baseSlot key1 key2 wordOffset : Nat) :
+    mappingChainSlotLocation baseSlot [key1, key2] wordOffset =
+      nestedMappingSlotLocation baseSlot key1 key2 wordOffset := rfl
+
+theorem foldl_solidityMappingSlot_lt_evmModulus (acc : Nat) (keys : List Nat)
+    (h : acc < Compiler.Constants.evmModulus) :
+    keys.foldl solidityMappingSlot acc < Compiler.Constants.evmModulus := by
+  induction keys generalizing acc with
+  | nil => exact h
+  | cons key keys ih => exact ih _ (solidityMappingSlot_lt_evmModulus acc key)
+
+/-- A non-empty key path at word offset `0` is exactly the folded keccak slot. -/
+theorem mappingChainSlotLocation_zero (baseSlot key : Nat) (keys : List Nat) :
+    mappingChainSlotLocation baseSlot (key :: keys) 0 =
+      (key :: keys).foldl solidityMappingSlot baseSlot := by
+  unfold mappingChainSlotLocation
+  rw [Nat.add_zero]
+  exact Nat.mod_eq_of_lt
+    (foldl_solidityMappingSlot_lt_evmModulus _ keys (solidityMappingSlot_lt_evmModulus _ _))
 
 end Compiler.Proofs

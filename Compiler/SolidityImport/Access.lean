@@ -19,16 +19,20 @@ class Word (α : Type) where
   ofWord : Nat → α
 
 instance : Word Uint256 := ⟨Uint256.val, Uint256.ofNat⟩
+instance : Word Int256 := ⟨fun x => x.toUint256.val, fun n => Int256.ofUint256 (Uint256.ofNat n)⟩
 instance : Word (UIntN bits) := ⟨UIntN.val, UIntN.ofNat bits⟩
 instance : Word Address := ⟨Address.val, Address.ofNat⟩
 instance : Word (BytesN 32) := ⟨BytesN.val, BytesN.ofNat 32⟩
+instance : Word (BytesN 4) := ⟨fun x => (BytesN.toUint256 x).val, fun n => BytesN.ofUint256 4 (Uint256.ofNat n)⟩
 instance : Word Bool := ⟨fun b => if b then 1 else 0, fun n => n != 0⟩
 
 @[simp] theorem toWord_uint256 (x : Uint256) : Word.toWord x = x.val := rfl
+@[simp] theorem toWord_int256 (x : Int256) : Word.toWord x = x.toUint256.val := rfl
 @[simp] theorem toWord_uintN (x : UIntN bits) : Word.toWord x = x.val := rfl
 @[simp] theorem toWord_address (x : Address) : Word.toWord x = x.val := rfl
 @[simp] theorem toWord_bytes32 (x : BytesN 32) : Word.toWord x = x.val := rfl
 @[simp] theorem ofWord_uint256 (n : Nat) : (Word.ofWord n : Uint256) = Uint256.ofNat n := rfl
+@[simp] theorem ofWord_int256 (n : Nat) : (Word.ofWord n : Int256) = Int256.ofUint256 (Uint256.ofNat n) := rfl
 @[simp] theorem ofWord_uintN (n : Nat) : (Word.ofWord n : UIntN bits) = UIntN.ofNat bits n := rfl
 
 /-- Body of the function `name` in `model`; `[]` if there is none. -/
@@ -43,7 +47,7 @@ where
 argument words; `none` means it reverted. -/
 def runFunction (oracle : DenoteOracle) (model : CompilationModel) (name : String)
     (world : Verity.ContractState) (args : Env) : Option (List Nat) :=
-  match execStmtList oracle model.fields { world, bindings := args } (functionBody model name) with
+  match execStmtList oracle model.fields { world, bindings := args, errors := model.errors } (functionBody model name) with
   | .stop state | .continue state | .return _ state => state.observedReturnWords
   | .revert | .revertWithData _ => none
 

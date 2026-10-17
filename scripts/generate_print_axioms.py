@@ -20,9 +20,37 @@ from property_utils import strip_lean_comments
 ROOT = Path(__file__).resolve().parent.parent
 PROOF_DIRS = [ROOT / "Verity" / "Proofs", ROOT / "Compiler" / "Proofs"]
 TRUST_BOUNDARY_FILES = [
+    ROOT / "Verity" / "Core" / "Model" / "BytesObjectMemory.lean",
+    ROOT / "Verity" / "Core" / "AccountState.lean",
+    ROOT / "Verity" / "Core" / "Model" / "DenoteCreate2.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2ParentGas.lean",
+    ROOT / "Verity" / "Core" / "Model" / "Create2Opcode.lean",
+    ROOT / "Verity" / "Core" / "Model" / "AccountStorageBridge.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "DeploymentWorldChecks.lean",
+    ROOT / "Verity" / "Core" / "Model" / "InitCodeExecution.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "InitCodeExecutionChecks.lean",
     ROOT / "Compiler" / "CompilationModel" / "ReservedScratchNames.lean",
     ROOT / "Compiler" / "SolidityImport" / "Transactions.lean",
+    ROOT / "Compiler" / "SolidityImport" / "StorageFrames.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiLoopFrames.lean",
     ROOT / "Compiler" / "SolidityImport" / "TransactionAccess.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "Smoke.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "StaticAbiChecks.lean",
+    ROOT / "Compiler" / "SolidityImport" / "EntryPointInvariants.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "EntryPointInvariantChecks.lean",
+
+    ROOT / "Compiler" / "SolidityImport" / "LoopInvariants.lean",
+    ROOT / "Compiler" / "SolidityImport" / "SymbolicExecution.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "SymbolicExecutionChecks.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "LoopInvariantChecks.lean",
+    ROOT / "Compiler" / "SolidityImport" / "Coverage.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiEncoding.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiByteLanes.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AbiMemory.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "SolidityAbiPrimitiveChecks.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "AbiLoweringChecks.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "AbiCoverageChecks.lean",
+    ROOT / "Contracts" / "SolidityImportSmoke" / "ExplicitAbiChecks.lean",
 ]
 
 def _collect_contract_proof_dirs() -> list[Path]:

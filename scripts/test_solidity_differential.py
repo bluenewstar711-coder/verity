@@ -3,15 +3,86 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from solidity_differential.cases import generate, canonical
-from solidity_differential.engine import HarnessError, parse_evm, execute
+from solidity_differential.engine import HarnessError, parse_evm, execute, command
 from solidity_differential.programs import generated_campaign, source, smaller_expressions
 from solidity_differential.reduce import reduce_failure, signature
+from solidity_differential.mutations import mutation_campaign, snapshot, release
+from solidity_differential.suite import run_checks
 
 
 class SolidityDifferentialTests(unittest.TestCase):
+    def test_mutant_build_is_private_with_a_sticky_cache(self):
+        for sticky in (False, True):
+            with self.subTest(sticky=sticky), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / 'workspace'
+                lake = root / '.lake'
+                (lake / 'packages').mkdir(parents=True)
+                (lake / 'solidity-import').mkdir()
+                (lake / 'solidity-import/solc-0.8.34').write_text('compiler')
+                (root / 'Example.lean').write_text('original')
+                build = Path(temporary) / 'persistent-build' if sticky else lake / 'build'
+                build.mkdir()
+                artifact = build / 'Example.olean'
+                artifact.write_text('pristine')
+                if sticky:
+                    (lake / 'build').symlink_to(build, target_is_directory=True)
+
+                def snapshot_command(argv, **kwargs):
+                    if argv[0] == 'git':
+                        return 'Example.lean\0'
+                    return command(argv, **kwargs)
+
+                with patch('solidity_differential.mutations.ROOT', root), \
+                     patch('solidity_differential.mutations.WORKSPACE', root), \
+                     patch('solidity_differential.mutations.command', snapshot_command):
+                    first = Path(temporary) / 'first'
+                    snapshot(first)
+                    self.assertFalse((first / '.lake/build').is_symlink())
+                    (first / '.lake/build/Example.olean').write_text('mutated')
+                    self.assertEqual(artifact.read_text(), 'pristine')
+                    (first / 'baseline.log').write_text('baseline evidence')
+                    release(first)
+                    self.assertFalse((first / '.lake/build').exists())
+                    self.assertEqual((first / 'baseline.log').read_text(), 'baseline evidence')
+                    self.assertEqual((first / 'Example.lean').read_text(), 'original')
+                    second = Path(temporary) / 'second'
+                    snapshot(second)
+                    self.assertEqual((second / '.lake/build/Example.olean').read_text(), 'pristine')
+                    release(second)
+                    self.assertEqual(artifact.read_text(), 'pristine')
+
+    def test_existing_divergence_does_not_kill_a_mutant(self):
+        def fake_snapshot(directory):
+            directory.mkdir(parents=True)
+            (directory / "Example.lean").write_text("original")
+            (directory / ".lake/build").mkdir(parents=True)
+
+        def failing_baseline(argv, **kwargs):
+            directory = Path(argv[argv.index("--output") + 1])
+            directory.mkdir(parents=True)
+            (directory / "results.json").write_text(json.dumps({
+                "cases": 1, "divergences": [{"preexisting": True}]}))
+            return SimpleNamespace(returncode=1, stdout="baseline diverged", stderr="")
+
+        with tempfile.TemporaryDirectory() as output:
+            with patch("solidity_differential.mutations.MUTANTS", {
+                    "probe": ("Example.lean", "original", "mutated")}), \
+                 patch("solidity_differential.mutations.snapshot", fake_snapshot), \
+                 patch("solidity_differential.mutations.subprocess.run", failing_baseline):
+                with self.assertRaisesRegex(HarnessError, "positive control failed") as failure:
+                    mutation_campaign(output)
+                self.assertIn("exit 1", str(failure.exception))
+                self.assertIn("baseline.log", str(failure.exception))
+                self.assertIn("baseline diverged", str(failure.exception))
+            self.assertEqual((Path(output) / "probe/Example.lean").read_text(), "original")
+            self.assertFalse((Path(output) / "mutation-results.json").exists())
+            # The private build copy is released even when the campaign aborts.
+            self.assertFalse((Path(output) / "probe/.lake/build").exists())
+
     def test_seed_reproduces_every_input(self):
         config = {"variables": {"a": 8, "b": 16}, "ordered_pairs": []}
         first = generate(config, 100, 17, [])
@@ -90,6 +161,30 @@ class SolidityDifferentialTests(unittest.TestCase):
             (Path(directory) / "results.json").write_text(json.dumps(report))
             with self.assertRaisesRegex(ValueError, "metamorphic"):
                 reduce_failure(directory)
+
+    def test_stateful_checks_print_progress_before_each_command(self):
+        seen = []
+
+        def fake_command(argv, **kwargs):
+            seen.append(argv)
+            return ""
+
+        checks = [("protocol", ["-m", "unittest"]), ("errors", ["-m", "check_stateful"])]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with patch("solidity_differential.suite.command", fake_command), \
+                 patch("builtins.print") as printed:
+                report = run_checks(output, checks, 64, 2449)
+            self.assertEqual(report["checks"], ["protocol", "errors"])
+            self.assertEqual(json.loads((output / "completed.json").read_text()), ["protocol", "errors"])
+            messages = [call.args[0] for call in printed.call_args_list]
+            protocol_at = messages.index("stateful check 1/2: protocol")
+            errors_at = messages.index("stateful check 2/2: errors")
+            self.assertLess(protocol_at, errors_at)
+            self.assertTrue(all(call.kwargs.get("flush") for call in printed.call_args_list))
+            self.assertEqual(len(seen), 2)
+            self.assertIn("unittest", seen[0])
+            self.assertIn("check_stateful", seen[1])
 
 
 if __name__ == "__main__":

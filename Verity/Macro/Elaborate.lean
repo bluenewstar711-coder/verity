@@ -85,7 +85,6 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let isMixin := parsed.isMixin
   let resolvedIncludes := parsed.resolvedIncludes
 
-  validateGeneratedDefNamesPublic fields constDecls immutableDecls functions
   validateConstantDeclsPublic constDecls
   validateImmutableDeclsPublic fields constDecls immutableDecls ctor
   validateExternalDeclsPublic externalDecls
@@ -121,6 +120,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
   let translationExternalDecls := mixinExternalDecls ++ externalDecls
   let translationFunctions := mixinFunctions ++ functions
   let translationRoleDecls := mixinRoleDecls ++ roleDecls
+  validateGeneratedDefNamesPublic structDecls translationFields translationConstDecls
+    translationImmutableDecls (mixinModifiers ++ modifiers) translationFunctions
   validateFunctionDeclsPublic translationFields translationErrorDecls translationEventDecls
     translationConstDecls translationImmutableDecls translationExternalDecls ctor
     (mixinModifiers ++ modifiers) translationFunctions
@@ -135,6 +136,7 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
       elabCommand (← mkStructDefCommandPublic structDecl)
       elabCommand (← mkStructEventArgInstanceCommandPublic structDecl)
       elabCommand (← mkStructExternalArgInstanceCommandPublic structDecl)
+      elabCommand (← mkStructToDispatchValInstanceCommandPublic structDecl)
       elabCommand (← mkStructExternalResultInstanceCommandPublic structDecl)
 
     let aliasCmds ← mkIncludeAliasCommandsPublic resolvedIncludes
@@ -177,6 +179,8 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
         elabCommand cmd
       elabCommand (← mkBridgeCommand fn.ident)
 
+    elabCommand (← mkEntrypointRegistryCommandPublic translationFunctions)
+
     -- Constructors may call internal helpers, so emit them only after the
     -- executable helper definitions are available in the namespace.
     if isMixin then
@@ -194,6 +198,30 @@ private def elabVerityContractOrMixin (stx : Syntax) : CommandElabM Unit := do
             translationErrorDecls translationConstDecls translationImmutableDecls
             translationExternalDecls translationFunctions resolvedIncludes ctorDecl
             (linkedContracts := parsed.linkedContracts))
+      | none => pure ()
+
+    -- Ordinary contracts also get an executable `constructor` (verity#2465),
+    -- so a creation boundary can run the generated constructor body instead
+    -- of a hand-extracted helper. Best effort: a constructor whose body has
+    -- no executable lowering (e.g. `String` parameters) keeps the previous
+    -- behaviour (compilation model only) instead of failing elaboration.
+    if !isMixin && resolvedIncludes.isEmpty then
+      match ctor with
+      | some ctorDecl =>
+          -- Binders get synthetic source info: the generated `def` must not
+          -- re-report unused constructor parameters on the user's source.
+          let ctorDecl := { ctorDecl with
+            params := ctorDecl.params.map fun p => { p with ident := mkIdent p.ident.getId } }
+          let saved ← get
+          let hadErrors := saved.messages.hasErrors
+          try
+            elabCommand (← mkConstructorDefCommandPublic translationFields translationErrorDecls
+              translationConstDecls translationImmutableDecls translationExternalDecls
+              translationFunctions ctorDecl (linkedContracts := parsed.linkedContracts))
+            if (← get).messages.hasErrors && !hadErrors then
+              set saved
+          catch _ =>
+            set saved
       | none => pure ()
 
     let specName : Ident :=

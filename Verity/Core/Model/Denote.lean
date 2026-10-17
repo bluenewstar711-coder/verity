@@ -274,6 +274,11 @@ structure DenoteState where
       The proof semantics records the words here and finishes with `.stop`;
       panic payloads are carried separately by `StmtOutcome.revertWithData`. -/
   observedReturnWords : Option (List Nat) := none
+  /-- The current frame executed `Stmt.stop`, whose EVM response is empty.
+      Kept separate from the legacy return-word projection. -/
+  observedStop : Bool := false
+  /-- Declarations needed for exact custom-error ABI encoding. -/
+  errors : List ErrorDef := []
 
 /-- Mirrors `SourceSemantics.StmtResult`. -/
 inductive StmtOutcome where
@@ -293,6 +298,55 @@ def wordBytes (value : Nat) : List UInt8 :=
 /-- Exact Solidity `Panic(uint256)` revert encoding. -/
 def panicBytes (code : Nat) : List UInt8 :=
   [0x4e, 0x48, 0x7b, 0x71] ++ wordBytes code
+
+/-- Exact ABI Error(string) bytes for a UTF-8 model message. -/
+def errorStringBytes (message : String) : List UInt8 :=
+  let bytes := message.toUTF8.data.toList
+  [0x08, 0xc3, 0x79, 0xa0] ++ wordBytes 32 ++ wordBytes bytes.length ++ bytes ++
+    List.replicate ((32 - bytes.length % 32) % 32) 0
+
+/-- Canonical signatures for the scalar custom-error fragment. Unsupported
+ABI types return none rather than being approximated as words. -/
+def errorScalarType : ParamType → Option String
+  | .uint256 => some "uint256"
+  | .uint8 => some "uint8"
+  | .uint16 => some "uint16"
+  | .uintN bits => if 0 < bits && bits ≤ 256 && bits % 8 == 0 then some s!"uint{bits}" else none
+  | .address => some "address"
+  | .bool => some "bool"
+  | .bytes32 => some "bytes32"
+  | _ => none
+
+/-- Reject noncanonical narrow ABI words instead of truncating error arguments. -/
+def errorScalarValueValid (ty : ParamType) (value : Nat) : Bool :=
+  match ty with
+  | .uint256 | .bytes32 => value < 2^256
+  | .uint8 => value < 2^8
+  | .uint16 => value < 2^16
+  | .uintN bits => 0 < bits && bits ≤ 256 && bits % 8 == 0 && value < 2^bits
+  | .address => value < 2^160
+  | .bool => value ≤ 1
+  | _ => false
+
+/-- Reconstruct a byte slice as word-addressed EVM memory for the existing hash
+oracle. The temporary buffer is not a mutation of the contract world. -/
+def signatureMemory (bytes : List UInt8) (offset : Nat) : Verity.Core.Uint256 :=
+  Verity.Core.Uint256.ofNat ((List.range 32).foldl
+    (fun word index => word * 256 + ((bytes[offset + index]?).getD 0).toNat) 0)
+
+/-- Exact selector and argument words for a uniquely resolved scalar error.
+Hash faithfulness has the same explicit oracle boundary as model keccak256. -/
+def customErrorBytes (oracle : DenoteOracle) (errors : List ErrorDef)
+    (name : String) (values : List Nat) : Option (List UInt8) := do
+  let [definition] := errors.filter (·.name == name) | none
+  if definition.params.length != values.length then none else do
+    if !(definition.params.zip values).all (fun pair => errorScalarValueValid pair.1 pair.2) then none else do
+      let types ← definition.params.mapM errorScalarType
+      let signature := name ++ "(" ++ String.intercalate "," types ++ ")"
+      let bytes := signature.toUTF8.data.toList
+      let hash := oracle.keccakMemorySlice (signatureMemory bytes) 0 bytes.length
+      let selector := (wordBytes hash).take 4
+      return selector ++ values.flatMap wordBytes
 
 theorem wordBytes_length (value : Nat) : (wordBytes value).length = 32 := by
   simp [wordBytes]
@@ -377,14 +431,14 @@ def writeUintSlots (world : Verity.ContractState) (slots : List Nat) (value : Na
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map wordNormalize
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeStorageWordSlots (world : Verity.ContractState) (slots : List Nat)
     (wordOffset value : Nat) : Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let addr := Verity.wordToAddress word
   let targets := slots.map (fun slot => wordNormalize (slot + wordOffset))
-  (world.writeSlots targets word).writeAddrSlots targets addr
+  (world.writePhysicalSlots targets word).writeAddrSlots targets addr
 
 def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
@@ -429,7 +483,7 @@ def writeUintFieldSlots (fields : List Field) (fieldName : String)
             world.modifyTransientSlots targets
               (fun current => packedWordWrite current.val value packed)
           else
-            world.modifySlots targets
+            world.modifyPhysicalSlots targets
               (fun current => packedWordWrite current.val value packed)
       | none =>
           if field.isTransient then writeTransientTargets world slots value
@@ -459,7 +513,7 @@ def writeMappingTargets (fields : List Field) (fieldName : String)
     writeTransientTargets world targets value
   else
     let word : Verity.Core.Uint256 := value
-    world.writeSlots (targets.map wordNormalize) word
+    world.writePhysicalSlots (targets.map wordNormalize) word
 
 /-- Nat-level rendering of `Compiler.Proofs.abstractStoreMappingEntry` over a
 word-normalized storage view (see header note 3). -/
@@ -500,7 +554,7 @@ def writeAddressKeyedMappingChainSlots (oracle : DenoteOracle)
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map (fun slot => wordNormalize (mappingSlotChain oracle slot keys))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordSlots (oracle : DenoteOracle)
     (world : Verity.ContractState) (slots : List Nat) (key wordOffset value : Nat) :
@@ -508,7 +562,7 @@ def writeAddressKeyedMappingWordSlots (oracle : DenoteOracle)
   let word : Verity.Core.Uint256 := value
   let targets :=
     slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def readFixedUint128ArrayElement
     (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
@@ -527,7 +581,7 @@ def writeFixedUint128ArrayElementSlots
     let offset := (index % 2) * 128
     let packed : PackedBits := { offset := offset, width := 128 }
     let targets := slots.map (fun slot => wordNormalize (slot + index / 2))
-    some (world.modifySlots targets
+    some (world.modifyPhysicalSlots targets
       (fun current => packedWordWrite current.val value packed))
   else
     none
@@ -538,7 +592,7 @@ def writeAddressKeyedMappingPackedWordSlots (oracle : DenoteOracle)
     Verity.ContractState :=
   let targets :=
     slots.map (fun slot => wordNormalize (oracle.mappingSlot slot key + wordOffset))
-  world.modifySlots targets
+  world.modifyPhysicalSlots targets
     (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMappingPackedWordFieldSlots (oracle : DenoteOracle)
@@ -594,7 +648,7 @@ def writeAddressKeyedMapping2WordSlots (oracle : DenoteOracle)
   let targets := slots.map (fun slot =>
     wordNormalize
       (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordFieldSlots (oracle : DenoteOracle)
     (fields : List Field) (fieldName : String)
@@ -659,7 +713,7 @@ def writeAddressKeyedMapping2PackedWordSlots (oracle : DenoteOracle)
   let targets := slots.map (fun slot =>
     wordNormalize
       (oracle.mappingSlot (oracle.mappingSlot slot key1) key2 + wordOffset))
-  world.modifySlots targets
+  world.modifyPhysicalSlots targets
     (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMapping2PackedWordFieldSlots (oracle : DenoteOracle)
@@ -701,6 +755,29 @@ def ceilDivVal (lhs rhs : Verity.Core.Uint256) : Nat :=
 def dynamicArrayBinding? (bindings : Env) (name : String) :
     Option (Nat × Nat) :=
   DynamicAbi.dynamicArrayBinding? bindings name
+
+/-- ABI-encoded `32 :: length :: paddedDataWords` payload for `Stmt.returnBytes name`.
+    When `fromMemory` is true (`name.startsWith "_verity_memret_"`), reads 32-byte words from
+    `memory`; otherwise reads from `calldata`. Zero-pads the final partial word on the
+    right to 32 bytes, matching the Yul `calldatacopy`/memory-copy + zero-fill emitted by
+    `Compile.compileStmt` for `Stmt.returnBytes`. -/
+def returnBytesWords (selector : Nat) (calldata : List Nat)
+    (memory : Nat → Verity.Core.Uint256) (fromMemory : Bool) (dataOffset length : Nat) :
+    List Nat :=
+  let wordCount := (length + 31) / 32
+  let words := (List.range wordCount).map fun idx =>
+    let offset := wordNormalize (dataOffset + 32 * idx)
+    let raw :=
+      if fromMemory then
+        (memory offset).val
+      else
+        calldataloadWord selector calldata offset
+    if idx + 1 == wordCount && length % 32 != 0 then
+      let shift := 8 * (32 - length % 32)
+      (raw / (2 ^ shift)) * (2 ^ shift)
+    else
+      raw
+  32 :: wordNormalize length :: words
 
 abbrev arrayElement? := DynamicAbi.arrayElement?
 
@@ -808,6 +885,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
@@ -1349,6 +1428,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr oracle fields state value with
@@ -1418,23 +1499,31 @@ mutual
               }
             else .revert
         | _, _, _ => .revert
-    | state, .require cond _ =>
+    | state, .require cond message =>
         match evalExpr oracle fields state cond with
         | some resolved =>
-            if resolved != 0 then .continue state else .revert
+            if resolved != 0 then .continue state else .revertWithData (errorStringBytes message)
         | none => .revert
-    | state, .requireError cond _ args =>
+    | state, .requireError cond name args =>
         match evalExpr oracle fields state cond with
         | some resolved =>
             if resolved != 0 then
               .continue state
             else
               match evalExprList oracle fields state args with
-              | _ => .revert
+              | none => .revert
+              | some values =>
+                  match customErrorBytes oracle state.errors name values with
+                  | some bytes => .revertWithData bytes
+                  | none => .revert
         | none => .revert
-    | state, .revertError _ args =>
+    | state, .revertError name args =>
         match evalExprList oracle fields state args with
-        | _ => .revert
+        | none => .revert
+        | some values =>
+            match customErrorBytes oracle state.errors name values with
+            | some bytes => .revertWithData bytes
+            | none => .revert
     | state, .panicCode code =>
         match evalExpr oracle fields state code with
         | some value => .revertWithData (panicBytes value)
@@ -1447,7 +1536,7 @@ mutual
                 world := { state.world with
                   memory := fun o => if o = 0 then resolved else state.world.memory o } }
         | none => .revert
-    | state, .stop => .stop state
+    | state, .stop => .stop { state with observedStop := true }
     | state, .ite cond thenBranch elseBranch =>
         match evalExpr oracle fields state cond with
         | some resolved =>
@@ -1543,11 +1632,19 @@ mutual
                       externalCallIndex := state.externalCallIndex + 1 }
             else .revert
         | none => .revert
-    | _, .revertReturndata => .revert
+    | state, .revertReturndata => .revertWithData (state.world.returndata.flatMap wordBytes)
     | state, .returnValues values =>
         match evalExprList oracle fields state values with
         | some resolved =>
-            .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+            .stop { state with observedReturnWords := some (resolved.map wordNormalize), observedStop := false }
+        | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length)
+              observedStop := false }
         | none => .revert
     | _, _ => .revert
 
@@ -1684,11 +1781,12 @@ def denoteFunction (oracle : DenoteOracle) (spec : CompilationModel) (fn : Funct
     (externalCallPostWorld : Nat → Option Verity.ContractState := fun _ => none) : DenoteResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult oracle spec worldWithTx
   | some bindings =>
       match execStmtList oracle fields
           { world := worldWithTx, bindings := bindings, selector := tx.functionSelector,
+            errors := spec.errors,
             externalCallSucceeded := externalCallSucceeded,
             externalCallReturnValues := externalCallReturnValues,
             externalCallPostWorld := externalCallPostWorld }

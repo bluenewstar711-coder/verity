@@ -382,7 +382,7 @@ def writeUintSlots (world : Verity.ContractState) (slots : List Nat) (value : Na
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map wordNormalize
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeStorageWordSlot (world : Verity.ContractState) (slot wordOffset value : Nat) :
     Verity.ContractState :=
@@ -396,7 +396,7 @@ def writeStorageWordSlots (world : Verity.ContractState) (slots : List Nat) (wor
   let word : Verity.Core.Uint256 := value
   let addr := Verity.wordToAddress word
   let targets := slots.map (fun slot => wordNormalize (slot + wordOffset))
-  (world.writeSlots targets word).writeAddrSlots targets addr
+  (world.writePhysicalSlots targets word).writeAddrSlots targets addr
 
 def writeAddressSlots (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
     Verity.ContractState :=
@@ -441,7 +441,7 @@ def writeUintFieldSlots (fields : List Field) (fieldName : String)
             world.modifyTransientSlots targets
               (fun current => packedWordWrite current.val value packed)
           else
-            world.modifySlots targets
+            world.modifyPhysicalSlots targets
               (fun current => packedWordWrite current.val value packed)
       | none =>
           if field.isTransient then writeTransientTargets world slots value
@@ -470,7 +470,7 @@ def writeMappingTargets (fields : List Field) (fieldName : String)
   if fieldIsTransient fields fieldName then
     writeTransientTargets world targets value
   else
-    world.writeSlots (targets.map wordNormalize) (value : Verity.Core.Uint256)
+    world.writePhysicalSlots (targets.map wordNormalize) (value : Verity.Core.Uint256)
 
 def writeAddressKeyedMappingSlots
     (world : Verity.ContractState) (slots : List Nat) (key value : Nat) :
@@ -501,7 +501,7 @@ def writeAddressKeyedMappingChainSlots
     Verity.ContractState :=
   let word : Verity.Core.Uint256 := value
   let targets := slots.map (fun slot => wordNormalize (mappingSlotChain slot keys))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordSlots
     (world : Verity.ContractState) (slots : List Nat) (key wordOffset value : Nat) :
@@ -510,7 +510,7 @@ def writeAddressKeyedMappingWordSlots
   let targets :=
     slots.map (fun slot =>
       wordNormalize (Compiler.Proofs.abstractMappingSlot slot key + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def readFixedUint128ArrayElement
     (world : Verity.ContractState) (slot size index : Nat) : Option Nat :=
@@ -529,7 +529,7 @@ def writeFixedUint128ArrayElementSlots
     let offset := (index % 2) * 128
     let packed : PackedBits := { offset := offset, width := 128 }
     let targets := slots.map (fun slot => wordNormalize (slot + index / 2))
-    some (world.modifySlots targets (fun current => packedWordWrite current.val value packed))
+    some (world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed))
   else
     none
 
@@ -540,7 +540,7 @@ def writeAddressKeyedMappingPackedWordSlots
   let targets :=
     slots.map (fun slot =>
       wordNormalize (Compiler.Proofs.abstractMappingSlot slot key + wordOffset))
-  world.modifySlots targets (fun current => packedWordWrite current.val value packed)
+  world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMappingPackedWordFieldSlots
     (fields : List Field) (fieldName : String)
@@ -564,7 +564,7 @@ def writeAddressKeyedMapping2PackedWordSlots
       wordNormalize
         (Compiler.Proofs.abstractMappingSlot
           (Compiler.Proofs.abstractMappingSlot slot key1) key2 + wordOffset))
-  world.modifySlots targets (fun current => packedWordWrite current.val value packed)
+  world.modifyPhysicalSlots targets (fun current => packedWordWrite current.val value packed)
 
 def writeAddressKeyedMapping2PackedWordFieldSlots
     (fields : List Field) (fieldName : String)
@@ -637,7 +637,7 @@ def writeAddressKeyedMapping2WordSlots
       (Compiler.Proofs.abstractMappingSlot
         (Compiler.Proofs.abstractMappingSlot slot key1)
         key2 + wordOffset))
-  world.writeSlots targets word
+  world.writePhysicalSlots targets word
 
 def writeAddressKeyedMappingWordFieldSlots
     (fields : List Field) (fieldName : String)
@@ -1228,6 +1228,8 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none
   | .caller => some state.world.sender.val
   | .contractAddress => some state.world.thisAddress.val
@@ -2316,6 +2318,8 @@ private theorem evalExpr_storageArrayElement
           | none => none
       | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
           readFixedUint128ArrayElement state.world slot size idx
+      | some (field@{ ty := .uint256, .. }, _) =>
+          some (readFieldWord state.world field idx).val
       | _ => none) := rfl
 
 private theorem evalExpr_mapping2
@@ -2640,6 +2644,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
@@ -2830,6 +2836,13 @@ mutual
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
         | none => .revert
     | _, _ => .revert
 
@@ -3023,6 +3036,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | state, .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExpr fields state value with
@@ -3213,6 +3228,13 @@ mutual
         match evalExprList fields state values with
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
+        | none => .revert
+    | state, .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
         | none => .revert
     | _, _ => .revert
 
@@ -3976,7 +3998,7 @@ def interpretFunction (spec : CompilationModel) (fn : FunctionSpec)
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithEvents fields spec.events
@@ -4067,6 +4089,8 @@ mutual
             | none => none
         | some ({ ty := .fixedArrayUint128 size, .. }, slot) =>
             readFixedUint128ArrayElement state.world slot size idx
+        | some (field@{ ty := .uint256, .. }, _) =>
+            some (readFieldWord state.world field idx).val
         | _ => none
     | .constructorArg idx =>
         lookupBinding? state.bindings s!"arg{idx}"
@@ -4620,6 +4644,8 @@ mutual
                 writeFixedUint128ArrayElementSlots state.world slots size idx resolved with
             | some world => .continue { state with world := world }
             | none => .revert
+        | some ({ ty := .uint256, .. }, _), some idx, some resolved =>
+            .continue { state with world := writeMappingTargets fields fieldName state.world [idx] resolved }
         | _, _, _ => .revert
     | .setStorageAddr fieldName value =>
         match findFieldWriteSlots fields fieldName, evalExprWithHelpers spec fields fuel state value with
@@ -4848,6 +4874,13 @@ mutual
         | some resolved =>
             .stop { state with observedReturnWords := some (resolved.map wordNormalize) }
         | none => .revert
+    | .returnBytes name =>
+        match dynamicArrayBinding? state.bindings name with
+        | some (dataOffset, length) =>
+            .stop { state with
+              observedReturnWords := some (Denote.returnBytesWords state.selector state.world.calldata
+                state.world.memory (name.startsWith "_verity_memret_") dataOffset length) }
+        | none => .revert
     | _ => .revert
   termination_by stmt => (fuel, sizeOf stmt)
   decreasing_by all_goals (simp_wf; omega)
@@ -5009,7 +5042,7 @@ def interpretFunctionWithHelpers
     SourceContractResult :=
   let worldWithTx := withTransactionContext initialWorld tx
   let fields := effectiveFields spec
-  match bindExternalParams tx.functionSelector fn.params tx.args with
+  match bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none => revertedResult spec worldWithTx
   | some bindings =>
       match execStmtListWithHelpers spec fields fuel
@@ -6665,7 +6698,7 @@ theorem interpretFunctionWithHelpers_eq_interpretFunction_of_helperSurfaceClosed
       interpretFunction spec fn tx initialWorld := by
   unfold interpretFunctionWithHelpers interpretFunction
   simp only
-  cases hbind : bindExternalParams tx.functionSelector fn.params tx.args with
+  cases hbind : bindExternalParams tx.functionSelector fn.bindingParams tx.args with
   | none =>
       simp
   | some bindings =>

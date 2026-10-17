@@ -9,6 +9,7 @@ open Denote Verity.Core
 /-- Transient keys can be parked under another account during external calls. -/
 def isTransientKey : Verity.StorageKey → Bool
   | .transient _ => true
+  | .transientMapChain _ _ => true
   | .scoped _ key => isTransientKey key
   | _ => false
 
@@ -35,6 +36,7 @@ empty revert. Events remain in the returned world for subsequent ABI encoding. -
 def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String FrameResult
   | .continue _ => .error "Denote frame fell through without an explicit return"
   | .stop final =>
+      if final.observedStop then .ok ⟨true, [], final.world⟩ else
       match final.observedReturnWords with
       | none => .error "Denote frame stopped without an explicit return observation"
       | some words => .ok ⟨true, words.flatMap wordBytes, final.world⟩
@@ -45,13 +47,23 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
 /-- Execute a body through Denote, after installing fresh frame-local state.
 This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
-    (world : Verity.ContractState) (bindings : Env) (body : List Stmt) :
+    (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
+    (errors : List ErrorDef := []) :
     Except String FrameResult :=
   let initial := beginTransaction world
-  finishFrame initial (execStmtList oracle fields { world := initial, bindings } body)
+  finishFrame initial (execStmtList oracle fields { world := initial, bindings, errors } body)
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
     (beginTransaction world).storageWords (.slot slot) = world.storageWords (.slot slot) := rfl
+
+@[simp] theorem beginTransaction_accounts (world : Verity.ContractState) :
+    (beginTransaction world).accountWorld = world.accountWorld := rfl
+
+/-- The existing canonical frame rollback restores code/nonces/balances along
+with storage, rather than retaining a successful child creation. -/
+theorem finishFrame_revert_accounts (initial : Verity.ContractState) (bytes : List UInt8) :
+    (finishFrame initial (.revertWithData bytes)).map (fun result => result.world.accountWorld) =
+      .ok initial.accountWorld := rfl
 
 @[simp] theorem beginTransaction_foreignStorage (world : Verity.ContractState)
     (account slot : Nat) :

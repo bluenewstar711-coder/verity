@@ -8,12 +8,16 @@ Reaching that `for` must be rejected with a source position, and the failed
 process must not leave an olean.
 """
 
+import argparse
+import os
 import shutil
 import json
 import re
 import subprocess
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +25,8 @@ SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
 SMOKE = ROOT / "Contracts/SolidityImportSmoke"
 GOLDEN = SMOKE / "model.golden"
+# Provisioned by `setup()`; campaign modules import eth_hash/eth_abi from it.
+VENV_PYTHON = ROOT / ".lake/slice-testing-venv/bin/python"
 
 HEADER = """
 import Compiler.SolidityImport.Import
@@ -53,8 +59,16 @@ def witnessWorld (credit pending lossFactor lastLoss lastAccrual : Nat) : Verity
       | _ => 0
     Verity.Core.Uint256.ofNat word
 
-def witnessBindings (maturity : Nat) : Env :=
-  [("m_maturity", maturity), ("id", 1), ("user", 2)]
+def witnessCalldata (maturity : Nat) : List Nat :=
+  [96, 1, 2, 0, 96, maturity, 0]
+
+def runWitness (world : Verity.ContractState) (timestamp maturity : Nat) : Option (List Nat) :=
+  match imported.model.functions with
+  | fn :: _ =>
+    let result := denoteFunction sliceOracle imported.model fn
+      { sender := 0, functionSelector := 0, blockTimestamp := timestamp, args := witnessCalldata maturity } world
+    if result.success then some result.returnWords else none
+  | [] => none
 
 def body : List Stmt :=
   match imported.model.functions with
@@ -64,12 +78,10 @@ def body : List Stmt :=
 #eval IO.println imported.report.sourceDigest
 
 #eval show IO Unit from do
-  let success := denoteScalarBody sliceOracle imported.model.fields
-    (witnessWorld 100 10 0 0 0) 50 (witnessBindings 100) body
+  let success := runWitness (witnessWorld 100 10 0 0 0) 50 100
   unless success == some [95, 5, 5] do
     throw (IO.userError s!"witness changed: {success}")
-  let reverted := denoteScalarBody sliceOracle imported.model.fields
-    (witnessWorld 1 2 0 0 0) 1 (witnessBindings 1) body
+  let reverted := runWitness (witnessWorld 1 2 0 0 0) 1 1
   unless reverted == none do
     throw (IO.userError s!"revert witness changed: {reverted}")
   IO.println imported.report.sourceDigest
@@ -144,19 +156,30 @@ def uninitialized_local(dest: Path) -> None:
 
 
 def call_unused_from_loss(dest: Path) -> None:
+    lib = (dest / "Lib.sol").read_text()
+    assert "i < 3; i++" in lib
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
     text = (dest / "Slice.sol").read_text()
     old = "return marketState[market].lossFactor;"
     assert old in text
     (dest / "Slice.sol").write_text(text.replace(old, "uint256 ignored = L.unused();\n        " + old))
 
 
-def call_unused(dest: Path) -> None:
+def call_supported_unused(dest: Path) -> None:
     text = (dest / "Slice.sol").read_text()
     text = text.replace(
         "uint128 credit = p.credit;",
         "uint256 ignored = L.unused();\n        uint128 credit = p.credit;",
     )
     (dest / "Slice.sol").write_text(text)
+
+
+def call_unused(dest: Path) -> None:
+    lib = (dest / "Lib.sol").read_text()
+    assert "i < 3; i++" in lib
+    (dest / "Lib.sol").write_text(lib.replace("i < 3; i++", "i < 3; i += 2"))
+    call_supported_unused(dest)
+
 
 
 def swap_returns(dest: Path) -> None:
@@ -234,11 +257,19 @@ def named_arguments(dest: Path) -> None:
 def implicit_return(dest: Path) -> None:
     path = dest / "Slice.sol"
     path.write_text(path.read_text().replace(
-        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128 c)").replace(
+        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128)").replace(
         "return (uint128(post) - fee, uint128(postFee) - fee, fee);", ""))
 
 
-def projected_name_collision(dest: Path) -> None:
+def named_implicit_return(dest: Path) -> None:
+    path = dest / "Slice.sol"
+    path.write_text(path.read_text().replace(
+        "returns (uint128, uint128, uint128)", "returns (uint128 a, uint128 b, uint128 c)").replace(
+        "return (uint128(post) - fee, uint128(postFee) - fee, fee);",
+        "a = uint128(post) - fee; b = uint128(postFee) - fee; c = fee;"))
+
+
+def former_projection_name_collision(dest: Path) -> None:
     path = dest / "Slice.sol"
     path.write_text(path.read_text().replace("bytes32 id,", "bytes32 m_maturity,")
                     .replace("[id]", "[m_maturity]"))
@@ -271,18 +302,27 @@ def digest_of(blob: str) -> str:
     return lines[-1]
 
 
-def main() -> None:
+def setup() -> None:
+    """Serial preparation shared by every task (builds and venvs must not race)."""
     if not SOLC.is_file():
         raise SystemExit(f"missing {SOLC}")
     # The checks import the status driver, which `lake build SolidityImportSmoke` does not build.
     subprocess.run(["lake", "build", "Compiler.SolidityImport.Differential"], cwd=ROOT, check=True)
     WORK.mkdir(parents=True, exist_ok=True)
+    # Provision the differential venv and pinned compilers once, before workers share them.
+    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"), "--help"],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+
+
+def prefix_checks(update_golden: bool) -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_require_rejections.py")],
+                   cwd=ROOT, check=True)
     snapshot = WORK / "model.txt"
     snapshot.unlink(missing_ok=True)
     base = expect_success("unreached-for", write_project("base", unchanged), witness=True,
                           extra=f'\n#eval IO.FS.writeFile "{snapshot}" (toString (repr imported.model) ++ "\\n")\n')
     # Refactors of the importer must reproduce the imported model exactly.
-    if "--update-golden" in sys.argv:
+    if update_golden:
         shutil.copy(snapshot, GOLDEN)
     elif snapshot.read_text() != GOLDEN.read_text():
         raise SystemExit(f"imported model differs from {GOLDEN}; review, then rerun with --update-golden")
@@ -292,11 +332,30 @@ def main() -> None:
     expect_success("unrelated-layout", write_project("unrelated-layout", unrelated_layout), witness=True)
     expect_failure("named-arguments", write_project("named-arguments", named_arguments), "named call arguments")
     expect_failure("implicit-return", write_project("implicit-return", implicit_return), "explicit root return")
-    diagnostic = expect_failure("uninitialized-local", write_project("uninitialized-local", uninitialized_local),
-                                "local declarations without an initializer")
-    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclarationStatement:", diagnostic):
-        raise SystemExit("uninitialized local lacks a Solidity source diagnostic")
-    expect_failure("projection-name-collision", write_project("projection-name", projected_name_collision), "projected parameter name collision")
+    expect_success("named-implicit-return", write_project("named-implicit-return", named_implicit_return), witness=True)
+    # Scalar defaults are now supported; retain the original execution witness.
+    expect_success("uninitialized-local", write_project("uninitialized-local", uninitialized_local), witness=True)
+    def unsupported_default(dest: Path) -> None:
+        uninitialized_local(dest)
+        path = dest / "Slice.sol"
+        source = path.read_text()
+        assert source.count("uint128 ignored;") == 1
+        path.write_text(source.replace("uint128 ignored;", "int128 ignored;"))
+    diagnostic = expect_failure("signed-default-local", write_project("signed-default-local", unsupported_default),
+                                "unsupported default local type int128")
+    if not re.search(r"Slice\.sol:\d+:\d+: VariableDeclaration:", diagnostic):
+        raise SystemExit("unsupported default local lacks a Solidity source diagnostic")
+    # The old flattened name is now legal: full tuple parameters must retain their
+    # identity and the unchanged execution witness must still hold.
+    expect_success("former-projection-name-hygiene",
+                   write_project("projection-name", former_projection_name_collision), witness=True,
+                   extra=r'''
+#eval show IO Unit from do
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  let names := fn.params.map (·.name)
+  unless names == ["m", "m_maturity", "user"] && imported.report.projections.isEmpty do
+    throw (IO.userError "complete tuple signature was replaced by scalar projections")
+''')
     namespaced = WORK / "base/Namespaced.lean"
     namespaced.write_text(HEADER.format(root=WORK / "base").replace(
         "solidity_import imported", "namespace Nested\nsolidity_import imported") +
@@ -306,15 +365,33 @@ def main() -> None:
         raise SystemExit(result.stdout + result.stderr)
     print("pass namespaced-import")
     expect_success("shadowed-block", write_project("shadowed-block", shadow_builtin), witness=False,
-                   extra='\n#eval show IO Unit from do\n  unless imported.report.projections.any (fun p => p.member == "timestamp") do\n    throw (IO.userError "shadowed block was treated as a builtin")\n')
+                   extra=WITNESS[:WITNESS.index("#eval")] + r'''
+#eval show IO Unit from do
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  -- The first tuple member is the shadowing struct's timestamp (50), whereas
+  -- the real environment timestamp is 999. Confusing them changes the fee.
+  let result := denoteFunction sliceOracle imported.model fn
+    { sender := 0, functionSelector := 0, blockTimestamp := 999,
+      args := [96, 1, 2, 50, 96, 100, 0] } (witnessWorld 100 10 0 0 0)
+  unless result.success && result.returnWords == [95, 5, 5] do
+    throw (IO.userError "shadowed block was treated as a builtin")
+  unless fn.params.map (·.name) == ["block", "id", "user"] &&
+      imported.report.projections.isEmpty do
+    throw (IO.userError "shadowed struct lost its complete ABI signature")
+''')
     expect_success("narrow-multiply-overflow", write_project("narrow-multiply", narrow_multiply), witness=False,
                    extra=r'''
 #eval show IO Unit from do
   let oracle : DenoteOracle := { mappingSlot := fun _ _ => 0, keccakMemorySlice := fun _ _ _ => 0 }
-  let body := match imported.model.functions with | f :: _ => f.body | [] => []
-  let run := fun maturity => denoteScalarBody oracle imported.model.fields Verity.defaultState 0 [("m_maturity", maturity)] body
-  unless run 3 == some [9, 0, 0] do throw (IO.userError "small uint248 product changed")
-  unless run (2^128) == none do throw (IO.userError "uint248 product overflow was accepted")
+  let some fn := imported.model.functions.head? | throw (IO.userError "missing imported function")
+  -- Mkt is a static one-word tuple in this fixture, followed by id and user.
+  let run := fun maturity => denoteFunction oracle imported.model fn
+    { sender := 0, functionSelector := 0, args := [maturity, 1, 2] } Verity.defaultState
+  let small := run 3
+  unless small.success && small.returnWords == [9, 0, 0] do
+    throw (IO.userError "small uint248 product changed")
+  unless !(run (2^128)).success do
+    throw (IO.userError "uint248 product overflow was accepted")
 ''')
     two_roots = WORK / "base/TwoRoots.lean"
     two_roots.write_text("import Compiler.SolidityImport.Differential\n" + HEADER.format(root=WORK / "base") + WITNESS + f'''
@@ -391,24 +468,383 @@ solidity_import both from "{WORK / "base"}" entry "Slice.sol"
     expect_failure("field-detected", write_project("field", change_field), "witness changed")
     expect_failure("return-order", write_project("returns", swap_returns), "witness changed")
     expect_failure("layout", write_project("layout", swap_layout), "witness changed")
+    expect_success("reachable-compound-for", write_project("reachable-compound-for", call_supported_unused), witness=True)
     diagnostic = expect_failure("reachable-for", write_project("reachable", call_unused), "unsupported")
     assert "[solidity-import:unsupported]" in diagnostic and "closure:" in diagnostic
     assert "Lib.sol:" in diagnostic and "closure: C.f -> L.unused" in diagnostic, diagnostic
     if digest_of(base) == digest_of(rounding):
         raise SystemExit("helper change did not move the digest")
     print("pass helper-digest")
-    # Compile and execute actual Denote mutants: a build failure is invalid,
-    # not a detected semantic mutation. These regressions compare EVM bytes.
-    for mutant in ("denote-panic-selector", "denote-panic-endian"):
-        output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
-        subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
-                        "--mutations", "--mutant", mutant, "--output", str(output)],
-                       cwd=ROOT, check=True, timeout=900)
-        results = json.loads((output / "mutation-results.json").read_text())
-        if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
-            raise SystemExit(f"{mutant}: expected a runtime differential divergence")
-        print(f"pass {mutant}")
-    print("import mutations passed")
+
+
+# Compile and execute actual Denote mutants: a build failure is invalid,
+# not a detected semantic mutation. These regressions compare EVM bytes.
+DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
+                   "import-msg-sender", "import-address-this",
+                   "import-block-number", "import-block-chainid",
+                   "import-require-condition", "denote-require-selector",
+                   "import-custom-require-condition", "denote-custom-require-selector",
+                   "denote-custom-require-argument",
+                   "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
+                   "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
+                   "denote-scalar-sibling-mask",
+                   'import-mapping-layout',
+                   'import-mapping-read-one',
+                   'import-mapping-read-two',
+                   'import-mapping-write-one',
+                   'import-mapping-write-two',
+                   'import-mapping-delete',
+                   'import-mapping-bool-literal',
+                   'import-mapping-bool-read', 'import-logical-and-branch',
+                   'import-logical-or-branch', 'import-logical-initial-value',
+                   'import-yul-result-scope', 'import-yul-numeric-literal', 'import-yul-numeric-add', 'import-named-helper-default', 'import-named-helper-fallthrough', 'import-named-helper-assembly', 'import-named-helper-width', 'import-named-helper-bool', 'import-named-helper-frame', 'import-named-helper-branch', 'import-byte-local-pointer', 'import-byte-local-length', 'import-byte-local-initialize', 'import-discarded-helper-drop', 'import-discarded-helper-emit', 'import-array-write-order', 'import-array-write-capture', 'import-fixed-array-snapshot-read', 'import-fixed-array-read-bound', 'import-fixed-array-snapshot-bound', 'import-fixed-array-word', 'import-fixed-array-bit', 'import-fixed-array-capture', 'import-fixed-array-read', 'import-fixed-array-bound', 'import-fixed-array-write', 'import-fixed-array-two-keys', 'import-fixed-array-snapshot', 'import-fixed-array-delete', 'import-helper-effect-drop', 'import-packed-member-delete', 'import-packed-member-value', 'import-packed-member-target', 'import-packed-member-two-keys', 'import-packed-member-capture', 'import-helper-loop-block', 'import-helper-loop-branch', 'import-helper-loop-nested', 'import-helper-loop-drop', 'import-helper-loop-effect', 'import-helper-loop-emit', 'import-invariant-for-bound', 'import-invariant-for-counter', 'import-local-write-value', 'import-local-write-delete', 'import-default-local-zero', 'import-modulo-value', 'import-modulo-zero', 'import-constant-array-element', 'import-constant-array-selection',
+                   'import-constant-array-bound', 'import-numeric-leading-dot', 'import-numeric-separators',
+                   'import-numeric-constant-product', 'import-numeric-constant-sum', 'import-numeric-constant-value', 'import-numeric-decimal-scale',
+                   'import-numeric-positive-exponent', 'import-numeric-negative-exponent',
+                   'import-numeric-hex-value', 'import-numeric-integral-value',
+                   'import-numeric-unit-minutes', 'import-numeric-unit-hours',
+                   'import-numeric-unit-days', 'import-numeric-unit-weeks',
+                   'import-numeric-unit-gwei', 'import-numeric-unit-ether',
+                   'import-numeric-unit-one',
+                   'import-if-root-swap', 'import-if-root-else-drop',
+                   'import-if-helper-swap', 'import-if-helper-guard-swap',
+                   'import-abi-source-offset', 'import-abi-drop', 'import-abi-offset', 'import-abi-uint-bound',
+                   'import-abi-address-bound', 'import-abi-bool-bound',
+                   'import-abi-inclusive', 'import-abi-revert',
+                   'import-struct-tuple-order',
+                   'import-struct-memory-drop',
+                   'import-struct-calldata-eager',
+                   'import-struct-calldata-drop',
+                   'import-struct-member-value',
+                   'import-struct-member-offset',
+                   'import-struct-head-base',
+                   'import-struct-memory-offset',
+                   'denote-struct-member-offset',
+                   'denote-struct-member-name',
+                   'denote-struct-member-value',
+
+                   'import-event-converted-binding', 'import-event-indexed', 'import-event-drop', 'import-event-values',
+                   'import-event-signature', 'observe-event-word', 'observe-event-narrow',
+                   'observe-event-address', 'observe-event-bool',
+                   'import-scalar-array-source-stride',
+                   'import-scalar-array-memory-stride',
+                   'import-scalar-array-validation',
+                   'import-scalar-array-length',
+                   'import-abi-length-for-capture', 'import-abi-length-for-zero', 'import-abi-array-length-calldata', 'import-abi-array-length-memory',
+                   'import-market-root-offset',
+                   'import-market-root-size',
+                   'import-market-calldata-array-size',
+                   'import-market-memory-panic',
+                   'import-market-struct-source-stride',
+                   'import-market-struct-pointer-stride',
+                   'import-market-struct-validation',
+                   'import-market-calldata-element-stride',
+                   'import-market-memory-element-stride',
+                   'import-market-member-validation',
+                   'import-market-root-scalar-validation',
+                   'import-market-memory-scalar-read',
+                   'import-market-calldata-scalar-read',
+                   'import-market-calldata-root-validation',
+                   'import-market-calldata-index-bounds',
+                   'import-dynamic-root-parameter-offset')
+
+# Removing an order guard must change a located rejection to admission.
+GUARD_MUTANTS = ('import-helper-effect-binary-guard', 'import-helper-effect-argument-guard', 'import-helper-effect-classifier', 'import-yul-result-id-guard', 'import-solc-viair-guard', 'import-solc-uncollected-source-guard')
+
+# Each isolated campaign recompiles `Compiler.SolidityImport.Import` in a private
+# snapshot. With one worker per core that build alone takes ~14 minutes, on top of
+# the baseline and mutated campaign runs, so 40 minutes was too tight. The nested
+# harness steps keep their own timeouts; this one only bounds a whole task.
+MUTANT_TIMEOUT = 3600
+
+
+def run_differential_mutant(mutant: str) -> list:
+    output = Path(tempfile.mkdtemp(prefix=f"{mutant}-", dir=WORK))
+    subprocess.run(["sh", str(ROOT / "scripts/check_solidity_differential.sh"),
+                    "--mutations", "--mutant", mutant, "--output", str(output)],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    return json.loads((output / "mutation-results.json").read_text())
+
+
+def differential_mutant(mutant: str) -> None:
+    results = run_differential_mutant(mutant)
+    if len(results) != 1 or results[0]["mutant"] != mutant or results[0]["status"] != "detected":
+        raise SystemExit(f"{mutant}: expected a runtime differential divergence")
+    print(f"pass {mutant}", flush=True)
+
+
+def guard_mutant(mutant: str) -> None:
+    results = run_differential_mutant(mutant)
+    if (len(results) != 1 or results[0]['mutant'] != mutant
+            or not results[0]['detected'] or not results[0]['baselinePassed']
+            or results[0]['kind'] != 'unsupported-order-admission'):
+        raise SystemExit(f'{mutant}: exact negative control guard mutation escaped detection')
+    print(f'pass {mutant} exact rejection guard', flush=True)
+
+
+def module_campaign(module: str, label: str, timeout: int, *extra: str) -> dict:
+    output = module_campaign_output(module, label, timeout, *extra)
+    return json.loads((output / "complete.json").read_text())
+
+
+HASHING_MUTANTS = (
+    "hash-word-stride", "hash-root-offset", "hash-root-field", "hash-static-root-field",
+    "hash-array-length", "hash-array-destination-stride", "hash-literal-value",
+    "hash-literal-length", "hash-packed-address-width", "hash-packed-scalar-value",
+    "hash-copy-byte-shift", "hash-copy-zero-fill", "hash-buffer-identity",
+    "hash-keccak-length", "hash-hex-number")
+
+
+def hashing_mutant(mutant: str) -> None:
+    hashing = module_campaign("check_hashing_mutations", f"hashing-{mutant}", MUTANT_TIMEOUT,
+                              "--mutant", mutant)
+    if hashing["exit"] != 0 or [r["mutant"] for r in hashing["results"]] != [mutant]:
+        raise SystemExit(f"{mutant}: hashing mutation coverage incomplete")
+    if not all(r["detected"] and r["baselinePassed"] and r["witness"]["deletion_minimal"]
+               and r["witness"]["transactions"] for r in hashing["results"]):
+        raise SystemExit(f"{mutant}: hashing mutants require minimal reproduced runtime witnesses")
+    print(f"pass ABI hashing mutation {mutant}", flush=True)
+
+
+def quote_integrity_check() -> None:
+    # Quotation corruption is rejected before an executable model exists.
+    quote_results = run_differential_mutant("import-modulo-quote")
+    if (len(quote_results) != 1 or quote_results[0]["mutant"] != "import-modulo-quote"
+            or not quote_results[0]["baselinePassed"]
+            or quote_results[0]["kind"] != "model-integrity-rejection"
+            or quote_results[0]["diagnostic"] != "internal: the elaborated model differs from the imported value"):
+        raise SystemExit("modulo quotation corruption escaped the exact integrity check")
+    print("pass import-modulo-quote integrity rejection", flush=True)
+
+
+def environment_rejections() -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_environment_rejections.py")],
+                   cwd=ROOT, check=True, timeout=900)
+    print("pass environment rejection campaign", flush=True)
+
+
+# ~420 located rejections, one `lean` elaboration each (~20 min serially on an
+# idle host): split into parts so shards can spread them.
+STORAGE_REJECTION_PARTS = 4
+
+
+def storage_rejections(part: int) -> None:
+    subprocess.run([str(VENV_PYTHON), str(ROOT / "scripts/solidity_differential/check_storage_rejections.py"),
+                    "--part", f"{part}/{STORAGE_REJECTION_PARTS}"],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print(f"pass storage rejection campaign part {part}/{STORAGE_REJECTION_PARTS}", flush=True)
+
+
+def abi_rejections() -> None:
+    module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
+    module_campaign_output("check_market_abi_rejections", "market-rejections", 900)
+    print("pass ABI rejection campaigns", flush=True)
+
+
+def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -> Path:
+    output = Path(tempfile.mkdtemp(prefix=label + "-", dir=WORK)) / "cases"
+    launcher = ('import runpy,sys; sys.path.insert(0,"scripts"); '
+                f'runpy.run_module("solidity_differential.{module}",run_name="__main__")')
+    subprocess.run([str(VENV_PYTHON), "-c", launcher, "--output", str(output), *extra],
+                   cwd=ROOT, check=True, timeout=timeout)
+    return output
+
+
+def deployment_world_mutations() -> None:
+    results = json.loads((module_campaign_output("check_deployment_world_mutations", "deployment-world-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-create2-drop-nonce", "denote-create2-empty-code", "denote-create2-drop-value",
+             "denote-create2-drop-deposit", "denote-create2-ignore-collision"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] for row in results)):
+        raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
+    print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def create2_opcode_mutations() -> None:
+    results = json.loads((module_campaign_output("check_create2_opcode_mutations", "create2-opcode-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"create2-initcode-word-cost", "create2-eip150-divisor", "create2-parent-refund",
+             "create2-memory-expansion"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in results)):
+        raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
+    print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def account_storage_mutations() -> None:
+    results = json.loads((module_campaign_output("check_account_storage_mutations", "account-storage-conformance",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-physical-slot-account", "denote-physical-batch-account", "denote-physical-modify-account"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
+                       and row['kind'] == 'kernel-conformance-rejection' for row in results)):
+        raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
+    print("pass three account storage kernel conformance mutations (not runtime witnesses)", flush=True)
+
+
+def block_mutation() -> None:
+    block_result = module_campaign("check_block_mutations", "block-mutations", MUTANT_TIMEOUT)
+    if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
+            or not block_result["baselinePassed"] or not block_result["witness"]["deletion_minimal"]):
+        raise SystemExit("block mutation requires detected minimal runtime witness")
+    print("pass import-block-drop", flush=True)
+
+
+def reference_mutation() -> None:
+    reference = module_campaign("check_reference_argument_mutations", "reference-mutations", MUTANT_TIMEOUT)
+    if (reference["mutant"] != "import-reference-wrong-root" or not reference["detected"]
+            or not reference["baselinePassed"] or not reference["witness"]["deletion_minimal"]):
+        raise SystemExit("reference mutation requires detected minimal runtime witness")
+    print("pass import-reference-wrong-root", flush=True)
+
+
+def reference_boundary_mutations() -> None:
+    result = module_campaign("check_reference_boundary_mutations", "reference-boundary", 2 * MUTANT_TIMEOUT)
+    controls = result["results"]
+    if result["exit"] != 0 or {c["mutant"] for c in controls} != {"external-library", "yul-shadow"}:
+        raise SystemExit("reference boundary mutation coverage incomplete")
+    if not all(c["detected"] and c["baselinePassed"] and c["unsupportedInputImported"] for c in controls):
+        raise SystemExit("reference boundary mutants require actual unsupported admission")
+    print("pass reference-boundary", flush=True)
+
+
+def reference_location_mutation() -> None:
+    result = module_campaign("check_reference_location_mutation", "reference-location", MUTANT_TIMEOUT)
+    if (result["mutant"] != "import-reference-location-guard" or not result["detected"]
+            or not result["baselinePassed"] or not result["unsupportedCopyImported"]):
+        raise SystemExit("reference location mutant requires actual unsupported copy admission")
+    print("pass reference-location", flush=True)
+
+
+def tasks(update_golden: bool) -> list:
+    """Independent work items, most expensive first (each runs in its own snapshot).
+
+    Weights count importer rebuilds (~14 minutes each under full parallel load),
+    the unit of cost; campaigns without a rebuild are weighted by their runtime.
+    """
+    items = [("prefix-checks", 2, lambda: prefix_checks(update_golden)),
+             ("reference-boundary", 2, reference_boundary_mutations)]
+    items += [(f"storage-rejections-{part}", 1, (lambda part=part: storage_rejections(part)))
+              for part in range(STORAGE_REJECTION_PARTS)]
+    items += [("quote-integrity", 1, quote_integrity_check),
+             ("environment-rejections", 1, environment_rejections),
+             ("abi-rejections", 1, abi_rejections),
+             ("block-drop", 1, block_mutation),
+             ("reference-wrong-root", 1, reference_mutation),
+             ("reference-location", 1, reference_location_mutation),
+             ("deployment-world", 1, deployment_world_mutations),
+             ("create2-opcode", 1, create2_opcode_mutations),
+             ("account-storage", 1, account_storage_mutations)]
+    items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
+    items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
+    items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
+    return items
+
+
+def auto_jobs() -> int:
+    """One worker per usable core minus two, bounded by memory.
+
+    Each worker is a single-threaded Lean rebuild of the importer (~2.7 GiB
+    peak) plus its campaign; budget 4 GiB per worker so hosts with less memory
+    than cores (or a cgroup cap) do not swap. Campaigns also run their own
+    `lean --run` and anvil processes, so two cores stay free for them: with one
+    worker per core, campaign subprocesses overran their time budgets.
+    """
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    limits = []
+    try:
+        with open("/proc/meminfo") as meminfo:
+            limits += [int(line.split()[1]) * 1024 for line in meminfo if line.startswith("MemAvailable:")]
+    except OSError:
+        pass
+    try:
+        cap = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        if cap != "max":
+            limits.append(int(cap))
+    except (OSError, ValueError):
+        pass
+    by_memory = min(limits) // (4 << 30) if limits else cores
+    return max(1, min(cores - 2, by_memory))
+
+
+def shard_of(items: list, index: int, count: int) -> list:
+    """Deterministic longest-processing-time assignment of tasks to shards."""
+    loads = [0] * count
+    chosen = []
+    for item in items:
+        target = min(range(count), key=lambda s: (loads[s], s))
+        loads[target] += item[1]
+        if target == index:
+            chosen.append(item)
+    return chosen
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update-golden", action="store_true")
+    parser.add_argument("--shard", default="0/1", help="run shard I of N, written I/N")
+    parser.add_argument("--jobs", default="1", help="parallel isolated campaigns, or 'auto' to size by cores and memory")
+    parser.add_argument("--list", action="store_true", help="print the selected tasks and exit")
+    parser.add_argument("--task", action="append", help="run only the named task (repeatable)")
+    args = parser.parse_args()
+    try:
+        index, count = (int(part) for part in args.shard.split("/"))
+    except ValueError:
+        parser.error("--shard must be I/N with 0 <= I < N")
+    if not 0 <= index < count:
+        parser.error("--shard must be I/N with 0 <= I < N")
+    if args.jobs == "auto":
+        jobs = auto_jobs()
+    elif args.jobs.isdigit() and int(args.jobs) > 0:
+        jobs = int(args.jobs)
+    else:
+        parser.error("--jobs must be a positive integer or 'auto'")
+    selected = shard_of(tasks(args.update_golden), index, count)
+    if args.task:
+        unknown = set(args.task) - {name for name, _, _ in tasks(args.update_golden)}
+        if unknown:
+            parser.error(f"unknown task: {', '.join(sorted(unknown))}")
+        selected = [item for item in selected if item[0] in args.task]
+        if not selected:
+            parser.error("--task names no task in this shard; check --list for the right shard")
+    if args.list:
+        for name, _, _ in selected:
+            print(name)
+        return
+    print(f"import mutation shard {args.shard}: {len(selected)} tasks, {jobs} parallel", flush=True)
+    setup()
+    failures = []
+
+    def timed(name, run):
+        # Durations feed the shard weights in `tasks()`. A failed task runs once
+        # more in a fresh snapshot: a surviving mutant fails both attempts, while
+        # a campaign that overran a time budget on a loaded host gets a retry.
+        start = time.monotonic()
+        try:
+            try:
+                run()
+            except (Exception, SystemExit) as error:
+                print(f"RETRY {name} after failure: {error}", file=sys.stderr, flush=True)
+                run()
+        finally:
+            print(f"task {name}: {time.monotonic() - start:.0f}s", flush=True)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = {pool.submit(timed, name, run): name for name, _, run in selected}
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except KeyboardInterrupt:
+                raise
+            except (Exception, SystemExit) as error:
+                failures.append(futures[future])
+                print(f"FAIL {futures[future]}: {error}", file=sys.stderr, flush=True)
+    if failures:
+        raise SystemExit(f"import mutation shard {args.shard} failed: {', '.join(sorted(failures))}")
+    print(f"import mutations passed (shard {args.shard}, {len(selected)} tasks)")
 
 
 if __name__ == "__main__":

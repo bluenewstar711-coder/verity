@@ -11,6 +11,12 @@ concrete packed read. Interpreter `#eval` checks are not theorems. The frontend 
 builds the model from solc JSON remains a trust assumption; see
 `TRUST_ASSUMPTIONS.md`.
 
+`EntryPointInvariants.lean` proves rollback and composition of per-entry-point
+invariants over finite model-call sequences, including explicit environment
+preparation. These theorems and the executable-model example in
+`EntryPointInvariantChecks.lean` are included in `PrintAxioms.lean`; they add no
+project axiom, `sorry`, or `native_decide`.
+
 ## Policy
 
 Axioms are exceptional. When an axiom exists, it must have:
@@ -20,6 +26,11 @@ Axioms are exceptional. When an axiom exists, it must have:
 3. CI checks that validate usage assumptions.
 4. A clear elimination path, when practical.
 
+CI itself is an operational trust boundary rather than a Lean axiom. External
+GitHub Actions are full-SHA pinned and repository policy rejects mutable Action
+references; see `TRUST_ASSUMPTIONS.md` under “CI execution and Action supply
+chain.”
+
 ## Current Axioms
 
 - Active axioms: 1
@@ -28,10 +39,14 @@ C5 step 3 (`ContractState.storageWords` over injective `StorageKey`) does
 not add a keccak-injectivity axiom. Source lens laws use constructor
 injectivity; Solidity slot derivation remains compiler-side. The G24 hop
 namespace constructor `StorageKey.scoped` (#2440) likewise adds no axiom:
-its hop lemmas are definitional or constructor case splits.
+its hop lemmas are definitional or constructor case splits. The hashed
+mapping-chain constructors `StorageKey.mapChain` / `transientMapChain`
+(G2 residual) likewise add no axiom and make nested / struct mapping
+separation a constructor fact.
 
 C5 step 4 is complete under `solidityMappingSlot_injective` below —
-collision-resistance of the 64-byte ABI mapping preimage, **not**
+collision-resistance of the 64-byte ABI mapping preimage (range-restricted
+to base slots and keys `< 2^256`), **not**
 injectivity of keccak256 on arbitrary byte strings. Finite-set
 slices remain valid without the axiom. Global aligned `writeMap*`
 preservation uses the axiom; lone `writeSlot` still takes an
@@ -60,7 +75,8 @@ separation is the declared layout (`fieldMapKindAt` is a function of
 the base slot, so distinct mapping shapes force distinct base slots)
 plus the same `solidityMappingSlot_injective`. The simple-vs-nested
 cross case takes an explicit `MappingBasesNotDerived` layout
-certificate and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
+certificate (together with `MappingBasesInRange`, the < 2^256 range of
+the declared mapping bases required by the bounded axiom) and a lone `writeSlot` takes `DerivedMappingSlotsAvoid`;
 both are hypotheses of the existing image-avoidance shape, discharged
 per contract. Dynamic-array element slots are **not** covered: the
 source and Yul derivations diverge and the collapse returns `none` at
@@ -76,12 +92,16 @@ assumed transition.
 
 ### 1. `solidityMappingSlot_injective`
 
-**Location**: `Compiler/Proofs/MappingSlot.lean:65`
+**Location**: `Compiler/Proofs/MappingSlot.lean:96`
 
 **Statement**:
 ```lean
 axiom solidityMappingSlot_injective
     (base₁ key₁ base₂ key₂ : Nat) :
+    base₁ < Compiler.Constants.evmModulus →
+    key₁ < Compiler.Constants.evmModulus →
+    base₂ < Compiler.Constants.evmModulus →
+    key₂ < Compiler.Constants.evmModulus →
     solidityMappingSlot base₁ key₁ = solidityMappingSlot base₂ key₂ →
     base₁ = base₂ ∧ key₁ = key₂
 ```
@@ -94,6 +114,26 @@ layout makes the same collision-resistance assumption. This is **not**
 a claim that keccak256 is injective on all `ByteArray`s (256-bit
 output, infinite domain).
 
+**Why the range hypotheses (`< 2^256`) are required**: the ABI encoding
+`abiEncodeMappingSlot` passes both arguments through
+`EvmYul.UInt256.ofNat`, i.e. reduces them modulo `2^256`
+(proved as `solidityMappingSlot_mod`). An unrestricted statement over
+all `Nat` is therefore refutable: `solidityMappingSlot 0 (2^256) =
+solidityMappingSlot 0 0` holds by computation, and the old unbounded
+axiom yielded `2^256 = 0`, i.e. `False`. With the bounds, distinct
+`(base, key)` pairs give distinct 64-byte preimages, so the axiom is
+exactly collision-resistance on the hashed words. The bound-free
+consequence `solidityMappingSlot_injective_mod` gives equality modulo
+`2^256`.
+
+Consequences for callers: keys come from `Uint256.val` / `addressToWord`
+and are in range by construction; nested inner slots are keccak outputs
+(`solidityMappingSlot_lt_evmModulus`). Base slots are raw `Nat`s, so
+`MappingCoherent*` quantify only over base slots `< 2^256`, the aligned
+`writeMap*` preservation theorems take `slot < 2^256`, and the all-keys
+layer takes a `MappingBasesInRange` layout certificate (discharged per
+contract, like `MappingBasesNotDerived`).
+
 **Risk**: Medium. A keccak collision on this preimage family would
 make the global `MappingCoherent` preservation theorem false. Finite
 listed-pair certificates remain valid without the axiom.
@@ -102,6 +142,13 @@ listed-pair certificates remain valid without the axiom.
 - `scripts/check_axioms.py` location + count check
 - `DOCUMENTED_AXIOMS` in that script
 - Kernel Keccak output is already cross-checked against FFI/EVM keccak
+
+**Not used by hashed mapping chains**: nested / word-offset / struct
+mappings (`getMappingN`, `getMappingWord`, `structMember*`) execute on the
+symbolic `StorageKey.mapChain` channel, so their executable-plane separation is
+constructor injectivity. Their Solidity-layout interpretation
+(`Compiler/Proofs/Storage/HashedMappingLayout.lean`) takes a finite
+`LayoutNonAlias` certificate as a hypothesis instead of this axiom.
 
 **Elimination path**:
 Replace with a theorem if a restricted-domain injectivity proof
@@ -465,3 +512,8 @@ semantics must update this file and [TRUST_ASSUMPTIONS.md](TRUST_ASSUMPTIONS.md)
 If this file is stale, trust analysis is stale.
 
 **Last Updated**: 2026-05 (intrinsics addition)
+
+The bounded-loop invariant rule and its concrete storage/panic checks in
+`Compiler/SolidityImport/LoopInvariants.lean` and
+`Contracts/SolidityImportSmoke/LoopInvariantChecks.lean` are included in the
+generated axiom inventory. They introduce no project axioms.

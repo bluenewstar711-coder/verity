@@ -6,6 +6,7 @@
 -/
 
 import Verity.Core.Address
+import Verity.Core.AccountState
 import Verity.Core.Int256
 import Verity.Core.NarrowTypes
 import Verity.Core.Panic
@@ -276,8 +277,22 @@ inductive StorageKey where
   | map (slot : Nat) (key : Address)
   | mapUint (slot : Nat) (key : Uint256)
   | map2 (slot : Nat) (key1 key2 : Address)
+  /-- Hashed mapping-chain word (nested mappings, word-offset mapping values,
+      struct mappings): word `offset` of the value stored under the key path
+      `keys` of the mapping rooted at base slot `slot`. Key words are the ABI
+      words of the keys (`Address.toNat`, `Uint256.val`), outermost first.
+      Separation between entries is constructor injectivity on
+      `(slot, keys, offset)`; the Solidity keccak slot
+      `(fold keccak256(key ‖ acc) + offset) mod 2^256` is only an
+      interpretation (`Compiler.Proofs.mappingChainSlotLocation`,
+      `Compiler.Proofs.Storage.HashedMappingLayout`). -/
+  | mapChain (slot : Nat) (keys : List Nat) (offset : Nat)
+  /-- Transient (EIP-1153) hashed mapping-chain word: the value stored under
+      `keys` of the transient mapping rooted at `slot`. -/
+  | transientMapChain (slot : Nat) (keys : List Nat)
   /-- Parked copy of a non-slot channel key (`addr` / `transient` / `map` /
-      `mapUint` / `map2`) belonging to contract `contract`. Hops
+      `mapUint` / `map2` / `mapChain` / `transientMapChain`) belonging to
+      contract `contract`. Hops
       (`ContractState.switchSlotWorld`) park the caller's plain non-slot world
       here and load the callee's, exactly as `contractSlot` does for `.slot`. -/
   | scoped (contract : Nat) (key : StorageKey)
@@ -288,8 +303,23 @@ namespace StorageKey
 /-- Plain (unparked) non-slot channel keys: the keys that hops namespace via
     `scoped`. `slot` is namespaced via `contractSlot` instead. -/
 def isPlainNonSlot : StorageKey → Bool
-  | .addr _ | .transient _ | .map _ _ | .mapUint _ _ | .map2 _ _ _ => true
+  | .addr _ | .transient _ | .map _ _ | .mapUint _ _ | .map2 _ _ _
+  | .mapChain _ _ _ | .transientMapChain _ _ => true
   | .slot _ | .contractSlot _ _ | .scoped _ _ => false
+
+@[simp] theorem slot_ne_mapChain (n m : Nat) (ks : List Nat) (o : Nat) :
+    slot n ≠ mapChain m ks o := by intro h; cases h
+@[simp] theorem mapChain_ne_slot (m : Nat) (ks : List Nat) (o n : Nat) :
+    mapChain m ks o ≠ slot n := by intro h; cases h
+@[simp] theorem transient_ne_transientMapChain (n m : Nat) (ks : List Nat) :
+    transient n ≠ transientMapChain m ks := by intro h; cases h
+@[simp] theorem transientMapChain_ne_transient (m : Nat) (ks : List Nat) (n : Nat) :
+    transientMapChain m ks ≠ transient n := by intro h; cases h
+@[simp] theorem mapChain_ne_transientMapChain (m : Nat) (ks : List Nat) (o n : Nat)
+    (ks' : List Nat) : mapChain m ks o ≠ transientMapChain n ks' := by intro h; cases h
+@[simp] theorem transientMapChain_ne_mapChain (n : Nat) (ks' : List Nat) (m : Nat)
+    (ks : List Nat) (o : Nat) : transientMapChain n ks' ≠ mapChain m ks o := by
+  intro h; cases h
 
 @[simp] theorem slot_ne_scoped (n c : Nat) (k : StorageKey) : slot n ≠ StorageKey.scoped c k := by intro h; cases h
 @[simp] theorem scoped_ne_slot (c : Nat) (k : StorageKey) (n : Nat) : StorageKey.scoped c k ≠ slot n := by intro h; cases h
@@ -371,6 +401,9 @@ structure ContractState where
   blobBaseFee : Uint256 := 0
   calldataSize : Uint256 := 0
   calldata : List Nat := []                 -- Immutable calldata words used by ABI expression semantics
+  /-- 4-byte function selector for live `calldataload 0` in registry mode.
+      Compiled dispatch packs it in the high 4 bytes of the first word. -/
+  selector : Nat := 0
   memory : Nat → Uint256 := fun _ => 0     -- EVM memory (word-addressed, zero-initialized)
   knownAddresses : Nat → FiniteAddressSet  -- Tracked addresses per storage slot (for sum properties)
   events : List Event := []  -- Emitted events, append-only log (#153)
@@ -385,12 +418,53 @@ structure ContractState where
       raising a monadic revert. -/
   calls : List ExternalCall := []
   codeSize : Nat → Uint256 := fun _ => 0
+  /-- Concrete code, nonce, balance and storage for deployment-world modeling.
+      Existing source storage remains in storageWords; deployment admission
+      additionally requires the account/slot representation bridge. -/
+  accountWorld : Verity.Core.AccountWorld := Verity.Core.AccountWorld.empty
   /-- EIP-211 returndata buffer, as 32-byte words. Empty at frame entry and
       overwritten by each call-family instruction with the callee's return
       data; `returndatasize()` is `32 * returndata.length`. -/
   returndata : List Nat := []
 
 namespace ContractState
+
+/-- Commit one account while synchronizing the existing code-size and caller
+balance views. Raw address aliases are normalized exactly as EVM addresses. -/
+def writeAccount (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) : ContractState :=
+  { state with
+    accountWorld := Verity.Core.AccountWorld.write state.accountWorld address account
+    codeSize := fun raw => if Verity.Core.Address.ofNat raw = address then Verity.Core.Uint256.ofNat account.code.length
+                          else state.codeSize raw
+    selfBalance := if address = state.thisAddress then account.balance else state.selfBalance }
+
+@[simp] theorem writeAccount_at (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).accountWorld address = account := by
+  simp [writeAccount]
+
+theorem writeAccount_other (state : ContractState) (address query : Address)
+    (account : Verity.Core.AccountState) (different : query ≠ address) :
+    (state.writeAccount address account).accountWorld query = state.accountWorld query := by
+  simp [writeAccount, Verity.Core.AccountWorld.write_other, different]
+
+@[simp] theorem writeAccount_storageWords (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).storageWords = state.storageWords := rfl
+
+@[simp] theorem writeAccount_events (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) :
+    (state.writeAccount address account).events = state.events := rfl
+
+theorem writeAccount_codeSize (state : ContractState) (address : Address)
+    (account : Verity.Core.AccountState) (raw : Nat) (same : Verity.Core.Address.ofNat raw = address) :
+    (state.writeAccount address account).codeSize raw = Verity.Core.Uint256.ofNat account.code.length := by
+  simp [writeAccount, same]
+
+theorem writeAccount_selfBalance (state : ContractState) (account : Verity.Core.AccountState) :
+    (state.writeAccount state.thisAddress account).selfBalance = account.balance := by
+  simp [writeAccount]
 
 /-!
 ## Canonical storage lens API (P5-A)
@@ -451,6 +525,15 @@ def readSlot (s : ContractState) (slot : Nat) : Uint256 := s.storage slot
 def writeSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
   { s with storageWords := fun key => if key == .slot slot then value else s.storageWords key }
 
+/-- Physical persistent self-slot write. Unlike the legacy source-channel
+lens, this also synchronizes the concrete self account's finite storage.
+Code-size and balance views are preserved even if metadata is not coherent. -/
+def writePhysicalSlot (s : ContractState) (slot : Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => if key == .slot slot then value else s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorage slot value) }
+
 /-- Read a word from a contract-separated storage world. Contract id `0`
     deliberately denotes the legacy, unqualified `storage` world. -/
 def readContractSlot (s : ContractState) (contract : Nat) (slot : Nat) : Uint256 :=
@@ -476,7 +559,8 @@ def withStorageWords (s : ContractState) (f : StorageKey → Uint256) : Contract
 /-- Park the current plain storage world under `parkId` and load `loadId`'s
     parked world into the plain keys. Every word-valued channel is namespaced:
     `.slot n` is parked under `.contractSlot id n`, and every plain non-slot
-    key `k` (`addr` / `transient` / `map` / `mapUint` / `map2`) under
+    key `k` (`addr` / `transient` / `map` / `mapUint` / `map2` / `mapChain` /
+    `transientMapChain`) under
     `.scoped id k`. Parked worlds of contracts other than `parkId` are left
     unchanged. `storageArray` (a separate field) is NOT namespaced and stays
     global across hops. Swapping the ids restores the plain world. -/
@@ -624,6 +708,9 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).calls = s.calls := rfl
 @[simp] theorem codeSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).codeSize = s.codeSize := rfl
+
+@[simp] theorem accountWorld_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).accountWorld = s.accountWorld := rfl
 @[simp] theorem returndata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).returndata = s.returndata := rfl
 
@@ -1024,6 +1111,366 @@ theorem exitHop_enterHop_storageWords_plain (s : ContractState) (caller callee :
       enterHop_scoped_caller _ _ _ k hk]
   · simp [exitHop, enterHop, switchSlotWorld]
 
+/-! ### Hashed mapping-chain channel (G2 residual, #2432 follow-up)
+
+`getMappingN` / `setMappingN`, `getMappingWord` / `setMappingWord` and the
+struct-mapping accessors (`structMemberAt`, `structMember2At`,
+`setStructMemberAt`, `setStructMember2At`, `structMembers` destructuring)
+store their words under `StorageKey.mapChain slot keys offset`; transient
+mapping chains under `StorageKey.transientMapChain slot keys`. Two entries are
+independent iff their `(slot, keys, offset)` differ — constructor
+injectivity, no keccak collision-resistance — and neither channel ever
+touches the scalar `.slot` channel. The Solidity keccak layout is an
+interpretation (`Compiler.Proofs.Storage.HashedMappingLayout`), not the
+executable representation. Both keys are plain non-slot keys, so hops
+namespace them per contract via `StorageKey.scoped`, and `Contract.run`
+rollback restores them with the rest of `storageWords`. -/
+
+/-- View of the hashed mapping-chain channel. -/
+def storageMapChain (s : ContractState) : Nat → List Nat → Nat → Uint256 :=
+  fun slot keys offset => s.storageWords (.mapChain slot keys offset)
+
+/-- View of the transient hashed mapping-chain channel. -/
+def transientStorageMapChain (s : ContractState) : Nat → List Nat → Uint256 :=
+  fun slot keys => s.storageWords (.transientMapChain slot keys)
+
+/-- Read word `offset` under key path `keys` of the mapping rooted at `slot`. -/
+def readMapChain (s : ContractState) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    Uint256 :=
+  s.storageMapChain slot keys offset
+
+/-- Write word `offset` under key path `keys` of the mapping rooted at `slot`. -/
+def writeMapChain (s : ContractState) (slot : Nat) (keys : List Nat) (offset : Nat)
+    (value : Uint256) : ContractState :=
+  s.withStorageWords fun key =>
+    if key == .mapChain slot keys offset then value else s.storageWords key
+
+/-- Read the transient word under key path `keys` of the transient mapping at `slot`. -/
+def readTransientMapChain (s : ContractState) (slot : Nat) (keys : List Nat) : Uint256 :=
+  s.transientStorageMapChain slot keys
+
+/-- Write the transient word under key path `keys` of the transient mapping at `slot`. -/
+def writeTransientMapChain (s : ContractState) (slot : Nat) (keys : List Nat)
+    (value : Uint256) : ContractState :=
+  s.withStorageWords fun key =>
+    if key == .transientMapChain slot keys then value else s.storageWords key
+
+theorem storageMapChain_unfold (s : ContractState) :
+    s.storageMapChain = fun n keys offset => s.storageWords (.mapChain n keys offset) := rfl
+theorem transientStorageMapChain_unfold (s : ContractState) :
+    s.transientStorageMapChain = fun n keys => s.storageWords (.transientMapChain n keys) := rfl
+
+theorem storageWords_mapChain (s : ContractState) (slot : Nat) (keys : List Nat)
+    (offset : Nat) : s.storageWords (.mapChain slot keys offset) = s.readMapChain slot keys offset :=
+  rfl
+
+theorem storageWords_transientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) :
+    s.storageWords (.transientMapChain slot keys) = s.readTransientMapChain slot keys :=
+  rfl
+
+@[simp] theorem storageWords_writeMapChain (s : ContractState) (slot : Nat) (keys : List Nat)
+    (offset : Nat) (value : Uint256) (key : StorageKey) :
+    (s.writeMapChain slot keys offset value).storageWords key =
+      if key = .mapChain slot keys offset then value else s.storageWords key := by
+  simp [writeMapChain]
+
+@[simp] theorem storageWords_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) (key : StorageKey) :
+    (s.writeTransientMapChain slot keys value).storageWords key =
+      if key = .transientMapChain slot keys then value else s.storageWords key := by
+  simp [writeTransientMapChain]
+
+/-! Read-after-write: same entry, and a general form that `simp` discharges
+by deciding `slot' = slot ∧ keys' = keys ∧ offset' = offset`. -/
+
+@[simp, storage_simps] theorem readMapChain_writeMapChain_same (s : ContractState)
+    (slot : Nat) (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).readMapChain slot keys offset = value := by
+  simp [readMapChain, storageMapChain, writeMapChain]
+
+@[simp, storage_simps] theorem readMapChain_writeMapChain (s : ContractState)
+    (slot : Nat) (keys : List Nat) (offset : Nat) (value : Uint256)
+    (slot' : Nat) (keys' : List Nat) (offset' : Nat) :
+    (s.writeMapChain slot keys offset value).readMapChain slot' keys' offset' =
+      if slot' = slot ∧ keys' = keys ∧ offset' = offset then value
+      else s.readMapChain slot' keys' offset' := by
+  simp [readMapChain, storageMapChain, writeMapChain]
+
+theorem readMapChain_writeMapChain_of_ne (s : ContractState)
+    {slot slot' : Nat} {keys keys' : List Nat} {offset offset' : Nat}
+    (h : StorageKey.mapChain slot' keys' offset' ≠ .mapChain slot keys offset)
+    (value : Uint256) :
+    (s.writeMapChain slot keys offset value).readMapChain slot' keys' offset' =
+      s.readMapChain slot' keys' offset' := by
+  simp only [readMapChain, storageMapChain, writeMapChain, storageWords_withStorageWords]
+  simp [h]
+
+/-- Different key paths never alias (key-path inequality, no hashing). -/
+theorem readMapChain_writeMapChain_keys_ne (s : ContractState)
+    {slot slot' : Nat} {keys keys' : List Nat} {offset offset' : Nat}
+    (h : keys' ≠ keys) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).readMapChain slot' keys' offset' =
+      s.readMapChain slot' keys' offset' :=
+  readMapChain_writeMapChain_of_ne s (by intro hk; cases hk; exact h rfl) value
+
+/-- Different word offsets (struct members) never alias. -/
+theorem readMapChain_writeMapChain_offset_ne (s : ContractState)
+    {slot slot' : Nat} {keys keys' : List Nat} {offset offset' : Nat}
+    (h : offset' ≠ offset) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).readMapChain slot' keys' offset' =
+      s.readMapChain slot' keys' offset' :=
+  readMapChain_writeMapChain_of_ne s (by intro hk; cases hk; exact h rfl) value
+
+/-- Different base slots (different mapping fields) never alias. -/
+theorem readMapChain_writeMapChain_slot_ne (s : ContractState)
+    {slot slot' : Nat} {keys keys' : List Nat} {offset offset' : Nat}
+    (h : slot' ≠ slot) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).readMapChain slot' keys' offset' =
+      s.readMapChain slot' keys' offset' :=
+  readMapChain_writeMapChain_of_ne s (by intro hk; cases hk; exact h rfl) value
+
+@[simp, storage_simps] theorem readTransientMapChain_writeTransientMapChain_same
+    (s : ContractState) (slot : Nat) (keys : List Nat) (value : Uint256) :
+    (s.writeTransientMapChain slot keys value).readTransientMapChain slot keys = value := by
+  simp [readTransientMapChain, transientStorageMapChain, writeTransientMapChain]
+
+@[simp, storage_simps] theorem readTransientMapChain_writeTransientMapChain
+    (s : ContractState) (slot : Nat) (keys : List Nat) (value : Uint256)
+    (slot' : Nat) (keys' : List Nat) :
+    (s.writeTransientMapChain slot keys value).readTransientMapChain slot' keys' =
+      if slot' = slot ∧ keys' = keys then value else s.readTransientMapChain slot' keys' := by
+  simp [readTransientMapChain, transientStorageMapChain, writeTransientMapChain]
+
+/-! Independence from every other channel. The hashed channel never writes a
+scalar `.slot`, and scalar / address / simple-mapping / transient writes never
+touch it. Mapping-vs-scalar separation (e.g. `receipts[user][epoch]` vs a plain
+slot 206) is therefore constructor inequality, not a keccak fact. -/
+
+@[simp, storage_simps] theorem storage_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storage = s.storage := by
+  funext n; simp [storage, writeMapChain]
+
+@[simp, storage_simps] theorem readSlot_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) (n : Nat) :
+    (s.writeMapChain slot keys offset value).readSlot n = s.readSlot n := by
+  simp [readSlot, storage, writeMapChain]
+
+@[simp] theorem storageAddr_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storageAddr = s.storageAddr := by
+  funext n; simp [storageAddr, writeMapChain]
+
+@[simp] theorem transientStorage_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).transientStorage = s.transientStorage := by
+  funext n; simp [transientStorage, writeMapChain]
+
+@[simp] theorem storageMap_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storageMap = s.storageMap := by
+  funext n k; simp [storageMap, writeMapChain]
+
+@[simp] theorem storageMapUint_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storageMapUint = s.storageMapUint := by
+  funext n k; simp [storageMapUint, writeMapChain]
+
+@[simp] theorem storageMap2_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storageMap2 = s.storageMap2 := by
+  funext n k1 k2; simp [storageMap2, writeMapChain]
+
+@[simp] theorem transientStorageMapChain_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).transientStorageMapChain =
+      s.transientStorageMapChain := by
+  funext n ks; simp [transientStorageMapChain, writeMapChain]
+
+@[simp] theorem readTransientMapChain_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) (slot' : Nat) (keys' : List Nat) :
+    (s.writeMapChain slot keys offset value).readTransientMapChain slot' keys' =
+      s.readTransientMapChain slot' keys' := by
+  simp [readTransientMapChain, transientStorageMapChain, writeMapChain]
+
+@[simp] theorem storage_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) :
+    (s.writeTransientMapChain slot keys value).storage = s.storage := by
+  funext n; simp [storage, writeTransientMapChain]
+
+@[simp] theorem readSlot_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) (n : Nat) :
+    (s.writeTransientMapChain slot keys value).readSlot n = s.readSlot n := by
+  simp [readSlot, storage, writeTransientMapChain]
+
+@[simp] theorem transientStorage_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) :
+    (s.writeTransientMapChain slot keys value).transientStorage = s.transientStorage := by
+  funext n; simp [transientStorage, writeTransientMapChain]
+
+@[simp] theorem storageMapChain_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) :
+    (s.writeTransientMapChain slot keys value).storageMapChain = s.storageMapChain := by
+  funext n ks o; simp [storageMapChain, writeTransientMapChain]
+
+@[simp] theorem readMapChain_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) (slot' : Nat) (keys' : List Nat) (offset' : Nat) :
+    (s.writeTransientMapChain slot keys value).readMapChain slot' keys' offset' =
+      s.readMapChain slot' keys' offset' := by
+  simp [readMapChain, storageMapChain, writeTransientMapChain]
+
+@[simp, storage_simps] theorem readMapChain_writeSlot (s : ContractState) (n : Nat)
+    (v : Uint256) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeSlot n v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeSlot]
+
+@[simp] theorem readMapChain_writeAddrSlot (s : ContractState) (n : Nat)
+    (v : Address) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeAddrSlot n v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeAddrSlot]
+
+@[simp] theorem readMapChain_writeTransient (s : ContractState) (n : Nat)
+    (v : Uint256) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeTransient n v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeTransient]
+
+@[simp] theorem readMapChain_writeMap (s : ContractState) (n : Nat) (k : Address)
+    (v : Uint256) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeMap n k v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeMap]
+
+@[simp] theorem readMapChain_writeMapUint (s : ContractState) (n : Nat) (k : Uint256)
+    (v : Uint256) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeMapUint n k v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeMapUint]
+
+@[simp] theorem readMapChain_writeMap2 (s : ContractState) (n : Nat) (k1 k2 : Address)
+    (v : Uint256) (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeMap2 n k1 k2 v).readMapChain slot keys offset = s.readMapChain slot keys offset := by
+  simp [readMapChain, storageMapChain, writeMap2]
+
+@[simp] theorem readTransientMapChain_writeSlot (s : ContractState) (n : Nat)
+    (v : Uint256) (slot : Nat) (keys : List Nat) :
+    (s.writeSlot n v).readTransientMapChain slot keys = s.readTransientMapChain slot keys := by
+  simp [readTransientMapChain, transientStorageMapChain, writeSlot]
+
+@[simp] theorem readTransientMapChain_writeTransient (s : ContractState) (n : Nat)
+    (v : Uint256) (slot : Nat) (keys : List Nat) :
+    (s.writeTransient n v).readTransientMapChain slot keys =
+      s.readTransientMapChain slot keys := by
+  simp [readTransientMapChain, transientStorageMapChain, writeTransient]
+
+@[simp] theorem storageArray_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) :
+    (s.writeMapChain slot keys offset value).storageArray = s.storageArray := rfl
+@[simp] theorem storageArray_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) :
+    (s.writeTransientMapChain slot keys value).storageArray = s.storageArray := rfl
+
+/-! Non-storage fields are untouched by both hashed-chain writes. -/
+section MapChainContext
+variable (s : ContractState) (slot : Nat) (keys : List Nat) (offset : Nat) (value : Uint256)
+@[simp] theorem sender_writeMapChain :
+    (s.writeMapChain slot keys offset value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeMapChain :
+    (s.writeMapChain slot keys offset value).thisAddress = s.thisAddress := rfl
+@[simp] theorem txOrigin_writeMapChain :
+    (s.writeMapChain slot keys offset value).txOrigin = s.txOrigin := rfl
+@[simp] theorem msgValue_writeMapChain :
+    (s.writeMapChain slot keys offset value).msgValue = s.msgValue := rfl
+@[simp] theorem selfBalance_writeMapChain :
+    (s.writeMapChain slot keys offset value).selfBalance = s.selfBalance := rfl
+@[simp] theorem blockTimestamp_writeMapChain :
+    (s.writeMapChain slot keys offset value).blockTimestamp = s.blockTimestamp := rfl
+@[simp] theorem blockNumber_writeMapChain :
+    (s.writeMapChain slot keys offset value).blockNumber = s.blockNumber := rfl
+@[simp] theorem chainId_writeMapChain :
+    (s.writeMapChain slot keys offset value).chainId = s.chainId := rfl
+@[simp] theorem knownAddresses_writeMapChain :
+    (s.writeMapChain slot keys offset value).knownAddresses = s.knownAddresses := rfl
+@[simp] theorem events_writeMapChain :
+    (s.writeMapChain slot keys offset value).events = s.events := rfl
+@[simp] theorem calls_writeMapChain :
+    (s.writeMapChain slot keys offset value).calls = s.calls := rfl
+@[simp] theorem returndata_writeMapChain :
+    (s.writeMapChain slot keys offset value).returndata = s.returndata := rfl
+@[simp] theorem sender_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).thisAddress = s.thisAddress := rfl
+@[simp] theorem msgValue_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).msgValue = s.msgValue := rfl
+@[simp] theorem events_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).events = s.events := rfl
+@[simp] theorem calls_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).calls = s.calls := rfl
+@[simp] theorem returndata_writeTransientMapChain :
+    (s.writeTransientMapChain slot keys value).returndata = s.returndata := rfl
+end MapChainContext
+
+/-! Hop namespacing of the hashed channels: a distinct-address callee sees its
+own hashed entries (`.scoped callee`), the caller's are parked under
+`.scoped caller`, and hashed writes never touch any parked world. -/
+
+theorem enterHop_readMapChain (s : ContractState) (caller callee : Address) (slot : Nat)
+    (keys : List Nat) (offset : Nat) :
+    (s.enterHop caller callee).readMapChain slot keys offset =
+      s.storageWords (.scoped callee.toNat (.mapChain slot keys offset)) :=
+  rfl
+
+theorem enterHop_readTransientMapChain (s : ContractState) (caller callee : Address)
+    (slot : Nat) (keys : List Nat) :
+    (s.enterHop caller callee).readTransientMapChain slot keys =
+      s.storageWords (.scoped callee.toNat (.transientMapChain slot keys)) :=
+  rfl
+
+theorem exitHop_readMapChain (snap s' : ContractState) (caller callee : Address)
+    (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (snap.exitHop s' caller callee).readMapChain slot keys offset =
+      s'.storageWords (.scoped caller.toNat (.mapChain slot keys offset)) :=
+  rfl
+
+theorem exitHop_readTransientMapChain (snap s' : ContractState) (caller callee : Address)
+    (slot : Nat) (keys : List Nat) :
+    (snap.exitHop s' caller callee).readTransientMapChain slot keys =
+      s'.storageWords (.scoped caller.toNat (.transientMapChain slot keys)) :=
+  rfl
+
+@[simp] theorem storageWords_scoped_writeMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (offset : Nat) (value : Uint256) (c : Nat) (k : StorageKey) :
+    (s.writeMapChain slot keys offset value).storageWords (.scoped c k) =
+      s.storageWords (.scoped c k) := by
+  simp [writeMapChain]
+
+@[simp] theorem storageWords_scoped_writeTransientMapChain (s : ContractState) (slot : Nat)
+    (keys : List Nat) (value : Uint256) (c : Nat) (k : StorageKey) :
+    (s.writeTransientMapChain slot keys value).storageWords (.scoped c k) =
+      s.storageWords (.scoped c k) := by
+  simp [writeTransientMapChain]
+
+/-- Hop frame: if the callee body leaves the caller's parked hashed entry
+    alone, the caller reads the same hashed entry after the hop. -/
+theorem readMapChain_exitHop_enterHop_of_frame (s s' : ContractState)
+    (caller callee : Address) (slot : Nat) (keys : List Nat) (offset : Nat)
+    (hframe : s'.storageWords (.scoped caller.toNat (.mapChain slot keys offset)) =
+      (s.enterHop caller callee).storageWords (.scoped caller.toNat (.mapChain slot keys offset))) :
+    (s.exitHop s' caller callee).readMapChain slot keys offset =
+      s.readMapChain slot keys offset := by
+  rw [exitHop_readMapChain, hframe, enterHop_scoped_caller _ _ _ _ rfl]
+  rfl
+
+/-- The callee's hashed writes land in its own namespace: after entering a hop
+    and writing an entry, the caller's parked world is unchanged. -/
+theorem writeMapChain_enterHop_frame (s : ContractState) (caller callee : Address)
+    (slot : Nat) (keys : List Nat) (offset : Nat) (value : Uint256)
+    (slot' : Nat) (keys' : List Nat) (offset' : Nat) :
+    (((s.enterHop caller callee).writeMapChain slot keys offset value).storageWords
+        (.scoped caller.toNat (.mapChain slot' keys' offset'))) =
+      s.readMapChain slot' keys' offset' := by
+  rw [storageWords_scoped_writeMapChain, enterHop_scoped_caller _ _ _ _ rfl]
+  rfl
+
 @[simp] theorem storage_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address)
     (value : Uint256) : (s.writeMap2 slot key1 key2 value).storage = s.storage := by
   funext wordSlot
@@ -1092,6 +1539,10 @@ def writeArray (s : ContractState) (slot : Nat) (values : List Uint256) : Contra
     (value : Uint256) :
     (s.writeSlot slot value).storageArray = s.storageArray := rfl
 
+@[simp] theorem readMapChain_writeArray (s : ContractState) (n : Nat) (vs : List Uint256)
+    (slot : Nat) (keys : List Nat) (offset : Nat) :
+    (s.writeArray n vs).readMapChain slot keys offset = s.readMapChain slot keys offset := rfl
+
 /-!
 ### Bulk lenses (C5)
 
@@ -1115,6 +1566,28 @@ def modifySlots (s : ContractState) (targets : List Nat)
   { s with storageWords := fun key => match key with
       | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
       | _ => s.storageWords key }
+
+/-- Physical batch write, retaining all legacy storage-channel projections
+while synchronizing the self account. Duplicate targets remain aliases. -/
+def writePhysicalSlots (s : ContractState) (targets : List Nat) (value : Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then value else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets (fun _ => value)) }
+
+/-- Every physical transformed value is computed from the original world,
+including duplicate targets, matching the atomic legacy bulk operation. -/
+def modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) : ContractState :=
+  { s with
+    storageWords := fun key => match key with
+      | .slot slot => if targets.contains slot then f (s.storageWords key) else s.storageWords key
+      | _ => s.storageWords key
+    accountWorld := Verity.Core.AccountWorld.write s.accountWorld s.thisAddress
+      ((s.accountWorld s.thisAddress).writeStorageValues targets
+        (fun slot => f (s.storageWords (.slot slot)))) }
 
 /-- Write `value` at every transient slot in `targets`. -/
 def writeTransientSlots (s : ContractState) (targets : List Nat)
@@ -1350,6 +1823,112 @@ private theorem not_mem_of_contains_false {α : Type} [BEq α] [LawfulBEq α]
   funext slot
   simp [transientStorage, modifySlots]
 
+/-! Physical-slot lenses agree with the legacy lenses on every storage channel;
+they additionally synchronize the self account, which these views ignore. -/
+
+@[simp] theorem sender_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).sender = s.sender := rfl
+@[simp] theorem thisAddress_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).returndata = s.returndata := rfl
+@[simp] theorem storageArray_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageArray = s.storageArray := rfl
+@[simp] theorem sender_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).sender = s.sender := rfl
+@[simp] theorem thisAddress_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).thisAddress = s.thisAddress := rfl
+@[simp] theorem selfBalance_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).selfBalance = s.selfBalance := rfl
+@[simp] theorem calldata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldata = s.calldata := rfl
+@[simp] theorem calldataSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).calldataSize = s.calldataSize := rfl
+@[simp] theorem msgValue_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).msgValue = s.msgValue := rfl
+@[simp] theorem codeSize_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).codeSize = s.codeSize := rfl
+@[simp] theorem returndata_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).returndata = s.returndata := rfl
+@[simp] theorem storageArray_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageArray = s.storageArray := rfl
+
+@[simp] theorem storage_writePhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.writePhysicalSlots targets value).storage slot = value := by
+  have hmem := mem_of_contains_true h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storage_writePhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (value : Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.writePhysicalSlots targets value).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, writePhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, writePhysicalSlots]
+
+@[simp] theorem transientStorage_writePhysicalSlots (s : ContractState) (targets : List Nat)
+    (value : Uint256) :
+    (s.writePhysicalSlots targets value).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, writePhysicalSlots]
+
+@[simp] theorem storage_modifyPhysicalSlots_not_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = false) :
+    (s.modifyPhysicalSlots targets f).storage slot = s.storage slot := by
+  have hmem := not_mem_of_contains_false h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storage_modifyPhysicalSlots_mem (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) {slot : Nat} (h : targets.contains slot = true) :
+    (s.modifyPhysicalSlots targets f).storage slot = f (s.storage slot) := by
+  have hmem := mem_of_contains_true h
+  simp [storage, modifyPhysicalSlots, hmem]
+
+@[simp] theorem storageAddr_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).storageAddr = s.storageAddr := by
+  funext slot
+  simp [storageAddr, modifyPhysicalSlots]
+
+@[simp] theorem transientStorage_modifyPhysicalSlots (s : ContractState) (targets : List Nat)
+    (f : Uint256 → Uint256) :
+    (s.modifyPhysicalSlots targets f).transientStorage = s.transientStorage := by
+  funext slot
+  simp [transientStorage, modifyPhysicalSlots]
+
 @[simp] theorem storage_modifyTransientSlots (s : ContractState) (targets : List Nat)
     (f : Uint256 → Uint256) :
     (s.modifyTransientSlots targets f).storage = s.storage := by
@@ -1465,7 +2044,9 @@ def ofChannels
     (sender : Address := 0)
     (thisAddress : Address := 0)
     (msgValue : Uint256 := 0)
-    (blockTimestamp : Uint256 := 0) : ContractState :=
+    (blockTimestamp : Uint256 := 0)
+    (mapChainChannel : Nat → List Nat → Nat → Uint256 := fun _ _ _ => 0)
+    (transientMapChainChannel : Nat → List Nat → Uint256 := fun _ _ => 0) : ContractState :=
   { storageWords := fun key => match key with
       | .slot slot => uintChannel slot
       | .contractSlot _ _ => 0
@@ -1475,6 +2056,8 @@ def ofChannels
       | .map slot key => mapChannel slot key
       | .mapUint slot key => mapUintChannel slot key
       | .map2 slot key1 key2 => map2Channel slot key1 key2
+      | .mapChain slot keys offset => mapChainChannel slot keys offset
+      | .transientMapChain slot keys => transientMapChainChannel slot keys
     storageArray := arrayChannel
     sender := sender
     thisAddress := thisAddress
@@ -1995,6 +2578,47 @@ def setMapping (s : StorageSlot (Address → Uint256)) (key : Address) (value : 
         state.knownAddresses slot
   } := rfl
 
+/-! ### Mapping reads and writes through a distinct-address hop (G14)
+
+An ERC-20 `balanceOf(holder)` answered by a linked token body is a
+`getMapping` run inside `Contract.hopCallView token`. The callee sees its own
+mapping world (`enterHop` loads `.scoped token`), so the value read is the
+token's parked entry `.scoped token (.map slot holder)`, and the caller's
+storage is untouched. A committed mutating hop parks every plain non-slot
+write of the callee back under `.scoped callee`. -/
+
+/-- Successful distinct-address mutating hop: the result state is `exitHop`. -/
+theorem Contract.hopCall_success_of_ne {α : Type} (callee : Address) (body : Contract α)
+    (s s' : ContractState) (v : α) (h : s.thisAddress ≠ callee)
+    (hbody : body (s.enterHop s.thisAddress callee) = ContractResult.success v s') :
+    Contract.hopCall callee body s =
+      ContractResult.success v (s.exitHop s' s.thisAddress callee) := by
+  rw [Contract.hopCall_of_ne callee body s h, hbody]
+
+/-- After a successful distinct-address hop, the callee's parked word for any
+plain non-slot key (`.map`, `.map2`, `.mapUint`, `.mapChain`, `.addr`, ...) is
+the value that key had at the end of the callee body. -/
+theorem Contract.hopCall_scoped_callee {α : Type} (callee : Address) (body : Contract α)
+    (s s' : ContractState) (v : α) (h : s.thisAddress ≠ callee)
+    (hbody : body (s.enterHop s.thisAddress callee) = ContractResult.success v s')
+    (k : StorageKey) (hk : k.isPlainNonSlot = true) :
+    ((Contract.hopCall callee body s).getState).storageWords (.scoped callee.toNat k) =
+      s'.storageWords k := by
+  rw [Contract.hopCall_success_of_ne callee body s s' v h hbody]
+  exact ContractState.exitHop_scoped_callee s s' s.thisAddress callee k hk
+
+/-- `balanceOf`-shaped view hop: reading `slot[key]` inside
+`hopCallView callee` returns the callee's parked mapping entry and leaves the
+caller's state unchanged except for the cleared returndata. -/
+theorem Contract.hopCallView_getMapping (callee : Address)
+    (slot : StorageSlot (Address → Uint256)) (key : Address)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCallView callee (getMapping slot key) s =
+      ContractResult.success (s.storageWords (.scoped callee.toNat (.map slot.slot key)))
+        { s with returndata := [] } := by
+  rw [Contract.hopCallView_of_ne callee _ s h]
+  rfl
+
 -- Typed address-valued mapping helpers on top of the word-backed storage model.
 def getMappingAddr (s : StorageSlot (Address → Uint256)) (key : Address) : Contract Address :=
   fun state => ContractResult.success (wordToAddress (state.readMap s.slot key)) state
@@ -2015,6 +2639,17 @@ def setMappingAddr (s : StorageSlot (Address → Uint256)) (key value : Address)
 -- Double mapping operations (Address → Address → Uint256) (#154)
 def getMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) : Contract Uint256 :=
   fun state => ContractResult.success (state.readMap2 s.slot key1 key2) state
+
+/-- Same as `hopCallView_getMapping` for the `getMapping2` (allowance) channel. -/
+theorem Contract.hopCallView_getMapping2 (callee : Address)
+    (slot : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address)
+    (s : ContractState) (h : s.thisAddress ≠ callee) :
+    Contract.hopCallView callee (getMapping2 slot key1 key2) s =
+      ContractResult.success
+        (s.storageWords (.scoped callee.toNat (.map2 slot.slot key1 key2)))
+        { s with returndata := [] } := by
+  rw [Contract.hopCallView_of_ne callee _ s h]
+  rfl
 
 def setMapping2 (s : StorageSlot (Address → Address → Uint256)) (key1 key2 : Address) (value : Uint256) : Contract Unit :=
   fun state => ContractResult.success () (state.writeMap2 s.slot key1 key2 value)

@@ -292,9 +292,19 @@ def probe(function, target, source_root, out, workspace, timeout):
             'file': function['file'], 'line': function['line'], 'column': function['column'],
             'construct': function['kind'], 'reason': 'solidity_import selects named functions only'}}
     driver = out / 'Probe.lean'
+    profile = target.get('profile')
+    if profile is None:
+        using_clause = '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }'
+    else:
+        runs = 'none' if profile.get('optimizerRuns') is None else f'some {int(profile["optimizerRuns"])}'
+        via_ir = 'true' if profile.get('viaIR', False) else 'false'
+        using_clause = (f'{{ solc := {json.dumps(profile["solc"])}, '
+                        f'evmVersion := {json.dumps(profile["evmVersion"])}, '
+                        f'viaIR := {via_ir}, optimizerRuns := {runs}, '
+                        f'bytecodeHash := {json.dumps(profile.get("bytecodeHash", "none"))} }}')
     driver.write_text('import Compiler.SolidityImport.Import\n'
         + f'solidity_import measured from {json.dumps(str(source_root))} entry {json.dumps(target["entry"])}\n'
-        + '  using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }\n'
+        + f'  using {using_clause}\n'
         + f'  contract {ident(target["contract"])}\n'
         + f'  function {ident(name)}({", ".join(ident(t) for t in function["types"])})\n'
         + '#eval show IO Unit from do\n'
@@ -339,6 +349,24 @@ def summarize(rows):
                                       for k, v in sorted(blockers.items(), key=lambda p: (-p[1], p[0]))]}
 
 
+def excluded_functions(project):
+    """Validated optional manifest `exclude_functions` list (function names)."""
+    names = project.get('exclude_functions', [])
+    if not isinstance(names, list) or not all(isinstance(n, str) and n for n in names) \
+            or len(set(names)) != len(names):
+        raise ValueError(f"{project.get('id')}: exclude_functions must be a list of distinct names")
+    return names
+
+
+def milestone_summary(project, functions):
+    """Summary excluding the project's `exclude_functions`, or None when none are listed."""
+    names = excluded_functions(project)
+    if not names:
+        return None
+    return {'excluded_functions': names,
+            **summarize([fn for fn in functions if fn['name'] not in names])}
+
+
 def refresh_report(report):
     """Finalize a snapshot without ever treating pending inventory as complete."""
     identity = lambda c: (c['project'], c['entry'], c['contract'])
@@ -370,9 +398,10 @@ def markdown(report):
     for row in report['summary']['first_blocker_histogram']:
         lines.append(f'- {row["functions"]}: {row["blocker"]}')
     for contract in report['contracts']:
-        if 'milestone_without_multicall' in contract:
-            m = contract['milestone_without_multicall']
-            lines += ['', f'Midnight milestone (excluding only `multicall`): {m["importable"]}/{m["functions"]}; unknown: {m["errors"]}.']
+        if 'milestone' in contract:
+            m = contract['milestone']
+            excluded = ', '.join(f'`{n}`' for n in m['excluded_functions'])
+            lines += ['', f'{contract["project"]}:{contract["contract"]} milestone (excluding only {excluded}): {m["importable"]}/{m["functions"]}; unknown: {m["errors"]}.']
         lines += ['', '## ' + contract['project'] + ':' + contract['contract'], '']
         if 'error' in contract:
             lines += ['Measurement error: ' + contract['error'], '']
@@ -404,6 +433,11 @@ def main():
     projects = [p for p in manifest['projects'] if not args.project or p['id'] in args.project]
     if not projects or (args.project and set(args.project) - {p['id'] for p in projects}):
         parser.error('unknown or empty project selection')
+    try:
+        for project in projects:
+            excluded_functions(project)
+    except ValueError as exc:
+        parser.error(str(exc))
     report = {'schema': 1, 'scope': manifest['scope'], 'manifest_sha256': sha(args.manifest),
               'selection': [p['id'] for p in projects], 'contracts': [],
               'verity_head': checked(['git', 'rev-parse', 'HEAD'], cwd=workspace).strip(),
@@ -432,6 +466,12 @@ def main():
                 source_root = checkout(project, cache, args.fetch)
                 dependencies(project, source_root, cache, args.fetch)
                 solc = compiler(project['inventory_solc'], manifest, cache, args.fetch)
+                if project['inventory_solc'] in ('0.8.10', '0.8.34'):
+                    staged = workspace / '.lake' / 'solidity-import' / ('solc-' + project['inventory_solc'])
+                    if not staged.exists() or sha(staged) != sha(solc):
+                        staged.parent.mkdir(parents=True, exist_ok=True)
+                        staged.write_bytes(solc.read_bytes())
+                        staged.chmod(0o755)
                 item['source_sha256'] = sha(source_root / target['entry'])
                 functions = inventory(project, target, source_root, solc, dest)
                 for i, fn in enumerate(functions):
@@ -449,9 +489,9 @@ def main():
                 for fn in item['functions']:
                     fn.update({'status': 'error', 'error': item['error']})
             item['summary'] = summarize(item['functions'])
-            if project['id'] == 'midnight':
-                item['milestone_without_multicall'] = summarize(
-                    [fn for fn in item['functions'] if fn['name'] != 'multicall'])
+            milestone = milestone_summary(project, item['functions'])
+            if milestone is not None:
+                item['milestone'] = milestone
             if 'error' in item:
                 item['summary']['complete'] = False
             report['contracts'].append(item)

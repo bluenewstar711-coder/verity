@@ -38,6 +38,30 @@ still expose only success versus failure. The call-composition interface retains
 local panic bytes separately from its legacy word-return result; full byte-level
 external-call composition is not yet certified.
 
+Literal-message `require` retains the exact ABI `Error(string)` payload,
+including UTF-8 byte length and padding. The importer checks solc's resolved
+builtin signature and literal bytes; dynamic messages are rejected. Denote
+also encodes declared static scalar custom errors with a unique declaration,
+matching arity and canonical arguments. Imported custom-error `require` calls
+accept only decimal numeric literals or scalar-binding arguments; general expressions are
+rejected until their evaluation order, including competing panics, is covered.
+Explicit `revert CustomError(...)` statements remain outside the importer. Error
+declarations travel with the execution state. The differential oracle computes
+signature Keccak over a temporary word-chunk memory buffer; this does not
+establish general Solidity memory or ABI-decoder correctness. The legacy
+agreement projection continues to erase rich revert bytes.
+
+The entry-point invariant infrastructure in
+`Compiler/SolidityImport/EntryPointInvariants.lean` composes actual
+`Transactions.executeBody` steps with explicit bindings, effective model
+fields and custom errors. It proves rollback and finite-sequence invariant
+preservation from per-public-entry obligations; environment preparation and
+frame reset have explicit preservation premises. It introduces no project
+axiom. It does not establish the ABI/dispatch boundary, deployment, value
+transfer, loop correctness, reentrant external-call correctness, or a
+Midnight invariant. Instrument errors are excluded by successful `Except`
+observations, rather than treated as Solidity reverts.
+
 The experimental stateful instrument in `scripts/solidity_differential` runs
 separate real Anvil transactions against solc and Verity bytecode, and invokes
 `SequenceRunner` for Denote. Its scalar trace calls the actual statement
@@ -66,6 +90,52 @@ Denote external-world counterparts remain an integration obligation. Sequence
 reduction proves deletion-1-minimality by replay within its stated budget,
 not global minimality of arguments or programs.
 
+The imported `EnvironmentSequence` fixture additionally exercises multiple entry
+points and the dedicated caller, current-contract, timestamp, block-number, and
+chain-id expressions. Solc builtin declaration ids and type identifiers select
+these lowerings; names alone do not identify a builtin. The stateful harness
+provides the same transaction context to each route and compares returned ABI
+bytes. Direct, local-binding, and helper variants are separately imported and
+checked for identical observations. This remains sampled differential evidence,
+not a proof of frontend correctness. Payable entry points and unsupported context
+members fail import rather than inheriting incomplete value-transfer behavior.
+The campaign identity includes the actual imported Solidity fixture alongside
+the Lean driver and implementation artifacts, detecting local source edits or
+removal during replay. It does not defend against a malicious filesystem.
+
+The imported scalar storage slice trusts solc's slot/byte-offset layout and the
+importer's conversion to packed bit ranges. Unsigned integers, addresses and
+bytes32 are represented by physical uint256 fields; their source types govern
+casts and ABI results. Writes and deletes use the existing masked Denote write
+semantics. The imported packed-storage sequence supplies sampled A/B/C evidence,
+including rollback and sibling retention, not a frontend equivalence theorem.
+Write-aware coverage does not extend the old read-only preservation theorem.
+Separate kernel-checked frame lemmas cover other persistent slots, not arbitrary
+contract invariants. Void root fallthrough uses the compiler's dedicated stop instruction. Denote
+records an explicit-stop marker separately from the legacy return-word
+projection. The transaction adapter emits empty bytes only for that marker;
+missing observations still fail. This replaces no
+compiler return-shape check. Helpers with storage writes are rejected because
+the importer does not yet validate solc's nested expression evaluation order.
+Constructor execution and state-variable initialization remain outside the
+runtime-slice claim.
+
+Scalar mappings reuse the model's mapping-to-struct representation with one
+internal member at word zero. The importer trusts solc's mapping key types and
+value widths, checks the reported byte size, and preserves upper bits on narrow
+writes. Boolean values occupy one byte and reads normalize nonzero to true.
+This representation is an importer lowering, not a proof of solc equivalence.
+The mapping sequence and its three variants provide sampled real A/B/C evidence.
+Their Denote route uses the actual Keccak oracle. Slot instrumentation evaluates
+keys in the current state and records the nested hash plus member offset; this
+instrumentation remains part of the differential harness trust boundary.
+
+Storage access tracing now follows only the selected conditional branch and
+advances branch-local state through the actual executor, stopping at return or
+revert. Pure arithmetic/bitmask operands are recursively inventoried. Unsupported
+expressions still fail observation; no accesses are inferred from execution
+success. The original full-outcome trace agreement theorem is unchanged.
+
 The typed accessors that the import also generates (`example.f`,
 `example.position.credit`, ...) add no trust: they are Lean definitions over
 the model, through `runFunction` and `readMember` in
@@ -78,28 +148,164 @@ The source digest hashes `Import.lean`, `Coverage.lean`, `Report.lean`,
 the package that contains them: the Verity tree itself, or
 `.lake/packages/verity` when a downstream package elaborates the import. The
 pinned solc binary stays in the elaborating package's
-`.lake/solidity-import/solc-0.8.34`.
+`.lake/solidity-import/solc-0.8.34` or `.lake/solidity-import/solc-0.8.10`.
 
 The frontend is in the trust base. A covered model is not a proof that the
 model matches the Solidity source or solc's bytecode. `storageLayout` slots and
-packed offsets are copied from pinned solc 0.8.34
-(`0.8.34+commit.80d5c536`; linux-amd64 and macosx-amd64 SHA-256 pins in
-`Import.lean`). `mappingSlot` in the denotation oracle is not Keccak. Numeric
+packed offsets are copied from the pinned solc release selected by `Profile.solc`
+(`0.8.34+commit.80d5c536` or `0.8.10+commit.fc410830`; linux-amd64 and
+macosx-amd64 SHA-256 pins in `Import.lean`). Because `solc 0.8.10` lacks
+`--no-import-callback` and silently ignores unknown standard-JSON settings such
+as `"viaIR"`, the importer rejects `viaIR := true` on `0.8.10+commit.fc410830`,
+restricts `evmVersion` to pre-Paris releases up to `"london"`, and verifies that
+every key in `parsed["sources"]` was explicitly collected into the hashed
+standard-JSON input. `mappingSlot` in the denotation oracle is not Keccak. Numeric
 claims are about the values `structMember` reads back.
 
 Checked `uint256` and narrower unsigned arithmetic is lowered to `Stmt.ite` plus
 `Stmt.panic`, not to a second interpreter. Explicit `uint128(x)` is truncation
 (`bitAnd` with `2^128-1`). Ternaries are `Stmt.ite`, so the untaken branch is
-not evaluated. Library helpers in an accepted acyclic slice are inlined.
+not evaluated. Library helpers and inherited contract helpers in an accepted
+acyclic slice are inlined: unqualified internal/private calls in the target
+contract's `linearizedBaseContracts` resolve to the most-derived implemented
+override in the same transitive `baseFunctions` family, `super.fn(...)` resolves
+across the C3 suffix after the calling contract, and explicit `Base.fn(...)`
+calls verify base membership and static declaration ownership. Void internal/private
+helpers are inlined via continuation-passing so nested early `return;` inside
+`if`/`else` runs the post-conditional continuation only on fallthrough paths
+with restored lexical scope. `revert CustomError(...)` lowers through the same
+static custom-error encoding as `require(false, CustomError(...))`. Scalar `bool`
+storage fields use 8-bit packed storage with `logicalNot (logicalNot ...)`
+normalization on read and write, and prefix `!` on `bool` lowers to `logicalNot`.
+Root functions whose return parameters are all named scalars initialize each to
+zero and return them on bare `return;` or fallthrough, while empty-body scalar
+hooks return zero words. Modifiers with a single top-level `_;` (without `virtual`
+or internal `return;`) are inlined around root and helper bodies with their own
+lexical scope and `unchecked := false`, wrapping multiple modifiers outside-in;
+when a modifier has statements after `_;`, return values on explicit return or
+fallthrough paths are captured before running the post-placeholder statements.
+Internal function-pointer locals initialized at declaration to a direct
+internal/private helper or a conditional `cond ? f : g` over internal/private
+helpers evaluate any selector condition once at declaration, reject reassignment,
+and lower calls by inlining the target helper(s) after evaluating arguments once in
+caller source order. Whole-struct `delete` on one/two-key mapping structs clears
+every decoded scalar/packed member to zero after rejecting structs with `opaque`
+or array members.
+`UncheckedBlock` switches unsigned `+`, `-`, `*` and `+=`/`-=` within its lexical
+block to wrapping `2^bits` arithmetic while preserving division/modulo-by-zero
+panics and resetting across call boundaries. Scalar assignment expressions
+`(x = rhs)` require order-independent binary siblings and single-argument call
+contexts. Unnamed multi-return scalar helpers are inlined via continuation-passing
+into fresh zero-initialized result bindings and consumed only by matching tuple
+destructuring declarations or assignments (evaluating converted components before
+committing non-elided local or scalar storage targets and rejecting duplicate
+targets). Unsigned scalar parameters modified by `+=` or `-=` are copied into
+declaration-bound local bindings at frame entry so call-by-value compound updates
+remain frame-local. Narrow `.uintN bits` event parameters accept canonical integer
+constant literals `n < 2 ^ bits` alongside matching direct parameters. Full-width
+`int256` scalar parameters, locals, returns, storage fields, and mapping values use
+two's-complement 256-bit words (`slt`/`sgt`/`sdiv`), with `Panic(0x11)` on checked
+signed `+`, `-`, `*`, `/`, and unary `-` overflow (including `-type(int256).min` and
+`type(int256).min / -1`) and wrapping two's-complement arithmetic inside
+`UncheckedBlock` (preserving division-by-zero `Panic(0x12)`). Contract/interface
+and `address payable` scalar values use 160-bit address representations for
+parameters, locals, returns, storage fields, mapping values, and explicit
+`Contract(addr)` / `address(contractVal)` casts. Empty-body root functions without
+modifiers that return a single `T[] memory` (`T` in `uint256`, `int256`, `address`,
+`bool`, `bytes32`) emit `Stmt.returnValues [.literal 32, .literal 0]` (the 64-byte
+ABI encoding of an empty dynamic array); root `bytes calldata` parameters (named or
+unnamed) use `AbiLowering.bytesCalldataHead` under `.explicitPrelude` to validate
+the offset, header, `uint64` length bound, and payload tail bound at entry and
+expose `.length`. Same-contract overloaded function declarations are accepted in
+`refInt` when every candidate in `overloadedDeclarations` belongs to the same
+virtual family or shares an origin declaring contract across `baseFunctionClosure`,
+while cross-contract unrelated overloads and duplicate root function names in a
+single slice are rejected. Custom-error arguments accept pure compile-time
+constant scalar expressions (`address(0)`, `type(T).max`/`min`, and named numeric
+constants) that lower to canonical literals with empty preludes alongside direct
+scalar bindings and literals. Conditional tuple expressions (`cond ? (...) : (...)`)
+in tuple declarations and assignments convert leaf components to the target types
+and join branches through fresh temporaries and `Stmt.ite`, rejecting stateful or
+assignment tuple components. Single-assignment inline assembly supports `tload(slot)`
+via `Expr.tload` over `DenoteState.transientStorage`. Fixed-size unsigned scalar
+array members inside mapping structs (`encoding == "inplace"`, `byteOffset == 0`) are
+expanded on demand into synthetic `StructMember` entries with `Panic(0x32)` bounds
+guards on element reads, writes, `delete`, and memory snapshot copies, and unnamed
+root fixed-size scalar array returns (`T[L] memory`) lower to `L` ABI return words.
+`msg.data.length` and `_msgData().length` lower to `Expr.calldatasize`, and
+zero-parameter root functions returning `msg.data` or `_msgData()` emit
+`Stmt.returnValues [.literal 32, .calldatasize, .calldataload (.literal 0)]` with
+`returns := [.bytes]`. Solidity `enum` types (`1..256` members) lower to `.uintN 8`
+scalars with tighter `< members.size` root calldata entry guards, `Panic(0x21)`
+bounds checks on explicit `Enum(x)` casts from integer types, and `0` / `members.size - 1`
+bounds for `type(Enum).min` / `type(Enum).max` (while rejecting fallible `Enum(x)`
+casts inside `abi.encode` / `abi.encodePacked` and `enum` struct or storage members).
+Unsigned exponentiation (`**`) lowers to `Expr.externalCall "exp" [a, b]` (masked to
+`2^bits - 1` when `bits < 256` in `unchecked` mode, and guarded by `maxSafeExponent`
+or `maxSafeBase` with `Panic(0x11)` in checked mode when either base or exponent is a
+canonical literal, rejecting checked dynamic-base-and-exponent `**`). Bit shifts
+(`<<`, `>>`), bitwise `&`, `|`, `^`, unary `~` (masked to `2^bits - 1` on narrow
+`uintN`), and compound assignments (`<<=`, `>>=`, `&=`, `|=`, `^=`, `/=`, `%=`) lower
+to `.shl`/`.shr`/`.sar`/`.bitAnd`/`.bitOr`/`.bitXor`/`.bitNot` and checked division/modulo
+helpers, and single-assignment inline assembly supports `sub`, `div`, `mod`, `and`, `or`,
+`shl`, `shr`, `sar`, `gt`, `eq`, `iszero`, `not`, and `clz` (lowered as an 8-step binary
+search over `[128, 64, 32, 16, 8, 4, 2, 1]` returning `256` on zero, including `UtilsLib.zeroFloorSub`
+and `BitMapLib.msb`). Bounded unsigned `while` loops on a writable `uintN` local `v` (`v != 0` /
+`v > 0`) ending with a strictly decreasing bit-clearing (`v &= v - 1` or `msb(v)` + `clearBit`)
+or positive constant right-shift (`v >>= k`) update lower to `Stmt.forEach` with bound `bits`
+and per-iteration condition check, and `memory`/`calldata` struct locals and `calldata`-to-`memory`
+struct conversions materialize schema-checked structs and struct-array elements into memory
+while rejecting `memory`-to-`calldata` conversions, reassigned struct locals, and `immutable`
+state variables. Root and helper `T[] calldata` / `T[] memory` scalar array parameters
+(`uint8`–`uint256`, `int256`, `address`, `bool`, `bytes32`) validate ABI heads, `uint64` lengths,
+and `32 * length` tails via `AbiLowering.scalarArrayCalldataHead` / `scalarArrayMemoryHead`,
+materialize `calldata`-to-`memory` helper arguments via `materializeCalldataScalarArray`, and
+enforce `Panic(0x32)` bounds checks and calldata element validation on `arr[i]` via
+`readScalarArrayElement`. Root and helper `bytes calldata` / `bytes memory` and `string calldata` / `string memory`
+parameters and non-reassigned `bytes memory` / `string memory` locals decode via
+`bytesCalldataHead` / `bytesMemoryHead` and retained `(pointer, size)` byte buffers
+(`byteBuffers` / `stringBuffers`), supporting `.length` on any `bytes` buffer (`b.length`,
+`bytes(s).length`, and inline `abi.encode*` / `bytes.concat` expressions), `bytes calldata`-to-`bytes memory`
+local and helper-argument copies, `bytes.concat` / `string.concat` (lowered via `lowerPacked`),
+`abi.encodeWithSignature` (computing the 4-byte `keccak256` signature selector prefix and
+concatenating `32 * n` scalar argument words via `encodeSelectorAndWords`), `abi.encodeCall`
+(resolving the target `FunctionDefinition` selector via `lowerMemberFunctionSelector` and
+converting the argument tuple components to their declared parameter types), and single-return
+`bytes memory` / `string memory` helpers (`inlineStringFn`). Unnamed root functions returning
+`bytes` or `string` (`functionDynamicBytesReturn?`) lower admitted byte/string return expressions
+(`canLowerDynamicBytesReturnExpr`) via `lowerEncodedBytes` into `_verity_memret_<stem>` bindings
+and `Stmt.returnBytes`, reading 32-byte words from memory and right-zero-padding the final partial
+word (`32 :: length :: paddedWords`) in both `Denote.returnBytesWords` and `Compile.compileStmt`.
+`address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
+`Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
+`<addr>.balance` reads and `tx.gasprice` are rejected.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
-Only reached storage fields are decoded. Namespace-qualified output names and
-framed-JSON provenance are deterministic. Implicit root returns, named call
-arguments, virtual dispatch, and unsupported signed operations are rejected.
+Only reached storage fields are decoded; state variables whose label appears
+multiple times in `storageLayout.storage` (such as shadowed private state
+variables) are rejected when referenced, while unreferenced duplicate private
+`__gap` arrays do not block import. Namespace-qualified output names and
+framed-JSON provenance are deterministic. Unnamed non-empty root fallthrough, named call
+arguments, external contract calls, external or reassigned function pointers, and narrow signed types are rejected.
 The slice makes no dynamic ABI-head claim: that unrelated denotation extension
 is not part of this change. Solidity sources are Lake inputs only when the
 consumer declares them (`input_dir` + `needs`); consumers should also
 re-elaborate in CI to verify freshness against a compiled import.
+
+## CI execution and Action supply chain
+
+GitHub Actions and the machines that execute them are operational trust
+boundaries, not part of the Lean proof kernel. Every external Action reference
+under `.github/` is pinned to a full commit SHA; local composite Actions remain
+reviewed repository code. Repository policy rejects mutable external Action
+tags, gives workflows read-only default token permissions, and requires manual
+approval before workflows from every external fork contributor may run.
+
+Self-hosted runners remain trusted infrastructure. Pull-request code is
+untrusted even after approval and must not share credentials, writable data, or
+network reachability with production services. These controls reduce Action
+supply-chain drift and accidental execution; they do not make a persistent
+self-hosted runner a security boundary.
 
 ## Compilation Pipeline
 
@@ -137,7 +343,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 
 ### 2. Lean Axioms
 - **Role**: Bridge remaining proof obligations not yet fully discharged.
-- **Status**: 1 documented axiom in [AXIOMS.md](AXIOMS.md): `solidityMappingSlot_injective` (collision-resistance of `keccak256(abi.encode(key, base))`, not keccak injectivity on all inputs). The mapping-slot *range* axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom.
+- **Status**: 1 documented axiom in [AXIOMS.md](AXIOMS.md): `solidityMappingSlot_injective` (collision-resistance of `keccak256(abi.encode(key, base))` for in-range base slots and keys `< 2^256`, not keccak injectivity on all inputs; the range hypotheses are required because the ABI encoding reduces its arguments modulo `2^256`, so the former unbounded statement was inconsistent). The mapping-slot *range* axiom has been eliminated via the kernel-computable Keccak engine. Selector computation is kernel-computable, the Layer 2 generic body-simulation axiom has been eliminated, and the Layer 3 dispatch bridge remains an explicit theorem hypothesis rather than a Lean axiom.
 - **Mitigation**: CI axiom reporting and location checks enforce explicit tracking.
 
 ### 3. Keccak-based Selector Computation
@@ -185,7 +391,8 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `Contract.hopCallView`: every word-valued storage channel is namespaced
   per contract across a distinct-address hop — scalar slots move through
   `StorageKey.contractSlot`, and address slots, transient slots and all
-  mappings (`addr` / `transient` / `map` / `mapUint` / `map2`) through
+  mappings (`addr` / `transient` / `map` / `mapUint` / `map2` /
+  `mapChain` / `transientMapChain`) through
   `StorageKey.scoped` (G24, #2440; `ContractState.switchSlotWorld`,
   `enterHop_readAddrSlot` / `enterHop_readMap` / …,
   `exitHop_enterHop_storageWords_plain`). A callee never sees or clobbers the
@@ -224,9 +431,17 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   target address) by running a linked Verity body in `Contract.hopCallView`;
   `Contracts.externalStaticCallContractWordsTo_withViewLinks` proves the call
   then returns exactly the decoded hop words and leaves caller storage
-  unchanged. Mutable deferred calls have no faithful responder combinator
-  yet (they are answered by the instantiated adversary). Compilation-model
-  lowering is unchanged.
+  unchanged. `AdversaryModel.withLinks` / `ExecutableCallContext.withLinks`
+  extends this to state-changing sites: a linked `.call` site runs the body
+  in `Contract.hopCall` at the target (success commits the post-hop state,
+  with one caller-controlled journal entry; a reverting body answers
+  `.revert []`, so the typed call reverts with the caller state restored).
+  Fidelity: `Contracts.externalCallContractWordsTo_withLinks`,
+  `Contracts.externalCallEffectWordsTo_withLinks`,
+  `Contracts.externalStaticCallContractWordsTo_withLinks` (each with
+  `_revert`). The hop installs `msgValue := 0` (typed interface calls carry
+  no value). Unlinked mutable sites are still answered by the base
+  adversary. Compilation-model lowering is unchanged.
 - **Context forwarding into bound callees (G26)**: a bound hop into a callee
   function that takes the `ExecutableCallContext` (it reaches a `deferred`
   link or opens a reentrancy window) forwards the caller's context. The
@@ -244,13 +459,20 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
   `returndatasize >= 32 * n`, binds word `i` to result `i`; trust surface
   `abiBoundary`, assumption `external_call_abi_interface`). View tuple calls
   keep the static oracle-summary ECM.
-- **Author rule — one interface, several runtime contracts (G25)**: a named
-  binding dispatches by interface (and receiver/parameter name), **not** by
-  the runtime target address. If one interface is called on addresses that
-  hold different contracts, a named binding runs the bound callee's body for
-  every target, which is unfaithful for the other targets. Use `deferred` for
-  such interfaces and instantiate the context with `withViewLinks` keyed by
-  target address (`links "IFace.method" target`).
+- **Runtime-target dispatch and G25 (one interface, several runtime
+  contracts)**: a bound hop always runs at the call's runtime target
+  address. A receiver named after a binding selects it; otherwise the
+  interface's bindings decide: one binding, or several bindings that all
+  resolve to the same callee contract, run that callee's body at the
+  runtime target (two tokens of one contract type stay distinct through
+  per-address namespacing); several `deferred` bindings use the deferred
+  lowering; bindings to different callees, or a mix of named and `deferred`
+  bindings, **fail closed** at elaboration. **Trust boundary (author rule)**:
+  a named binding asserts that every target of that interface holds the
+  named contract. If one interface is called on addresses that hold
+  different contracts, use `deferred` and instantiate the context with
+  `withLinks` (or `withViewLinks`) keyed by target address
+  (`links "IFace.method" target`).
 
 ### 7. External Call Modules (ECMs)
 - **Role**: Reusable typed external call patterns (ERC-20 writes/reads including `totalSupply`, ERC-4626 preview/conversion helpers plus `totalAssets`, `asset`, `max*` limit reads, and `deposit`, oracle reads, precompiles 0x01 / 0x02 / 0x06 / 0x07 / 0x08 — `ecrecover`, `sha256`, BN254 `bn256Add`, `bn256ScalarMul`, `bn256Pairing` — callbacks, and same-contract `selfDelegateMulticallBytes`).
@@ -477,8 +699,10 @@ Aligned `writeMap` / `writeMapUint` / `writeMap2` + `writeSlot`,
 takes the same image-avoidance `∀` (`DerivedMappingSlotsAvoid`). The
 simple-vs-nested cross case additionally takes an explicit per-contract
 layout certificate `MappingBasesNotDerived` (a declared mapping base
-slot is not itself keccak-derived) — a hypothesis discharged per
-contract, not an axiom. Under that invariant the lens read equals the
+slot is not itself keccak-derived) and `MappingBasesInRange` (declared
+mapping base slots are below 2^256, as the bounded
+`solidityMappingSlot_injective` requires) — hypotheses discharged per
+contract, not axioms. Under that invariant the lens read equals the
 flat `encodeStorageAt` read at the derived slot
 (`readMap_eq_encodeStorageAt_of_coherent` and the `mapUint` / `map2`
 variants), reusing the same non-occupation hypotheses `FieldEncode`
@@ -543,31 +767,60 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
 - **Return values are deterministic stubs, not adversary models.** In-band
   words come from `externalCallStubWord`; the success bit is
   `externalCallStubSuccess` (`false` only for the reserved callee name
-  `"fail"`). Supported single-word results decode that same word; aggregate
-  and no-result stubs use their inhabited default. Executable-plane theorems
-  about call *outcomes* are therefore claims about the stub, not about a real
-  callee; adversarial reasoning lives in the model plane (`DenoteExternalCalls`).
+  `"fail"`). These are closed Lean definitions, not feature-flag, env-var, or
+  backend overrides. Supported single-word results decode that same word;
+  aggregate and no-result stubs use their inhabited default. Executable-plane
+  theorems about call *outcomes* are therefore claims about the stub, not about
+  a real callee; adversarial reasoning lives in the model plane
+  (`DenoteExternalCalls`).
+- **`ExecutableCallContext.ofAdversary` pins `target = 0` and `value = 0`.**
+  It is a convenience context, not a general linker: a nonzero target or value
+  requires `ofCallEnv` or a custom `resolve`. The generated registry predicate
+  does not depend on it: each `*_entrypoint` existentially quantifies the
+  executable resolver, so a transition produced by any `ExecutableCallContext`
+  carrying the registry adversary (including `ofCallEnv`) is a registered
+  transition. `CallbackBounded` therefore covers executable linked calls that
+  resolve a nonzero target/value, not only the zero boundary.
+- **Registry callback calldata is compiled-dispatch ABI, not the journal
+  encoder.** Generated `*_entrypoint` predicates constrain
+  `CallbackContext.calldata` with `abiEncodeDispatchArgs` /
+  `ToDispatchVal` (offset/length/packed-bytes layout matching
+  `genParamLoads`). `ExternalArg.toWords` remains the executable journal
+  encoding and is not an ABI decoder. Public `calldatasize`/`calldataload`
+  stay deterministic stubs (`0` and the offset); generated `*_registry`
+  bodies rewrite those intrinsics to `calldatasizeLive`/`calldataloadLive`,
+  which read `ContractState.calldata` installed by `withCallbackContext`.
 - **`externalCallWords` (pure expression form) does not journal.** It is not
   monadic, so `externalCall name [args]` used as a pure expression remains
   observationally silent; only the monadic forms journal. Specs that need
   call observability must use the monadic primitives.
 - **`callExternal name(args)` surface** remains an unmodeled no-op at this
   plane.
-- **Hashed mapping accessors are executable, on the `.slot` channel.**
+- **Hashed mapping accessors are executable, on a symbolic channel.**
   `getMappingN`/`setMappingN`, `getMappingWord`/`setMappingWord` and the
   generated `structMember`/`setStructMember` family read and write
-  `ContractState.storage` at the Solidity keccak slot
-  (`Compiler.Proofs.abstractMappingSlot`, folded left over the key path, plus
-  the member word offset modulo `2^256`); `transient` mapping chains use the
-  `.transient` channel. `structMembers`/`structMembers2` destructuring lowers
-  to those reads. This channel is disjoint from the constructor-keyed
-  `storageMap`/`storageMapUint`/`storageMap2` channels behind
-  `getMapping`/`getMappingUint`/`getMapping2`; a field is accessed through
-  exactly one family, fixed by its declared storage type. Distinctness of two
-  hashed slots with different keys rests on the existing
-  `solidityMappingSlot_injective` axiom; adjacent struct words are distinct
-  without it (`Contracts.structSlot_ne_succ`). The pure expression form
-  `structMembers` outside `let (..) :=` / `return` still yields `default`.
+  `StorageKey.mapChain baseSlot keyWords wordOffset`
+  (`ContractState.readMapChain`/`writeMapChain`); `transient` mapping chains
+  use `StorageKey.transientMapChain baseSlot keyWords`
+  (`readTransientMapChain`/`writeTransientMapChain`).
+  `structMembers`/`structMembers2` destructuring lowers to those reads.
+  Entries with different `(baseSlot, keyWords, wordOffset)` are independent
+  by constructor injectivity, and the channel is disjoint from the scalar
+  `.slot` channel and from the `storageMap`/`storageMapUint`/`storageMap2`
+  channels behind `getMapping`/`getMappingUint`/`getMapping2`, so executable
+  plane non-aliasing (key vs key, member vs member, mapping entry vs scalar
+  slot) uses no axiom. The Solidity keccak slot
+  (`Compiler.Proofs.mappingChainSlotLocation`: keccak folded over the key
+  path plus the word offset modulo `2^256`) is an interpretation: the
+  executable channel agrees with the flat `.slot` channel the model plane
+  reads under `Compiler.Proofs.Storage.HashedMappingLayout.HashedCoherentOn`,
+  preserved by aligned writes given a finite layout non-alias certificate
+  (a hypothesis, not `solidityMappingSlot_injective`). A field is accessed
+  through exactly one family, fixed by its declared storage type. Hops
+  namespace both hashed keys per contract (`StorageKey.scoped`), and
+  `Contract.run` rollback restores them with the rest of `storageWords`. The
+  pure expression form `structMembers` outside `let (..) :=` / `return` still
+  yields `default`.
 - **`externalCallBindTo` journals target and value and debits ETH
   on success.** It is still a stub for the callee return word
   (`externalCallStubWord`). Real callee state is the model-plane
@@ -602,7 +855,7 @@ of byte-for-byte EVM ABI layout. Trust boundaries of that plane:
 ### Reentrancy Guard (`nonreentrant(lockField)`)
 Functions annotated `nonreentrant(lockField)` are compiled with a
 **transient-storage** reentrancy guard prologue (#1893): an
-`if eq(tload(lockSlot), 1) { revert(0, 0) }; tstore(lockSlot, 1)` pair runs
+`if tload(lockSlot) { revert(0, 0) }; tstore(lockSlot, 1)` pair runs
 before any user-authored Yul. Transient storage (EIP-1153, Cancun+) auto-clears
 at end-of-transaction, so the guard does not need an explicit release path —
 early `return`, `revert`, or panic cannot leak the lock across transactions.
@@ -619,8 +872,8 @@ reentry window is closed at the model level. On the compiled side,
 prologue/release statements under the IR interpreter: locked entry reverts
 untouched, free entry acquires the lock and changes nothing else, the spliced
 release resets it (acquire/release round-trips the transient store), and the
-Yul decision `eq(lock,1)` agrees with the model's `lock ≠ 0` on reachable
-binary lock values. `Compiler.Proofs.IRGeneration.SpliceSimulation` now proves the full guarded
+Yul decision `if tload(slot)` (nonzero is true) agrees with the model's `lock ≠ 0` for every
+stored lock value, not only the binary `{0,1}` acquire/release cycle. `Compiler.Proofs.IRGeneration.SpliceSimulation` now proves the full guarded
 unit end to end for the loop/switch-free fragment with compiler-emitted
 exits: the general splice simulation (`execIRStmts_spliced`), both
 `applyLockReleaseOnExits` branches, and
@@ -687,8 +940,37 @@ global invariant `I : ContractState → Prop`.
      externally reachable state transformer an adversary can invoke during a
      reentry window. Omitting a reachable entrypoint voids the guarantee
      (analogous to declaring the lock field for `nonreentrant`). The
-     macro-emitted entrypoint registry is the intended source of this list; until
-     that emission lands, the list is author-supplied.
+     macro-emitted entrypoint registry (`entrypointRegistry` and per-function
+      `*_registry` / `*_registry_unguarded` executables generated by
+      `verity_contract`) is the source of this list on the macro path.
+      Registry-mode `linked_contracts` hops use the bound callee's `*_registry`
+      executable (and thread the current `ExecutableCallContext`) when that
+      definition takes the context, including view/static callees whose public
+      bodies do not open a reentrancy window. Public hopCall bodies keep the
+      ctx-free public definition. Generated `*_entrypoint` predicates require
+      Lean arguments to match compiled-dispatch ABI words of
+      `CallbackContext.calldata` (`abiEncodeDispatchArgs` into
+      `dispatchCalldataMatches`); `receive` is registered only for empty
+      calldata. Registry-mode executables observe that same calldata through
+      `calldatasizeLive`/`calldataloadLive`, including the selected
+      entrypoint selector at `calldataload 0` (`CallbackContext.selector` /
+      `ContractState.selector`). `dispatchCalldataMatches` accepts
+      `genScalarLoad`-normalized noncanonical Bool / uintN / address words.
+      `FixedArray` encodes as a length-free composite (tuple of members);
+      source `Tuple` encodings are flattened before `abiEncodeDispatchArgs`.
+      Helpers whose bodies (transitively) read `calldatasize`/`calldataload`
+      are routed through `*_registry` so they observe live calldata.
+      Completeness of the generated
+      list is still an author obligation: the kernel checks consumers of
+      `entrypointRegistry`, it does not independently re-enumerate compiled
+      dispatcher cases. Same-contract `selfCall` hops keep the guarded public
+      / `*_registry` path so they still observe the nonReentrant tload
+      prologue. The Lean toolchain is pinned by `lean-toolchain`;
+      `threadAdversaryThroughExecutableSyntax` consults no IO or env vars.
+      Existing `unsafe qualifiedTupleBindTypedLocals` is elaborator-only
+      typed-local inference, not a kernel skip.
+     Author-supplied lists remain only for hand-written `ReentrancySpec`
+     consumers.
   2. **Adversary-model fidelity** — reentry is modeled as an arbitrary
      `ContractState → ContractState` over *this* contract's persistent channels
      (`adv` in `reentrantCall`). This captures self- and cross-contract reentry
@@ -831,3 +1113,597 @@ chains. These do not become accepted `solidity_import` compiler versions.
 Importability is measured by the actual Lean importer; coverage percentages
 and first-blocker histograms neither establish EVM equivalence nor expand any
 compiler proof boundary. Missing or failed measurements are reported explicitly.
+
+Solidity logical `&&`/`||` imports use `Stmt.ite`, whose selected-branch
+semantics is pinned in `SolidityImport.Coverage`. They do not use the eager
+model logical operators. Differential fixtures compare skipped and executed
+guards, mapping accesses and helper calls against solc, plus conditional and
+De Morgan variants. This is tested lowering, not a Solidity semantics proof.
+
+### Imported scalar ABI entry guards
+
+Scalar `uintN`, address and bool parameters now receive entry checks against
+raw calldata words, before any source statement. Parameter cleanup alone is
+not validation. Failed guards use the fresh EIP-211 return-data buffer, which
+is empty at external-call entry; `Denote.returndata_withTransactionContext`
+pins that initialization. Imported functions record this low-level boundary
+as the explicit `solidity_scalar_abi_entry` local obligation with status
+`unchecked`: differential evidence is not a Lean proof of solc equivalence.
+The compiler's unsafe-boundary validation remains enabled. Semantic coverage
+pins the calldataload arm and the exact revertReturndata bytes arm; it does not assert
+correctness of arbitrary use of returndata after external calls.
+
+The raw-word ABI probe includes public Denote parameter binding as well as
+actual solc and Verity bytecode. This instrument currently covers complete
+scalar words; it does not establish dynamic-struct or partial-byte calldata
+validation. The existing stateful scalar runner supplies the same argument
+words as calldata when executing imported entry guards.
+
+The ABI observer also executes the same bound frame and reads its actual
+return/revert bytes, checking public `denoteFunction` status and successful
+return words against that frame. `revertReturndata` now preserves the actual
+word buffer as `revertWithData` bytes; the observer never synthesizes empty bytes for an
+unclassified Denote failure. The existing returndata representation is word-based; arbitrary partial-byte
+external returndata is outside this entry-guard instrument. The scalar probe rejects unexpected binding
+failure and therefore cannot silently reinterpret a missing semantics arm as
+an ABI rejection.
+
+Scalar guard positions use the sum of preceding model ABI head sizes, not
+source parameter ordinals or one word per model parameter. Flat structs whose
+members all have supported scalar types use the full tuple ABI, including
+unused fields. Public Denote binds their indexed fields with the same head
+layout as the compiler. Memory parameters validate all narrow fields before
+source execution; calldata parameters validate a narrow field at its read.
+This preserves which revert wins when a source `require` precedes that read.
+The A/B/C fixture exercises this distinction with noncanonical words, and the
+binder has separate kernel-checked flat/nested offset and rejection witnesses.
+These finite checks are not a general solc ABI-decoder equivalence proof.
+
+The importer currently lowers only flat scalar structs through this full ABI
+path. Nested structs, arrays, dynamic `Market` parameters and partial-byte
+calldata remain outside it. Dynamic structs use the experimental explicit-prelude boundary described
+below; historical scalar projections are no longer an import fallback. Read-time guards use the empty returndata buffer
+within the present fragment, which has no external calls; adding external calls
+requires an explicit empty-revert lowering that cannot inherit stale returndata.
+
+### Experimental explicit source ABI preludes
+
+`FunctionSpec.abiDecoding` now distinguishes the default generic decoder from
+an explicit source-compatible prelude. `params` remains the complete ABI
+signature in both modes; `bindingParams` is empty only for an explicit prelude.
+The compiler and Denote therefore execute the body's raw-calldata checks before
+any conflicting generic dynamic-tuple check. SourceSemantics uses the same
+binding policy. This is an explicit trust boundary, not a solc equivalence proof.
+
+Compilation requires a `solidity_explicit_abi` local obligation, rejects internal
+functions and automatic locks in this mode, and checks the body against an empty
+parameter scope as well as the ordinary signature scope. Body locals cannot
+silently refer to unloaded parameters or shadow declared signature parameters.
+The generic SupportedFunction profiles now require the standard ABI policy;
+explicit-prelude compiler correctness needs a separate decoder proof. Updating
+the consumers preserves the existing standard-policy theorem conclusions.
+The complete `Verity Contracts SolidityImportSmoke` library build now passes in
+this experimental checkout. That establishes elaboration compatibility, not
+correctness of the explicit decoder or completion of its validation gates.
+
+The experimental importer now uses the checked AST schema and explicit ABI
+prelude for dynamic struct roots, retaining every member in the declared ABI.
+The legacy scalar projection fallback has been removed: an unsupported schema
+fails at its original AST node. Complete memory structs, scalar arrays and flat struct arrays are
+materialized before source statements; calldata scalar members and array
+headers are checked at reads. Computed array indices and mixed static/dynamic
+struct parameter lists remain rejected until their ordering/loading is covered.
+The imported ten-function pinned Market fixture passes 340 A/B/C controls,
+including eager/lazy address checks and malformed array payloads. Scalar-array
+and two-dynamic-root fixtures pass 96 and 132 controls respectively. Their
+three, four and four equivalent variants pass strict observation comparisons;
+the corrected Market generated-name collision additionally checks that all five
+memory decoders rename the colliding temporary. Twenty runtime lowering mutants
+have successful positive controls and reproduced deletion-minimal divergences.
+The permanent axiom audit includes the bounded full-state smoke proofs, which
+use only `propext` and `Quot.sound`. These are working-tree preflight results,
+not exact-head merge receipts. They do not establish arbitrary nested types,
+partial-byte Denote inputs, whole Midnight support, general decoder correctness
+or completion of the required publication gates.
+
+The legacy function-correctness lemmas explicitly require the standard decoder
+when their statements assume automatic binding of declared parameters. Supported
+function profiles supply this fact; it is not inferred from the ABI signature.
+Structural metadata lemmas continue to retain the full signature under either
+policy, while guarded body-shape lemmas use the parameters actually loaded.
+The same standard-policy prerequisite is explicit in the generic dispatch and
+contract-correctness wrappers. Their supported-profile callers derive it from
+the function inventory. Native body-shape lemmas use the actual loaded parameter
+list; an empty declared list remains empty under either policy. Whole-library
+compilation passes, including the end-to-end native examples. The bounded smoke
+proof checks every decoder instruction and the entire resulting state, avoiding
+a single large kernel reduction. These results do not establish a general
+correctness theorem for the explicit decoder, which remains a separate proof
+obligation.
+
+Imported scalar event declarations feed both compilation and the stateful
+observer. Denote retains source-order event arguments; `SequenceRunner` performs
+ABI scalar cleanup and partitions indexed topics using the imported declarations,
+with Keccak of the canonical event signature. This observer encoding is tested,
+not a proof that Denote's legacy event representation is already EVM log bytes.
+Anonymous/dynamic event encodings and arguments with guards or effects fail
+closed. Existing backend restrictions on direct narrow parameters remain intact.
+
+### Solidity importer bounded-loop proofs
+
+The indexed invariant rule in `Compiler/SolidityImport/LoopInvariants.lean`
+is proved by induction over Denote's actual bounded-loop executor. It requires
+body preservation after index binding, initial-state validity, and an explicit
+postcondition for every early-exit outcome. Its `.forEach` corollary also
+requires successful count evaluation. Unclassified interpreter failure is
+not identified with an empty EVM revert. These kernel-checked theorems add no
+axioms, source-loop lowering, EVM correspondence, gas guarantee or assumption
+of callback correctness. Concrete smoke proofs cover storage writes and exact
+panic propagation; they do not prove Midnight's whole-contract invariants.
+
+### Stateful source ABI identity and ordinary blocks
+
+The Solidity import sequence adapter checks that canonical source calldata words
+and the four-byte selector agree with transaction metadata. It resolves selectors
+from complete model signatures, rejects ambiguous dispatch, and uses the public
+external-parameter decoder with the full transaction context. A malformed ABI
+payload produces the contract's empty revert; inconsistent harness metadata is
+a harness error. Traced status and successful return bytes are checked against
+public Denote execution; exact revert bytes, touched slots, rollback and events
+are compared through the A/B/C harness. These executable checks do not constitute
+a general proof of importer or decoder correctness.
+
+Ordinary root blocks flatten into existing ordered model statements. The importer
+restores lexical lookup maps while retaining globally fresh binding names and
+propagates unconditional returns; it still rejects unsupported nested constructs.
+This introduces no new Denote primitive or trusted axiom. Composition fixtures
+exercise dynamic ABI decoding, lexical scopes, writes and indexed events, including
+rollback and aliased ABI offsets. The block-effect deletion mutant must produce
+a reproduced deletion-minimal runtime divergence.
+
+
+### Internal root-struct reference arguments
+
+The importer distinguishes scalar helper arguments from root memory/calldata
+references. Same-declaration, same-location helper parameters reuse the source
+root descriptor (including ABI head and memory stem); they do not allocate a
+copy or synthesize a projected scalar. Helper exit restores caller bindings.
+Cross-location copies, storage references and unsupported subobjects remain
+located rejections. Existing restrictions on helper effects and single returns
+remain in force. No Denote semantics or proof axiom is added by this lowering.
+The source-EVM-first corpus checks eager/lazy validation, dirty unused members,
+independent and aliased roots, nested/library calls, storage, events and revert
+bytes. The wrong-root mutation must compile, diverge and produce a minimal
+transaction witness. These differential checks do not constitute a general
+proof of Solidity memory aliasing or a full-Midnight equivalence theorem.
+
+External library reference calls are rejected before helper inlining: their ABI/
+delegatecall boundary cannot share a caller descriptor. Memory helper parameter
+names mask caller scalar Yul bindings; raw pointer use remains unsupported.
+Mutations removing this masking, the external-call guard and the location guard
+must first admit the unsupported source, then fail the located rejection suite.
+A compiler or harness error never counts as mutation detection.
+
+
+### ABI encoding and packed Keccak buffers (experimental)
+
+The new encoding lowering consumes complete admitted schemas; it does not
+recognize IdLib names or substitute a market-member projection. A dynamic root
+is encoded with its top-level offset, tuple heads and inline array element
+words. Memory arrays of structs contain pointers on input and inline words in
+the encoded output. Calldata fields are checked when consumed; memory fields
+were checked when the root was materialized.
+
+Keccak uses the existing DenoteOracle.keccakMemorySlice boundary. The concrete
+A/B/C adapter hashes bytes reconstructed from word chunks. Packed lowering
+therefore allocates separate buffers, initializes output words to zero, and
+inserts each byte with aligned mload/mstore and shifts. It never assumes the
+word-memory model implements overlapping unaligned EVM stores. The arithmetic
+lemmas in AbiByteLanes prove that insertion into a zero byte lane preserves
+all other byte lanes, yields the selected byte, and stays within the EVM word
+bound. AbiMemory proves the complete actual copyBytes statement for local buffer
+pointers and start/index bindings, including all iterations, empty copies and
+source preservation under disjointness. It proves the complete packedBuffer
+reserve-and-clear sequence for a stable local size binding, with exact memory
+including the free-pointer write at64. Both proofs require explicit freshness,
+alignment and allocation bounds. The proof extracts the actual emitted copy
+body rather than maintaining a second lowering. The oversized nonwrapping
+reserve case also proves exact Panic(0x41) bytes. The wrapped-addition reserve case proves the same exact panic payload.
+Integration of these local obligations across the full importer remains a
+separate obligation; no solc equivalence proof is claimed.
+
+The focused differential compares exact outputs to independent eth_abi and
+eth_hash calculations as well as all three execution routes, including the
+85-byte IdLib outer preimage and prefixes spanning word boundaries. The two
+vendored hashing dependencies are exact files from Midnight96d31343, recorded
+in hashing-provenance.json. No pilot golden or pilot provenance is changed.
+These focused results are not full Midnight import coverage or release gates;
+the focused mutation, generated-equivalent and rejection campaigns have local
+receipts, but complete representation proof obligations and exact-head release
+validation remain pending for this family.
+
+Solidity `if`/`else` imports use `Stmt.ite`, whose selected-branch semantics
+is pinned in `SolidityImport.Coverage`; root returns inside a branch rely on
+`Stmt.returnValues` stopping execution in both Denote and compiled Yul.
+Helper conditionals are restructured so that exactly one branch computes the
+inlined result; locals remain immutable single-assignment bindings, so no
+branch can update state visible to the other. Differential fixtures compare
+early returns, nested and chained conditionals, branch-local guards and
+storage/mapping effects against solc, plus inverted-branch and ternary
+variants. This is tested lowering, not a Solidity semantics proof.
+
+### Numeric literals and units (development)
+
+Decimal, hexadecimal and scientific literals are parsed into exact natural
+numerator/denominator pairs; digit separators are removed and a missing whole
+part in leading-dot fractions means zero. Time/currency scaling occurs before the integral
+check, so fractional amounts such as 0.5 hours retain their exact value. No
+floating-point arithmetic is used. Nonintegral results, oversized runtime words
+and unsupported constant expressions reject with source locations. Named unsigned/bool constants resolve by declaration ID and their initializers
+use the same exact lowering. General rational constant-expression evaluation
+remains unsupported. Sums of exact natural constant operands are evaluated with
+unbounded natural arithmetic and admitted only when the result fits uint256.
+The frontend parser remains trusted; no solc-equivalence theorem is claimed.
+The focused development campaign passed 96 A/B/C transactions across three
+equivalent variants, 56 acceptance/rejection controls and 16 semantic mutants
+with positive controls and minimal witnesses. The numeric parent `b0fa7b0e2`
+subsequently passed all 12 exact-head gates.
+
+
+### Exact natural constant products (development)
+
+Constant multiplication is admitted only for `int_const` operands that lower
+to exact natural literals without preludes. Multiplication uses unbounded Lean
+naturals and rejects results outside uint256. This adds no runtime wraparound
+or floating-point approximation. Fractional operands and other rational
+operations remain unsupported. The solc frontend is still trusted; no
+Solidity-equivalence theorem is claimed. Focused validation at `bbc8fe0ad`
+passed 96 A/B/C transactions across three equivalent variants, 60
+acceptance/rejection controls (including an oversized intermediate), and a
+product mutant detected after a positive control and reduced to a replayed
+single-call deletion-minimal witness. Full exact-head gates remain pending.
+
+
+### Inline constant array reads (development)
+
+Direct unsigned fixed-array reads require each element to lower to an exact
+natural literal without a prelude and to fit the array element width. The
+index is lowered once; an out-of-bounds access panics with code 0x32 before
+value selection. This slice materializes no memory array, so the array cannot
+escape or participate in observable memory operations. Nonconstant elements,
+guarded initializers and unsupported types reject rather than choosing an
+evaluation order for their effects. Focused validation at `674cd89cd` passed
+96 A/B/C transactions across three generated variants and 67 acceptance/rejection
+controls. Element, selection and bounds mutants each passed an unmodified
+positive control, diverged and were reduced to replayed deletion-minimal
+witnesses; the bound witness retains `change(7)` followed by `fail()`, exercising
+the index-eight panic. Full exact-head release gates remain pending; this is
+not a Solidity semantics proof.
+
+
+### Unsigned modulo (development)
+
+Typed unsigned modulo lowers to the existing Denote/EVM remainder arm with
+an explicit zero-divisor arithmetic panic (0x12), preserving operand preludes
+and bindings. This differs from the raw EVM MOD zero-divisor result, which
+must not replace Solidity's panic. Narrow unsigned operands use their
+canonical values; signed and general constant-expression modulo remain
+unsupported. Quotient-identity variants transform the defined-value arithmetic
+and retain the zero-divisor probe verbatim. Expanding that probe to a quotient
+produced identical panic bytes but different actual EVM storage reads under
+solc optimization, so it is not an equivalent variant for this instrument.
+The strict touched-slot comparison remains enabled. The fixture additionally
+checks the reachable-state invariant `value <= 15` before the original
+zero-divisor probe, preserving an actual storage read across global solc
+optimization of each variant. This strengthens the fixture; the original
+zero-divisor assertion and all observation comparisons remain intact. The coverage arm has a reflexive semantics lemma;
+differential and mutation validation remains pending.
+
+Modulo quotation corruption is tested as an exact model-integrity rejection
+after a successful unmodified A/B/C control: it cannot produce an executable
+model because the importer compares the reified model with the original.
+Generic compilation failures do not count. Value and zero-guard mutations
+remain runtime differential tests requiring replayed minimal witnesses.
+
+
+### ABI array length (development, unvalidated)
+
+The candidate lowering reuses the existing schema and memory materialization.
+Calldata accesses invoke the lazy static-array header with the schema-derived
+element stride. Correct validation and revert ordering for length-only accesses
+remain to be established against pinned solc; no new verified support or
+Solidity-equivalence theorem is claimed. Both memory and calldata fixtures
+retain all existing controls and add length probes and semantic mutations.
+
+### Default scalar local initialization (development)
+
+The importer lowers Solidity default locals of supported unsigned integer,
+address, bool and bytes32 types to zero in a fresh model local. This uses the
+existing local-binding semantics and does not add an oracle or proof axiom.
+Uninitialized memory/storage references and unsupported scalar types reject
+at the declaration. Differential fixtures, explicit-initializer variants and
+a nonzero-default mutation are added; validation remains pending.
+
+### Scalar local writes (development)
+
+Assignment and deletion of materialized scalar locals use the existing
+`assignVar` semantics, preserving declaration identities and conversions.
+The RHS prelude executes before assignment; deleting assigns zero. Parameter
+expressions and aggregate/reference targets are not treated as writable locals.
+No new oracle or axiom is introduced. Focused differential validation is pending.
+
+### Invariant scalar loops (development)
+
+A Solidity loop is lowered to existing `forEach` only with a zero uint256
+counter, strict counter < bound condition and unit increment. Structural
+analysis traverses all nested steps and rejects writes to the counter or
+source local bound. Since iteration i satisfies i < bound <= 2^256-1, the
+post-body increment is representable. Supported bodies cannot modify
+parameters indirectly. Array-length hoisting, break and continue remain
+outside this rule. Native differential and proof checks are still pending.
+
+### ABI array-length loops (development)
+
+Hoisting is admitted only for a schema-resolved ABI array and a body whose
+recursive statement whitelist excludes memory writes and external calls. The
+length decoder still executes at the first condition even for zero iterations.
+This relies on preservation of the decoded header and calldata; memory-frame
+proofs and native differential validation remain pending. No new oracle or
+axiom is introduced. Future memory/call support must preserve this check.
+
+### Development helper-loop lowering
+
+The helper-loop draft shares existing bounded-loop validation and ABI memory-frame requirements. Its nonreturning body dispatcher rejects helper-loop returns instead of substituting root-return semantics. Helper results continue through the existing scalar inlining mechanism. No new oracle or trusted semantics arm is introduced. Native differential, rejection and mutation validation remains pending.
+
+### Development mapping-struct member writes
+
+This draft uses the existing pinned-solc storage layout and existing Denote/compiled `setStructMember`/`setStructMember2` semantics. Unsigned members must be present in the resolved layout; opaque members and key preludes at assignment are rejected. Alias keys are frozen at declaration to preserve storage-pointer identity. The alias issue is currently a source-audit concern awaiting runtime reproduction; tests, mutation witnesses and full release validation are pending.
+
+### Development internal helper expression effects
+
+The helper continuation delegates expression statements to the same exact assignment/delete/require lowering as root entry points. It introduces no new Denote instruction, oracle or trusted semantics arm. Helper scope restoration and scalar-result continuation remain unchanged. The draft fixture, generated variants, rejection controls and effect-drop mutation still require native and full release validation.
+
+Stateful helper calls in ordinary binary operands or call arguments are not assigned an unverified Solidity evaluation order. A declaration-based source check precisely rejects those contexts; pure/view calls retain their existing behavior. The new guards and short-circuit write fixture are not yet kernel or runtime validated. The prior tuple-return require-helper audit establishes only its own pinned fixture's observation order.
+
+
+### Development mapping fixed arrays
+
+The importer uses pinned solc's resolved layout base/length/rounded footprint and
+the existing masked mapping-struct instructions. Element i uses word
+i / floor(256/width) and bit offset (i % floor(256/width))*width. This introduces
+no new Denote semantics or oracle. Readonly memory copies materialize element
+values at declaration; descriptors are restored at helper/block/loop scope
+boundaries and reset between entry points. Unsupported memory uses and write
+operand effects reject precisely. Preliminary recorded-hash A/B/C tests passed;
+new-head focused variants, controls, mutation detections and full release gates
+remain outstanding. No whole-contract or solc-Yul equivalence proof is claimed.
+
+A separate fixed-array key/index helper audit on `2a448958` observed identical
+stamp/order, revert bytes and rollback across32transactions on the pinned
+A/B/C routes. This is fixture-scoped differential evidence, not a proof about
+all key/index expressions or other solc settings. Existing rejection controls
+and the full release gates remain required.
+
+
+### Development fixed-array assignment order
+
+The candidate lowering evaluates and captures RHS values before evaluating
+mapped fixed-array key/index preludes and before bounds checks. This relies on
+the pinned solc 0.8.34 via-IR profile; the retained A-only order fixture observed
+RHS/key/index stamp `312`, exact RHS error priority and rollback. The fixture
+is not a universal compiler-order proof. Dedicated A/B/C variants, mutation
+witnesses and full release gates are pending. Existing unsupported-expression
+and storage-layout checks remain applicable; external effects/calls are not
+admitted by this change. No Denote semantics arm is added: capture, control
+flow, panics and masked storage writes use the existing model semantics.
+
+
+### Development discarded helper expression statements
+
+Resolved internal/private scalar-result calls reuse the existing inliner and its
+scope, recursion, argument-order and reference guards. The result is materialized
+before being discarded; every prelude instruction, storage read, event and revert
+remains observable. No new Denote semantics, oracle or ECM is introduced. This
+statement rule does not model CREATE2 or replace deployment effects. Differential
+fixtures, generated variants, near-miss rejections and the registered effect-drop
+mutation remain pending native validation; no whole-contract equivalence is claimed.
+
+Helper-result continuations also reuse the exact root `emit` lowering, keeping events
+before the continuation and rollback intact. The fixture retains helper events;
+a separate event-drop runtime mutation and anonymous/dynamic event rejection
+controls are registered. Native validation remains pending.
+
+### Development encoded-byte-local descriptors
+
+The importer reuses existing ABI encoding, memory-copy and real Keccak paths.
+An initialized bytes local records a declaration-id payload pointer/length after
+evaluating its initializer once. Aliases reuse the descriptor. No new Denote
+instruction or oracle is introduced. These descriptors do not expose a Solidity
+length-header pointer, mutating byte operations, reference helper arguments or
+CREATE2; those source forms remain rejected. Branch, loop, helper and root scopes
+restore descriptor bindings together with existing reference environments.
+
+The 64-transaction uncommitted draft fixture passed A/B/C; generated variants,
+runtime mutants and located controls await final native/exact-head validation.
+This does not establish general bytes memory equivalence or deployment semantics.
+
+### Development named-helper result contexts
+
+Named scalar helper results are lowered to fresh declaration-bound local slots
+initialized before body effects. Existing scalar-write/branch/require/event
+semantics are reused. Implicit fallthrough observes the result slot; explicit
+returns terminate the helper path. Nested helper inlining restores the caller's
+result context, return declaration id, lookup maps and scalar types. Existing
+full-word single-terminal assembly keeps its direct expression lowering.
+
+Assembly result assignments must resolve their target identifier through
+`InlineAssembly.externalReferences` to the active helper return declaration id
+(`!isOffset`, `!isSlot`, no suffix, `valueSize == 1`); shadowed local targets
+with the same spelling reject. Reference-local declarations erase their name from
+the Yul identifier map for their lexical scope. Assembly result assignments with
+a continuation clean unsigned/address widths and normalize booleans before
+Solidity reads. Yul reads of narrow named results are rejected rather than
+substituting cleaned bits for raw assembly bits. No new Denote arm, axiom or Yul
+builtin is introduced; code deployment and general raw memory remain unsupported.
+Expanded type/scope/shadowing cases, runtime and guard mutants, generated
+variants, located controls, exact-head release gates and the pilot check remain
+pending.
+
+### Development numeric Yul expressions
+
+Untyped decimal and hexadecimal Yul numeric literals are parsed without rounding
+or word truncation; out-of-range values reject. Two-argument Yul `add` lowers to
+the existing wrapping word addition expression. Neither rule adds a Denote arm,
+oracle, external effect or project axiom. General assembly, raw memory and
+deployment remain unsupported. In particular, accepting literals does not make
+CREATE2 executable or make an encoded-byte descriptor a Solidity object pointer.
+
+Generated variants, two runtime mutation rules and eight located controls are
+registered in the draft. Native A/B/C validation and all exact-head release gates
+remain pending; no new semantic-equivalence or Midnight-unlock claim is made.
+
+### Development struct fixed-size array members and root fixed-size array returns
+
+Fixed-size inplace unsigned scalar array members inside mapping-backed structs
+are expanded into synthetic `StructMember` entries only for slices that touch
+the array member (`usedStructFixedArrays`), preserving existing `opaqueMembers`
+reporting and layout declarations for slices that only access scalar struct
+fields. Element reads and writes reuse the existing `structMember` /
+`structMember2` / `setStructMember` / `setStructMember2` Denote and compiler
+arms with explicit `Panic(0x32)` bounds guards; whole-struct `delete` and
+whole-array `delete` remain rejected. Unnamed root fixed-size scalar array
+returns (`T[L] memory`) lower to `L` static ABI return words (`returnValues`)
+from either an inline array literal or a local fixed-size array snapshot
+without introducing new Denote instructions or project axioms.
+
+### Development `abi.encodeWithSelector`, `.selector` byte buffers, and extended Yul builtins
+
+`lowerSelectorBytes` and `abi.encodeWithSelector` reuse the existing word-memory
+allocation and byte-lane copy primitives (`AbiEncoding.staticWords`,
+`AbiEncoding.packedBuffer`, `AbiEncoding.copyBytes`) and require a pure selector
+receiver (`type(contract ...)`, `this`, literal, or local/parameter variable) so
+storage-variable receivers cannot introduce optimizer-dependent `SLOAD` trace
+differences. `lowerYul` extends the single-assignment inline assembly subset
+with `sdiv`, `smod`, `exp`, `byte`, `signextend`, `slt`, `sgt`, `caller`,
+`address`, `timestamp`, `number`, and `chainid`, pinning `Expr.smod`,
+`Expr.byte`, and `Expr.signextend` in `Coverage.lean` by `rfl` without adding
+project axioms or `native_decide`. External contract calls, `<addr>.code`, and
+`abi.decode` remain explicitly rejected with source-located diagnostics.
+
+### Development `string` and `bytes` storage variables (`encoding == "bytes"`)
+
+Top-level `string` and `bytes` storage variables (`layout.encoding == "bytes"`,
+`numberOfBytes == 32`) reuse the existing `Expr.storageArrayElement` and
+`Stmt.setStorageArrayElement` AST constructors on scalar `FieldType.uint256`
+fields to represent computed-slot `sload`/`tload` and `sstore`/`tstore` at
+`keccak256(abi.encode(uint256(slot))) + i` without adding new `Expr` or `Stmt`
+constructors, project axioms, or `native_decide`. Both reads, writes, and
+`delete` enforce `solc`'s `Panic(0x22)` storage-encoding invariant on the base
+slot word (`(raw & 1) == ((raw & 255) / 2)` when `0 < (raw & 255) < 64`), clean
+trailing bytes of the final word on long writes, and zero out stale long-storage
+words when shrinking or transitioning from long (`>= 32` bytes) to short (`< 32`
+bytes) encoding. Storage `bytes` indexing (`b[i]`), `.push` / `.pop`, and
+storage-pointer locals remain rejected with located diagnostics.
+# Initcode execution prerequisite
+
+The bounded functional executor in `Verity/Core/Model/InitCodeExecution.lean`
+decodes actual opcode bytes and does not accept an oracle-supplied runtime code.
+Its nine-step theorem proves the pinned Midnight prefix returns its payload;
+it does not prove equivalence with the full EVM or complete deployment semantics.
+The EVM/Lean instrument tests actual runtime bytes and a semantically identical
+PUSH1-zero variant. It is not an A/B/C campaign and does not extend the import
+trust boundary. Gas, call depth, size/deposit/prefix checks, collisions, nonce
+changes and rollback are separate deployment-transition obligations. The new
+transition below addresses them as a prerequisite; its integration is still
+required before source admission. CODECOPY with zero size preserves memory
+without expansion.
+
+`DenoteCreate2` now supplies a concrete account transition using typed
+`ContractState.accountWorld` metadata. Its byte-hash parameter is instantiated
+with the actual Keccak implementation; runtime code and successful deployment
+are computed, not supplied by an adversary. The calibration derives child gas
+from actual CREATE2 opcode stack/memory/gas and validates the EIP-150 allowance,
+including prechecks without a traced child frame. It threads the model from the
+same initial ledger and compares code, nonce, balance, sampled storage, status,
+returned address and observed child gas with the real EVM. It does not yet
+compare fixture ABI revert bytes/events or a model-compiled C route. Parent
+opcode charging and the source-storage/account-storage representation bridge
+remain explicit integration obligations; no CREATE2 importer admission is made.
+
+The pinned Foundry 1.5.0 Osaka EVM permits creation at an address with nonzero
+storage and empty code/nonce, then clears its storage. EVMYulLean at
+`f7e4ee0dc8f8d5265ce822a937ab5be771f182e9` instead applies the EIP-7610
+storage-collision rule in its creation semantics. This measured fork mismatch
+prevents reusing that creation rule as an Osaka translation-validation target
+without a fork-correct refinement. The account transition follows the pinned
+real Osaka EVM and rejects only nonzero nonce/code as collisions.
+
+`BytesObjectMemory.materialize` writes a bytes object's length, payload and
+zero padding into the byte-memory layer at a supplied base address. Kernel
+lemmas prove the representation and frames for later disjoint objects. The
+base is not claimed to equal solc's allocator result: EVM/Lean calibration
+compares relative object bytes, without establishing numeric pointer equality,
+free-memory-pointer behavior, allocation overflow/panic/gas ordering, canonical
+Denote word-memory refinement or a compiled-model C route. The importer still
+rejects these unsupported pointer observations. A length word is encoded in
+256 bits; importer integration must prove the length bound before using it.
+
+
+The immutable bytes-header Yul rule exposes only the object's logical length,
+resolved by the identifier occurrence's solc declaration reference. It does not
+use an encoding payload pointer as an object pointer: the descriptor observes
+the length word justified by `BytesObjectMemory.materialize_header`. Existing
+encoding allocation and failure checks execute at the source declaration; no
+header read moves or repeats those effects. Objects remain immutable, and
+unrestricted numeric pointer observations and memory writes are rejected.
+This does not establish a source allocator identity or admit CREATE2; the
+world/account/storage/gas/compiler integration obligations remain unchanged.
+
+
+### CREATE2 parent opcode composition prerequisite
+
+`Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas
+EIP-3860 initcode words, and quadratic memory expansion. Zero-length ranges
+do not expand memory. Kernel lemmas establish the EIP-150 gas split,
+conservation and bounded child refunds. `Create2Opcode.execute` derives the
+child allowance from parent gas, reads initcode from actual byte memory,
+executes the concrete account transition and refunds unused child gas. The
+expanded memory zero-extends inactive bytes; no backing-function contents
+beyond the old active range become visible. Static/size violations abort,
+parent out-of-gas aborts, and nonaligned instrument memory is rejected.
+
+`check_deployment_world --parent-opcode` compares actual EVM opcode memory,
+parent continuation gas, child allowance and account transitions against Lean,
+including nonce-limit prechecks. It supplies neither initcode bytes nor a child
+gas allowance to the Lean opcode driver. This remains A/B calibration, not an
+imported or compiled-model C campaign. Canonical Stmt integration, complete
+frame gas tracking, source allocator/memory refinement, account/storage bridge,
+ABI/revert/event observations and all exact-head release gates remain required.
+No new Solidity construct or whole-EVM equivalence is claimed here.
+
+
+### Canonical flat-storage/account coherence
+
+Concrete account storage uses `Std.TreeMap` with kernel-checked read-after-write
+and outside-frame laws. `writePhysicalSlot`, `writePhysicalSlots` and
+`modifyPhysicalSlots` update flat persistent storage and the self account's
+finite storage together. Batch transformers read the original world, including
+when targets alias. These APIs preserve code, nonce, balance, caller metadata,
+transient keys and legacy shadow channels. Legacy `writeSlot` and bulk lenses
+retain their previous account-world frame; their regression is unchanged.
+
+Canonical Denote flat scalar, packed, mapping-word and fixed-array write helpers
+use the physical APIs. The reference `SourceSemantics` uses the same exact
+physical transitions; the statements of `DenoteAgreement` and
+`DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
+for single/batch/transformed writes and runtime-code commits to another account.
+Old shadow-mapping/channel-wide compatibility operations are not asserted to
+preserve this relation and must not be used as an exact deployment bridge.
+
+The scalar differential adapters initialize finite storage through the physical
+API. The sequence adapter verifies flat/account agreement for every touched or
+requested persistent slot after each transaction, including rollback. This
+seeds storage only: it does not fabricate creator nonce, balance or code, model
+external account effects, admit CREATE2, or establish full deployment A/B/C
+equivalence. Those account inputs, complete gas/memory integration and the
+remaining source-admission obligations still have to be implemented.

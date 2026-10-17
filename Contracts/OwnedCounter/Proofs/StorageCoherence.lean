@@ -115,6 +115,8 @@ theorem storageKeySlot_not_mappingEntry {k : Verity.StorageKey} {ch : Channel} {
   | «transient» _ => simp [isMappingEntryKey] at hmap
   | contractSlot _ _ => simp [isMappingEntryKey] at hmap
   | «scoped» _ _ => simp [isMappingEntryKey] at hmap
+  | mapChain _ _ _ => simp [isMappingEntryKey] at hmap
+  | transientMapChain _ _ => simp [isMappingEntryKey] at hmap
   | map b key =>
       obtain ⟨hkind, _, _⟩ := storageKeySlot_map_eq hk
       rw [fieldMapKindAt_eq_none] at hkind
@@ -131,6 +133,12 @@ theorem storageKeySlot_not_mappingEntry {k : Verity.StorageKey} {ch : Channel} {
 /-- **Certificate 1.** No declared mapping base slot is keccak-derived —
     vacuous here, since no base slot carries a mapping shape. -/
 theorem mappingBasesNotDerived : MappingBasesNotDerived ownedCounterFields := by
+  intro n hn
+  rw [fieldMapKindAt_eq_none] at hn
+  exact absurd hn (by simp)
+
+/-- Declared mapping base slots are in range — vacuous here as well. -/
+theorem mappingBasesInRange : MappingBasesInRange ownedCounterFields := by
   intro n hn
   rw [fieldMapKindAt_eq_none] at hn
   exact absurd hn (by simp)

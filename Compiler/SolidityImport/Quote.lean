@@ -25,20 +25,49 @@ private def optNat : Option Nat → m Term
   | some n => `(some $(quote n))
 
 partial def quoteExpr : Expr → m Term
+  | .calldatasize => `(Compiler.CompilationModel.Expr.calldatasize)
+  | .shl shift value => do `(Compiler.CompilationModel.Expr.shl $(← quoteExpr shift) $(← quoteExpr value))
+  | .shr shift value => do `(Compiler.CompilationModel.Expr.shr $(← quoteExpr shift) $(← quoteExpr value))
+  | .keccak256 offset size => do
+      `(Compiler.CompilationModel.Expr.keccak256 $(← quoteExpr offset) $(← quoteExpr size))
+  | .mload offset => do `(Compiler.CompilationModel.Expr.mload $(← quoteExpr offset))
+  | .tload offset => do `(Compiler.CompilationModel.Expr.tload $(← quoteExpr offset))
+  | .slt a b => do `(Compiler.CompilationModel.Expr.slt $(← quoteExpr a) $(← quoteExpr b))
+  | .sgt a b => do `(Compiler.CompilationModel.Expr.sgt $(← quoteExpr a) $(← quoteExpr b))
+  | .sdiv a b => do `(Compiler.CompilationModel.Expr.sdiv $(← quoteExpr a) $(← quoteExpr b))
+  | .smod a b => do `(Compiler.CompilationModel.Expr.smod $(← quoteExpr a) $(← quoteExpr b))
+  | .sar a b => do `(Compiler.CompilationModel.Expr.sar $(← quoteExpr a) $(← quoteExpr b))
+  | .byte a b => do `(Compiler.CompilationModel.Expr.byte $(← quoteExpr a) $(← quoteExpr b))
+  | .signextend a b => do `(Compiler.CompilationModel.Expr.signextend $(← quoteExpr a) $(← quoteExpr b))
+  | .calldataload offset => do `(Compiler.CompilationModel.Expr.calldataload $(← quoteExpr offset))
   | .literal n => `(Compiler.CompilationModel.Expr.literal $(quote n))
   | .localVar x => `(Compiler.CompilationModel.Expr.localVar $(quote x))
+  | .storage x => `(Compiler.CompilationModel.Expr.storage $(quote x))
   | .param x => `(Compiler.CompilationModel.Expr.param $(quote x))
   | .blockTimestamp => `(Compiler.CompilationModel.Expr.blockTimestamp)
+  | .blockNumber => `(Compiler.CompilationModel.Expr.blockNumber)
+  | .chainid => `(Compiler.CompilationModel.Expr.chainid)
+  | .caller => `(Compiler.CompilationModel.Expr.caller)
+  | .contractAddress => `(Compiler.CompilationModel.Expr.contractAddress)
+  | .selfBalance => `(Compiler.CompilationModel.Expr.selfBalance)
+  | .txOrigin => `(Compiler.CompilationModel.Expr.txOrigin)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do
       `(Compiler.CompilationModel.Expr.structMember2 $(quote f) $(← quoteExpr k1) $(← quoteExpr k2) $(quote x))
+  | .storageArrayElement f i => do
+      `(Compiler.CompilationModel.Expr.storageArrayElement $(quote f) $(← quoteExpr i))
   | .add a b => do `(Compiler.CompilationModel.Expr.add $(← quoteExpr a) $(← quoteExpr b))
   | .sub a b => do `(Compiler.CompilationModel.Expr.sub $(← quoteExpr a) $(← quoteExpr b))
   | .mul a b => do `(Compiler.CompilationModel.Expr.mul $(← quoteExpr a) $(← quoteExpr b))
   | .div a b => do `(Compiler.CompilationModel.Expr.div $(← quoteExpr a) $(← quoteExpr b))
+  | .mod a b => do `(Compiler.CompilationModel.Expr.mod $(← quoteExpr a) $(← quoteExpr b))
   | .bitAnd a b => do `(Compiler.CompilationModel.Expr.bitAnd $(← quoteExpr a) $(← quoteExpr b))
+  | .bitOr a b => do `(Compiler.CompilationModel.Expr.bitOr $(← quoteExpr a) $(← quoteExpr b))
   | .bitXor a b => do `(Compiler.CompilationModel.Expr.bitXor $(← quoteExpr a) $(← quoteExpr b))
+  | .bitNot a => do `(Compiler.CompilationModel.Expr.bitNot $(← quoteExpr a))
+  | .externalCall name [base, exponent] => do
+      `(Compiler.CompilationModel.Expr.externalCall $(quote name) [$(← quoteExpr base), $(← quoteExpr exponent)])
   | .eq a b => do `(Compiler.CompilationModel.Expr.eq $(← quoteExpr a) $(← quoteExpr b))
   | .lt a b => do `(Compiler.CompilationModel.Expr.lt $(← quoteExpr a) $(← quoteExpr b))
   | .gt a b => do `(Compiler.CompilationModel.Expr.gt $(← quoteExpr a) $(← quoteExpr b))
@@ -52,14 +81,40 @@ private def quotePanic : Verity.Core.PanicCode → m Term
   | .divisionByZero => `(Verity.Core.PanicCode.divisionByZero)
 
 partial def quoteStmt : Stmt → m Term
+  | .mstore offset value => do
+      `(Compiler.CompilationModel.Stmt.mstore $(← quoteExpr offset) $(← quoteExpr value))
+  | .tstore offset value => do
+      `(Compiler.CompilationModel.Stmt.tstore $(← quoteExpr offset) $(← quoteExpr value))
+  | .panicCode code => do `(Compiler.CompilationModel.Stmt.panicCode $(← quoteExpr code))
+  | .forEach name count body => do
+      `(Compiler.CompilationModel.Stmt.forEach $(quote name) $(← quoteExpr count)
+        $(← list (← body.mapM quoteStmt)))
   | .letVar x v => do `(Compiler.CompilationModel.Stmt.letVar $(quote x) $(← quoteExpr v))
+  | .setStorage x v => do `(Compiler.CompilationModel.Stmt.setStorage $(quote x) $(← quoteExpr v))
+  | .setStorageArrayElement f i v => do
+      `(Compiler.CompilationModel.Stmt.setStorageArrayElement $(quote f) $(← quoteExpr i) $(← quoteExpr v))
+  | .setStructMember f k x v => do
+      `(Compiler.CompilationModel.Stmt.setStructMember $(quote f) $(← quoteExpr k) $(quote x) $(← quoteExpr v))
+  | .setStructMember2 f k1 k2 x v => do
+      `(Compiler.CompilationModel.Stmt.setStructMember2 $(quote f) $(← quoteExpr k1) $(← quoteExpr k2) $(quote x) $(← quoteExpr v))
   | .assignVar x v => do `(Compiler.CompilationModel.Stmt.assignVar $(quote x) $(← quoteExpr v))
   | .ite c t e => do
       `(Compiler.CompilationModel.Stmt.ite $(← quoteExpr c)
         $(← list (← t.mapM quoteStmt)) $(← list (← e.mapM quoteStmt)))
   | .panic code => do `(Compiler.CompilationModel.Stmt.panic $(← quotePanic code))
+  | .require condition message => do
+      `(Compiler.CompilationModel.Stmt.require $(← quoteExpr condition) $(quote message))
+  | .requireError condition name args => do
+      `(Compiler.CompilationModel.Stmt.requireError $(← quoteExpr condition) $(quote name)
+        $(← list (← args.mapM quoteExpr)))
+  | .revertReturndata => `(Compiler.CompilationModel.Stmt.revertReturndata)
+  | .stop => `(Compiler.CompilationModel.Stmt.stop)
+  | .emit name args => do
+      `(Compiler.CompilationModel.Stmt.emit $(quote name) $(← list (← args.mapM quoteExpr)))
   | .returnValues vs => do
       `(Compiler.CompilationModel.Stmt.returnValues $(← list (← vs.mapM quoteExpr)))
+  | .returnBytes name =>
+      `(Compiler.CompilationModel.Stmt.returnBytes $(quote name))
   | _ => throwError "internal: the importer cannot quote this statement"
 
 private def quoteKey : MappingKeyType → m Term
@@ -80,36 +135,70 @@ private def quoteMember (s : StructMember) : m Term := do
       Compiler.CompilationModel.StructMember))
 
 def quoteField (f : Field) : m Term := do
-  unless !f.isTransient && f.packedBits.isNone && f.aliasSlots.isEmpty do
+  unless !f.isTransient && f.aliasSlots.isEmpty do
     throwError "internal: field {f.name} has settings the importer does not emit"
+  let packed ← match f.packedBits with
+    | none => `(none)
+    | some p => `(some ({ offset := $(quote p.offset), width := $(quote p.width) } : Compiler.CompilationModel.PackedBits))
   let ty ← match f.ty with
+    | .uint256 => `(Compiler.CompilationModel.FieldType.uint256)
     | .mappingStruct k ms => do
         `(Compiler.CompilationModel.FieldType.mappingStruct $(← quoteKey k) $(← list (← ms.mapM quoteMember)))
     | .mappingStruct2 k1 k2 ms => do
         `(Compiler.CompilationModel.FieldType.mappingStruct2 $(← quoteKey k1) $(← quoteKey k2)
           $(← list (← ms.mapM quoteMember)))
     | t => throwError "internal: the importer cannot quote {repr t}"
-  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot) } : Compiler.CompilationModel.Field))
+  `(({ name := $(quote f.name), ty := $ty, slot := $(← optNat f.slot), packedBits := $packed } : Compiler.CompilationModel.Field))
 
-def quoteParamType : ParamType → m Term
+partial def quoteParamType : ParamType → m Term
   | .uint256 => `(Compiler.CompilationModel.ParamType.uint256)
+  | .int256 => `(Compiler.CompilationModel.ParamType.int256)
   | .address => `(Compiler.CompilationModel.ParamType.address)
   | .bytes32 => `(Compiler.CompilationModel.ParamType.bytes32)
+  | .bytes => `(Compiler.CompilationModel.ParamType.bytes)
+  | .string => `(Compiler.CompilationModel.ParamType.string)
   | .bool => `(Compiler.CompilationModel.ParamType.bool)
   | .uintN n => `(Compiler.CompilationModel.ParamType.uintN $(quote n))
+  | .bytesN n => `(Compiler.CompilationModel.ParamType.bytesN $(quote n))
+  | .array elem => do
+      `(Compiler.CompilationModel.ParamType.array $(← quoteParamType elem))
+  | .tuple types => do
+      `(Compiler.CompilationModel.ParamType.tuple $(← list (← types.mapM quoteParamType)))
   | t => throwError "internal: the importer cannot quote {repr t}"
 
 /-- Quote a function built by the importer. Only the fields it sets are
 emitted; `quoteModel` callers check the round trip against the value. -/
 def quoteFunction (f : FunctionSpec) : m Term := do
+  let abiDecoding ← match f.abiDecoding with
+    | .standard => `(Compiler.CompilationModel.ExternalAbiDecoding.standard)
+    | .explicitPrelude => `(Compiler.CompilationModel.ExternalAbiDecoding.explicitPrelude)
   let params ← f.params.mapM fun p => do
     `(({ name := $(quote p.name), ty := $(← quoteParamType p.ty) } : Compiler.CompilationModel.Param))
-  `(({ name := $(quote f.name), params := $(← list params), returnType := none,
+  let obligations ← f.localObligations.mapM fun obligation => do
+    let status ← match obligation.proofStatus with
+      | .proved => `(Compiler.ProofStatus.proved)
+      | .assumed => `(Compiler.ProofStatus.assumed)
+      | .unchecked => `(Compiler.ProofStatus.unchecked)
+    `(({ name := $(quote obligation.name), obligation := $(quote obligation.obligation),
+         proofStatus := $status } : Compiler.CompilationModel.LocalObligation))
+  `(({ name := $(quote f.name), params := $(← list params), abiDecoding := $abiDecoding, returnType := none,
        returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
-       body := $(← list (← f.body.mapM quoteStmt)) } : Compiler.CompilationModel.FunctionSpec))
+       body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
+  let events ← model.events.mapM fun event => do
+    let params ← event.params.mapM fun parameter => do
+      let kind ← match parameter.kind with
+        | .indexed => `(Compiler.CompilationModel.EventParamKind.indexed)
+        | .unindexed => `(Compiler.CompilationModel.EventParamKind.unindexed)
+      `(({ name := $(quote parameter.name), ty := $(← quoteParamType parameter.ty),
+           kind := $kind } : Compiler.CompilationModel.EventParam))
+    `(({ name := $(quote event.name), params := $(← list params) } : Compiler.CompilationModel.EventDef))
+  let errors ← model.errors.mapM fun error => do
+    `(({ name := $(quote error.name), params := $(← list (← error.params.mapM quoteParamType)) } :
+       Compiler.CompilationModel.ErrorDef))
   `(({ name := $(quote model.name), constructor := none,
+       errors := $(← list errors), events := $(← list events),
        fields := $(← list (← model.fields.mapM quoteField)),
        functions := $(← list (← model.functions.mapM quoteFunction)) } :
       Compiler.CompilationModel.CompilationModel))
