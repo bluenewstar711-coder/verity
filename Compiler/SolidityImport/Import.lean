@@ -425,6 +425,9 @@ private structure Env where
   yulMemoryStructs : RBMap String Nat compare := RBMap.empty
   yulScratch0 : Bool := false
   yulScratch32 : Bool := false
+  /-- AST id of the one typed-interface staticcall the current statement may
+      lower: its whole initializer, right-hand side or expression statement. -/
+  admittedInterfaceCall : Option Nat := none
   currentFile : String
 
 private def Env.init : Env where
@@ -3562,6 +3565,70 @@ private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word 
     | none => none
   else
     none
+
+/-- The closed typed-interface `staticcall` transport emitted by the importer. -/
+private def isClosedStaticCall (mod : Compiler.ECM.ExternalCallModule) : Bool :=
+  match mod.byteTransport with
+  | some (.staticUint256 resultVar selector numStaticArgs) =>
+      mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs
+  | none => false
+
+/-- Replace each closed interface staticcall by its zero-initialised result
+binding, so the CEI checker sees every other interaction barrier unchanged. -/
+private partial def eraseClosedStaticCalls : Stmt → Stmt
+  | .ecm mod args =>
+      if isClosedStaticCall mod then .letVar (mod.resultVars.headD "") (.literal 0) else .ecm mod args
+  | .ite cond yes no => .ite cond (yes.map eraseClosedStaticCalls) (no.map eraseClosedStaticCalls)
+  | .forEach name count body => .forEach name count (body.map eraseClosedStaticCalls)
+  | .forEachSetBit name bitmap body => .forEachSetBit name bitmap (body.map eraseClosedStaticCalls)
+  | .unsafeBlock reason body => .unsafeBlock reason (body.map eraseClosedStaticCalls)
+  | .matchAdt adt scrutinee branches =>
+      .matchAdt adt scrutinee (branches.map fun (tag, names, body) =>
+        (tag, names, body.map eraseClosedStaticCalls))
+  | statement => statement
+
+/-- A body whose only CEI interaction barriers are closed interface staticcalls.
+STATICCALL executes the callee, and anything it calls, in a static context that
+reverts on any state change, so a later write cannot follow a reentrant write. -/
+private def onlyStaticCallCEIBarriers (body : List Stmt) : Bool :=
+  (Compiler.CompilationModel.stmtListCEIViolation body false).isSome &&
+    (Compiler.CompilationModel.stmtListCEIViolation (body.map eraseClosedStaticCalls) false).isNone
+
+/-- Run one statement lowering with `node` as its only admissible typed-interface
+staticcall. Restoring the previous admission keeps inlined helper statements
+from widening the enclosing statement's admission. -/
+private def withAdmittedInterfaceCall (node? : Option Json) (k : M α) : M α := do
+  let saved := (← get).admittedInterfaceCall
+  let admitted := node?.bind fun node =>
+    if optStr node "nodeType" == some "FunctionCall" then
+      (field? node "id").bind (·.getNat?.toOption)
+    else none
+  modify fun e => { e with admittedInterfaceCall := admitted }
+  try
+    let result ← k
+    modify fun e => { e with admittedInterfaceCall := saved }
+    return result
+  catch error =>
+    modify fun e => { e with admittedInterfaceCall := saved }
+    throw error
+
+/-- A function call whose callee is a member of an interface-typed receiver and
+resolves to a declaration of an interface. Library and qualified base calls are
+not interface members; other contract-typed receivers keep the generic
+external-call rejection. -/
+private def isInterfaceExternalCall (j : Json) : M Bool := do
+  unless optStr j "nodeType" == some "FunctionCall" && optStr j "kind" == some "functionCall" do
+    return false
+  let some callee := field? j "expression" | return false
+  unless optStr callee "nodeType" == some "MemberAccess" do return false
+  let some base := field? callee "expression" | return false
+  unless (← mType base).startsWith "contract " do return false
+  let id ← refInt callee
+  unless id ≥ 0 do return false
+  let env ← get
+  match env.funContractId.find? id.toNat with
+  | some cid => return env.contractKinds.find? cid == some "interface"
+  | none => return false
 
 set_option maxHeartbeats 1600000 in
 mutual
@@ -7170,6 +7237,57 @@ private partial def resolveCallTargetAndArgs (j : Json) : M (Nat × Array CallAr
   let vals ← lowerCallArgs j receiver?
   pure (fnId, vals)
 
+/-- `I(a).f()` for a parameterless `view` interface function returning one
+`uint256`. solc 0.8.34 (via-IR) emits `staticcall(gas(), a, p, 4, p, 32)` at the
+free pointer, forwards a failed call's complete return data as the revert
+payload, reverts with no data on fewer than 32 return bytes, decodes the first
+word and ignores extra bytes. With return data expected, the code-existence
+check is omitted, so an account without code takes the short-return revert. The
+closed `SolidityStaticCall.uint256Module` transport has exactly this meaning in
+Denote and in compiled Yul. Placement is restricted to whole statement values so
+the call's position among other effects and reverts is the source order. -/
+private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
+  let callee ← mField j "expression"
+  let id ← refInt callee
+  let env ← get
+  let some decl := env.funs.find? id.toNat
+    | failAt callee "unresolved interface function declaration"
+  unless optStr decl "stateMutability" == some "view" do
+    failAt callee "typed interface calls to non-view functions are outside this slice"
+  let params ← mArr (← mField (← mField decl "parameters") "parameters")
+  let args ← mArr (← mField j "arguments")
+  unless params.isEmpty && args.isEmpty do
+    failAt j "typed interface staticcall arguments are outside this slice"
+  let rets ← mArr (← mField (← mField decl "returnParameters") "parameters")
+  let returnTypes ← rets.mapM mType
+  unless returnTypes == #["uint256"] do
+    failAt callee "typed interface staticcall must return exactly one uint256"
+  unless (← mType callee) == "function () view external returns (uint256)" do
+    failAt callee s!"unexpected typed interface call type {← mType callee}"
+  let some hex := optStr decl "functionSelector"
+    | failAt callee "interface function has no functionSelector"
+  unless hex.length == 8 do
+    failAt callee s!"invalid functionSelector hex length {hex.length}"
+  let mut selector := 0
+  for c in hex.toList do
+    let some digit := Compiler.Hex.hexCharToNat? c
+      | failAt callee "invalid functionSelector hex digit"
+    selector := selector * 16 + digit
+  let base ← mField callee "expression"
+  let convArgs ← if (← mKind base) == "FunctionCall" && optStr base "kind" == some "typeConversion" then
+    mArr (← mField base "arguments") else pure #[]
+  let convTypes ← convArgs.mapM mType
+  unless convTypes == #["address"] do
+    failAt base "typed interface call receiver must be an explicit interface conversion of an address"
+  unless (← get).admittedInterfaceCall == some (← mNat (← mField j "id")) do
+    failAt j "typed interface staticcall must be a whole variable initializer, assignment right-hand side or expression statement"
+  modify fun e => { e with admittedInterfaceCall := none }
+  let target ← atom (← lowerExpr convArgs[0]!)
+  let result ← fresh
+  pure { pre := target.pre.push
+           (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector 0) [target.expr]),
+         expr := .localVar result }
+
 private partial def lowerCall (j : Json) : M Val := do
   let names ← mArr (← mField j "names")
   unless names.isEmpty do failAt j "named call arguments are outside this slice"
@@ -7264,6 +7382,8 @@ private partial def lowerCall (j : Json) : M Val := do
               failAt j s!"{mname} requires one argument"
             let arg := args[0]!
             return ← convert uTy (← mType arg) (← lowerExpr arg) arg
+    if ← isInterfaceExternalCall j then
+      return ← lowerInterfaceStaticCall j
     if ← isAbiDecodeCall j then
       let (decodePre, decoded) ← lowerAbiDecodeItems j
       unless decoded.size == 1 do
@@ -10919,7 +11039,20 @@ private partial def writeWholeStorageStruct (pre : Array Stmt) (path : SPath) (d
     out := out.push (writeMember mName stored)
   return out
 
+/-- An expression statement may admit its own typed-interface call, or the
+right-hand side of a plain `=` to an unindexed identifier. Indexed targets are
+excluded: their key evaluation order relative to the call is not admitted. -/
 private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
+  let admitted := (field? statement "expression").bind fun expression =>
+    if optStr expression "nodeType" == some "Assignment" then
+      if optStr expression "operator" == some "=" &&
+          ((field? expression "leftHandSide").bind (optStr · "nodeType")) == some "Identifier" then
+        field? expression "rightHandSide"
+      else none
+    else some expression
+  withAdmittedInterfaceCall admitted (lowerEffectCore statement)
+
+private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
   let assignedHere := bodyAssignedIds statement
   if !assignedHere.isEmpty then
     modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedHere.contains ·) }
@@ -10935,6 +11068,8 @@ private partial def lowerEffect (statement : Json) : M (Array Stmt) := do
       return ← lowerBuiltinRevert statement
     if (← mKind callee) == "FunctionCallOptions" then
       failAt callee "external contract calls are outside this slice"
+    if ← isInterfaceExternalCall expression then
+      return (← lowerInterfaceStaticCall expression).pre
     if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
       let base ← mField callee "expression"
       let baseTy ← mType base
@@ -12303,7 +12438,15 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
     modify fun e => { e with usedErrors := e.usedErrors ++ [definition] }
   return (pre, name, values)
 
+/-- A single-variable declaration may admit its whole initializer as a
+typed-interface call; tuple declarations admit none. -/
 private partial def lowerLocal (s : Json) : M (Array Stmt) := do
+  let single := match field? s "declarations" with
+    | some (.arr declarations) => declarations.size == 1
+    | _ => false
+  withAdmittedInterfaceCall (if single then field? s "initialValue" else none) (lowerLocalCore s)
+
+private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
   let assignedHere := bodyAssignedIds s
   if !assignedHere.isEmpty then
     modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedHere.contains ·) }
@@ -14563,10 +14706,15 @@ private def importSlice
       { name := functionName, params := modelParams.toList, returnType := none,
         returns := returns.toList, isView, body := body.toList,
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
-        localObligations := if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
+        allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList,
+        localObligations := (if abiGuards.isEmpty && !env.rootMsgDataReturn && (collectUnguardedUnsafeBoundaryMechanicsFromStmts body.toList).isEmpty then [] else [{
           name := if env.explicitAbi then "solidity_explicit_abi" else "solidity_scalar_abi_entry"
           obligation := "Raw source scalar and memory-struct words are validated before source execution; calldata-struct fields are validated at their reads. Failed guards use an explicit zero-byte revert independently of the current EIP-211 returndata buffer. The solc-to-model boundary is checked differentially, not proved."
-          proofStatus := .unchecked }] }
+          proofStatus := .unchecked }]) ++
+          (if onlyStaticCallCEIBarriers body.toList then [{
+            name := "solidity_static_call_cei"
+            obligation := "State writes follow only closed typed-interface STATICCALLs, which cannot change any state, so the CEI opt-out admits no reentrant write window. Removing those calls leaves a CEI-clean body; this is checked by the importer, not proved."
+            proofStatus := .unchecked }] else []) }
     for proj in env.projections do
       let ignored :=
         match env.mems.toList.find? (fun pair => pair.2.param == proj.parameter) with

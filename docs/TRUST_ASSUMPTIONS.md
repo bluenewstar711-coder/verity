@@ -1717,3 +1717,44 @@ rollback. The source/IR status observations erase payloads; their equations do
 not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
 broader proof consumers still require migration and full exact-head validation
 before release; the unchanged golden and boundary tests are not that gate.
+
+### Imported typed-interface `uint256` staticcall
+
+`solidity_import` now admits exactly one external-call form: `I(a).f()` where
+`f` is a parameterless `view` function declared in an interface returning one
+`uint256`, `a` has type `address`, and the call is a whole single-variable
+initializer, the right-hand side of `=` to an identifier, or an expression
+statement. Every other external call, call option, receiver form or placement
+still fails closed with a located diagnostic. The call lowers to the closed
+`SolidityStaticCall.uint256Module` transport with solc's `functionSelector`; its
+Denote arm (pinned by `execStmt_ecm_staticUint256_arm` and admitted by the
+`staticUint256Covered` coverage predicate) runs the byte request against the
+explicit adversary and reports instrumentation failures as a payload-free
+`.revert`, never as a Solidity revert observation.
+
+Trust boundary changes:
+- The callee is arbitrary: no interface behavior is assumed (`axioms := []`).
+  Denote is parameterised by the adversary; validation uses explicit mocks
+  (`checked-static-oracle-v1`, whose bytes, status and accesses are compared with
+  real EVM by `check_checked_static_oracle_mock.py`) and one account without
+  code. The mocks do not establish behavior of any deployed oracle.
+- Gas is not modelled. Solidity forwards `gas()` (all but 1/64); Denote passes
+  the instrument's explicit allowance. Callee out-of-gas, call-depth and
+  memory-expansion failures are outside the validated domain.
+- solc 0.8.34's omission of the code-existence check for calls with return data
+  is relied on: an account without code is a successful empty response, hence a
+  zero-byte revert. This is checked differentially, not proved.
+- Evaluation order is only admitted where it is source order by construction
+  (whole statement values); helper composition such as `q(a) + q(b)` relies on
+  left-to-right inlining, which matches via-IR and is exercised by the fixture's
+  failing/overflowing oracle pairs in both orders.
+- Verity's CEI checker counts every ECM as an interaction barrier. Imported
+  functions whose only barriers are these closed staticcalls (erasing them leaves
+  a CEI-clean body) carry `allowPostInteractionWrites` and the unchecked local
+  obligation `solidity_static_call_cei`: STATICCALL cannot change state, so no
+  reentrant write window opens. Such functions consequently do not qualify for
+  `CEIProofBackedExecution`. The cross-function reentrancy gate already exempts
+  staticcall-summarised ECMs and is unchanged.
+- The transport's compilation `proofStatus` remains `.assumed`; agreement of the
+  compiled model with solc and Denote is differential evidence
+  (`InterfaceStaticCallSequence`, three equivalent variants), not a proof.

@@ -193,6 +193,7 @@ def quoteFunction (f : FunctionSpec) : m Term := do
          proofStatus := $status } : Compiler.CompilationModel.LocalObligation))
   `(({ name := $(quote f.name), params := $(← list params), abiDecoding := $abiDecoding, returnType := none,
        returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
+       allowPostInteractionWrites := $(quote f.allowPostInteractionWrites),
        body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
 
 def quoteModel (model : CompilationModel) : m Term := do
