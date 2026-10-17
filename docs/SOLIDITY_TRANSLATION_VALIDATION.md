@@ -450,12 +450,94 @@ unchanged. This experiment uses an isolated worktree/private cache at
 `6e275b4d3d4aef7be0f115365f2d1f629da162f8`; its normal prerequisite build and
 new checker are recorded separately in `memoryguard-environment.json`.
 
-The next proof obligation is to compose this explicit extended node with the
-actual remaining prologue and derive the three argument bindings from ABI
-calldata, preserving the shared-state frame. A complete compiler-independent
+The ABI branch slice below derives the three argument bindings from actual
+calldata bytes. The next whole-entry obligation is to compose the explicit
+extended node and actual remaining prologue with that branch, preserving the
+shared-state frame. A complete compiler-independent
 certificate additionally needs a justified semantics link to solc's treatment
 of the builtin; the C++ source inspection alone does not supply that theorem.
 The native failure-payload obstruction below is independent and remains.
+
+## Captured dispatcher and ABI branch at `71cde077`
+
+The next bounded slice uses isolated worktree
+`verity-translation-dispatcher` at
+`71cde07744bea1c264dc678b8ec3e23d964894ce`, with a private APFS clone of the
+frozen memoryguard worktree's cache and a successful normal prerequisite build.
+No additional unsupported native primitive was found in this dispatcher.
+
+[`DispatcherDecoder.lean`](../experiments/solidity-translation-validation/DispatcherDecoder.lean)
+is a separate fail-closed decoder adding the actual prefix's native
+`calldataload`, `calldatasize`, `callvalue`, `lt`, `slt`, `shr`, `add`, `not` and
+block forms. The older arithmetic decoder and all its rejection expectations
+remain unchanged. The runtime decoder retains the initial memoryguard extension
+constructor and validates every remaining native statement. It rejects unknown
+fields, unsupported operations and incorrect arities.
+[`generate_dispatcher_bridge.py`](../experiments/solidity-translation-validation/generate_dispatcher_bridge.py)
+quotes the actual pinned JSON nodes, not a hand-authored dispatcher. Eleven
+kernel-checked decoder equations in
+[`DispatcherNodes.lean`](../experiments/solidity-translation-validation/DispatcherNodes.lean)
+bind the complete runtime **inner block**, its guards, loads and actual function
+branch. The enclosing object/code wrapper is not certified as an entry point.
+
+[`DispatcherExecution.lean`](../experiments/solidity-translation-validation/DispatcherExecution.lean)
+proves the native three-word loads and their continuation; actual byte-level ABI
+word decoding; successful value and signed-length guards; exact calldata size;
+and selector equality derived from the actual ABI selector bytes. For these
+lemmas, exactly three argument words give 100 calldata bytes. This slice does
+not yet generalize to valid calldata containing trailing bytes.
+
+The strongest composed statement is `abi_branch_bytes_match_imported`:
+
+```lean
+nativeReturnBytes (Yul.exec 105 capturedFunctionBody code
+  (.Ok (initialState contract tx storage slots).sharedState store)) =
+  (captured.mulDivDown oracle world x y d).map
+    (fun word => (UInt256.ofNat word.val).toByteArray)
+```
+
+It executes the actual ten-statement function branch: both value/length guards,
+three ABI loads, product declaration, both panic guards, output store and return.
+Its premises are canonical `x,y,d`, `tx.args = [x.val,y.val,d.val]`, zero call
+value, fitting product, nonzero denominator, and the explicit local output
+pointer `_1 = 128`. It derives all three load results from calldata bytes and
+threads their bindings into the original exact-return/imported-model theorem.
+It does not assume a guard result or replace the imported model.
+
+**Remaining composition boundary:** this theorem starts the selected function
+branch in the bridged initial shared state with an arbitrary local store. The
+separate successful selector/calldata-gate lemmas are not yet composed with that
+branch, and the actual memoryguard plus `mstore(64,_1)` prologue has not yet been
+threaded into it. In particular, the latter changes memory; its shared-state
+frame must be established when generalizing the entry theorem beyond the
+initial shared state. The pointer premise is therefore still explicit. This
+is not a full dispatcher or all-input function equivalence certificate. The
+memoryguard source-to-extension and native failure-payload boundaries remain.
+
+`check_dispatcher_execution.py` defaults to rerunning every existing checker,
+then audits 11 new decoder receipts and nine execution receipts, checks 12
+precise wrong-arity/unsupported-operation rejections, and tests eight opcode
+mutants plus an incorrect returned-word mutant. The first full campaign passed
+all positive and rejection checks and the first five opcode mutants, but hit
+the unchanged 120-second timeout on `SHR` under heavy host load. The optimized
+checker reuses the baseline's imported quotations in a fresh decoder namespace,
+retains all eleven equations for every mutant, and first requires an unmutated
+control to satisfy those same equations.
+
+A later sequential `nice -n 15` run with `--dispatcher-only` passed its
+return-observation and decoder prerequisites but timed out rebuilding the
+baseline quotations. A focused cached run then **passed all eleven positive
+control equations**, but its first opcode mutant (`CALLDATALOAD`) timed out.
+An experiment bounding diagnostic pretty-print steps subsequently timed out on
+the control and was reverted. These timeouts are inconclusive; none counts as a
+semantic mutation detection. The original limit remains 120 seconds. `SHR`,
+`ADD`, `NOT`, and the returned-byte mutant still need completed validation;
+**the complete campaign is not green**. Further heavy runs were stopped while
+higher-priority importer campaigns remained active. The optional focused mode
+explicitly omits inherited campaigns; the default still requires them all.
+Pinned Solidity/solc/Yul/AST, older quoted nodes, models and golden files are
+unchanged. Focused command receipts and source hashes are in
+`dispatcher-environment.json`.
 
 ## Blocking issue: the native result loses revert bytes
 
