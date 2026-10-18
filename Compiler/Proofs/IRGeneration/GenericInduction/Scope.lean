@@ -204,126 +204,57 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.forEach varName (.literal n) [] :: rest)
 
+/-- The reserved two-operand `exp` builtin lane is the only `externalCall` shape
+inside the contract surface; every other callee name makes `hsurface` vacuous.
+
+The remaining vacuous cases of the main theorem below are: unspecialized fork
+conditionals (the compile driver must specialize them before they reach the
+generic proof surface), the codegen-only `mulDiv512Down/Up` (verity#1761) and
+`paramDynamicHeadWord` (verity#1832), and every other `externalCall` arity. -/
+private theorem exprCompileCore_externalCall_pair_of_surface_eq_false
+    {name : String} {base exponent : Expr}
+    (hbase : exprTouchesUnsupportedContractSurface base = false →
+      FunctionBody.ExprCompileCore base)
+    (hexponent : exprTouchesUnsupportedContractSurface exponent = false →
+      FunctionBody.ExprCompileCore exponent)
+    (hsurface :
+      exprTouchesUnsupportedContractSurface (.externalCall name [base, exponent]) = false) :
+    FunctionBody.ExprCompileCore (.externalCall name [base, exponent]) := by
+  by_cases hname : name = builtinExpName
+  · subst hname
+    simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
+      Bool.or_eq_false_iff] at hsurface
+    exact .builtinExp (hbase hsurface.1) (hexponent hsurface.2)
+  · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
+
 theorem exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
     {expr : Expr}
     (hsurface : exprTouchesUnsupportedContractSurface expr = false) :
     FunctionBody.ExprCompileCore expr := by
   match expr, hsurface with
-  | .literal _, _ => exact .literal _
-  | .param _, _ => exact .param _
-  | .constructorArg idx, _ => exact .constructorArg idx
-  | .localVar _, _ => exact .localVar _
-  | .immutable _, hsurface => simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | .caller, _ => exact .caller
-  | .contractAddress, _ => exact .contractAddress
-  | .txOrigin, _ => exact .txOrigin
-  | .msgValue, _ => exact .msgValue
-  | .blockTimestamp, _ => exact .blockTimestamp
-  | .blockNumber, _ => exact .blockNumber
-  | .chainid, _ => exact .chainid
-  | .blobbasefee, _ => exact .blobbasefee
-  | .calldatasize, _ => exact .calldatasize
-  | .returndataSize, _ => exact .returndataSize
-  | .add a b, hsurface | .sub a b, hsurface | .mul a b, hsurface
-  | .div a b, hsurface | .mod a b, hsurface
-  | .bitAnd a b, hsurface | .bitOr a b, hsurface | .bitXor a b, hsurface
-  | .eq a b, hsurface | .ge a b, hsurface | .gt a b, hsurface
-  | .lt a b, hsurface | .le a b, hsurface
-  | .logicalAnd a b, hsurface | .logicalOr a b, hsurface
-  | .shl a b, hsurface | .shr a b, hsurface | .slt a b, hsurface | .sgt a b, hsurface
-  | .sdiv a b, hsurface | .smod a b, hsurface | .sar a b, hsurface
-  | .byte a b, hsurface | .signextend a b, hsurface | .min a b, hsurface | .max a b, hsurface
-  | .ceilDiv a b, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      constructor
-      · exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1
-      · exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2
-  | .wMulDown a b, hsurface | .wDivUp a b, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      constructor
-      · exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1
-      · exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2
-  | .logicalNot a, hsurface | .bitNot a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      constructor
-      exact exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface
-  | .tload a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      exact .tload
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
-  | .calldataload a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      exact .calldataload
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
-  | .mload a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      exact .mload
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
-  | .extcodesize a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      exact .extcodesize
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
-  | .returndataOptionalBoolAt a, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      exact .returndataOptionalBoolAt
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface)
-  | .keccak256 offset size, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      exact .keccak256
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
-  | .ite cond thenVal elseVal, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      exact .ite
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.1)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.2)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
-  | .mulDivDown a b c, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      exact .mulDivDown
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.1)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.2)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
-  | .mulDivUp a b c, hsurface =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      exact .mulDivUp
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.1)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.2)
-        (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
-  | .forkIfAtLeast _ _ _, hsurface =>
-      -- Unspecialized fork conditionals are rejected by source semantics and
-      -- expression compilation. They must be specialized by the compile driver
-      -- before reaching the generic proof surface.
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | .mulDiv512Down _ _ _, hsurface | .mulDiv512Up _ _ _, hsurface =>
-      -- `mulDiv512Down/Up` is unsupported by the contract surface (verity#1761
-      -- codegen-only; no `ExprCompileCore` constructor), so this branch is
-      -- vacuous.
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | .paramDynamicHeadWord _ _, hsurface =>
-      -- Same vacuous handling for `paramDynamicHeadWord` (verity#1832
-      -- codegen-only).
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | .externalCall name args, hsurface =>
-      -- Only the reserved two-operand `exp` builtin lane is inside the contract
-      -- surface; every other `externalCall` shape makes `hsurface` vacuous.
-      cases args with
-      | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
-      | cons base tl =>
-        cases tl with
-        | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
-        | cons exponent tl' =>
-          cases tl' with
-          | cons _ _ => simp [exprTouchesUnsupportedContractSurface] at hsurface
-          | nil =>
-            by_cases hname : name = builtinExpName
-            · subst hname
-              simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
-                Bool.or_eq_false_iff] at hsurface
-              exact .builtinExp
-                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1)
-                (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.2)
-            · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
+  | .literal _, _ | .param _, _ | .constructorArg _, _ | .localVar _, _ | .caller, _
+  | .contractAddress, _ | .txOrigin, _ | .msgValue, _ | .blockTimestamp, _
+  | .blockNumber, _ | .chainid, _ | .blobbasefee, _ | .calldatasize, _
+  | .returndataSize, _ => constructor
+  | .immutable _, h | .forkIfAtLeast _ _ _, h | .mulDiv512Down _ _ _, h
+  | .mulDiv512Up _ _ _, h | .paramDynamicHeadWord _ _, h | .externalCall _ [], h
+  | .externalCall _ [_], h | .externalCall _ (_ :: _ :: _ :: _), h =>
+      simp [exprTouchesUnsupportedContractSurface] at h
+  | .add _ _, h | .sub _ _, h | .mul _ _, h | .div _ _, h | .mod _ _, h | .bitAnd _ _, h
+  | .bitOr _ _, h | .bitXor _ _, h | .eq _ _, h | .ge _ _, h | .gt _ _, h | .lt _ _, h
+  | .le _ _, h | .logicalAnd _ _, h | .logicalOr _ _, h | .shl _ _, h | .shr _ _, h
+  | .slt _ _, h | .sgt _ _, h | .sdiv _ _, h | .smod _ _, h | .sar _ _, h | .byte _ _, h
+  | .signextend _ _, h | .min _ _, h | .max _ _, h | .ceilDiv _ _, h | .wMulDown _ _, h
+  | .wDivUp _ _, h | .keccak256 _ _, h | .logicalNot _, h | .bitNot _, h | .tload _, h
+  | .calldataload _, h | .mload _, h | .extcodesize _, h | .returndataOptionalBoolAt _, h
+  | .ite _ _ _, h | .mulDivDown _ _ _, h | .mulDivUp _ _ _, h =>
+      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at h
+      constructor <;> apply exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false <;>
+        first | exact h | exact h.1 | exact h.2 | exact h.1.1 | exact h.1.2
+  | .externalCall _ [_, _], h =>
+      exact exprCompileCore_externalCall_pair_of_surface_eq_false
+        (fun h => exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false h)
+        (fun h => exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false h) h
 
 private theorem fieldName_mem_fields_of_findFieldWithResolvedSlot_some
     {fields : List Field}
@@ -451,6 +382,147 @@ private theorem compileStmt_ite_ok_inv
               Except.ok elseIR = Except.ok elseIR from
             ⟨condIR, thenIR, elseIR, rfl, rfl, rfl⟩)
 
+/-- Scope-core induction hypothesis for every statement list smaller than `bound`. -/
+private abbrev ScopeCoreIH (fields : List Field) (bound : Nat) : Prop :=
+  ∀ (scope : List String) (stmts : List Stmt) (bodyIR : List YulStmt),
+    sizeOf stmts < bound →
+    stmtListTouchesUnsupportedContractSurface stmts = false →
+    CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts =
+      Except.ok bodyIR →
+    StmtListScopeCore (fields.map (·.name)) stmts
+
+private theorem stmtListTouchesUnsupportedContractSurface_cons_eq_false
+    {stmt : Stmt} {rest : List Stmt}
+    (hsurface : stmtListTouchesUnsupportedContractSurface (stmt :: rest) = false) :
+    stmtTouchesUnsupportedContractSurface stmt = false ∧
+      stmtListTouchesUnsupportedContractSurface rest = false := by
+  simpa only [stmtListTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] using hsurface
+
+private theorem fieldName_mem_fields_of_compileStmt_setStorage_ok
+    {fields : List Field} {scope : List String} {fieldName : String} {value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt
+        fields [] [] .calldata [] false scope [] (.setStorage fieldName value) =
+          Except.ok compiledIR) :
+    fieldName ∈ fields.map (·.name) := by
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+  exact fieldName_mem_fields_of_compileSetStorage_ok hcompile
+
+private theorem fieldName_mem_fields_of_compileStmt_setStorageAddr_ok
+    {fields : List Field} {scope : List String} {fieldName : String} {value : Expr}
+    {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt
+        fields [] [] .calldata [] false scope [] (.setStorageAddr fieldName value) =
+          Except.ok compiledIR) :
+    fieldName ∈ fields.map (·.name) := by
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hcompile
+  exact fieldName_mem_fields_of_compileSetStorage_ok hcompile
+
+private theorem fieldName_mem_fields_of_compileStmt_setStorageWord_ok
+    {fields : List Field} {scope : List String} {fieldName : String} {wordOffset : Nat}
+    {value : Expr} {compiledIR : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.setStorageWord fieldName wordOffset value) = Except.ok compiledIR) :
+    fieldName ∈ fields.map (·.name) := by
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    bind, Except.bind] at hcompile
+  rcases hfind : findFieldWithResolvedSlot fields fieldName with _ | ⟨f, slot⟩
+  · simp [hfind] at hcompile
+  · exact fieldName_mem_fields_of_findFieldWithResolvedSlot_some hfind
+
+private theorem stmtListScopeCore_cons_ite
+    {fields : List Field} {scope : List String} {cond : Expr}
+    {thenBranch elseBranch rest : List Stmt} {headIR : List YulStmt}
+    (ih : ScopeCoreIH fields (sizeOf (Stmt.ite cond thenBranch elseBranch)))
+    (hhead :
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.ite cond thenBranch elseBranch) = Except.ok headIR)
+    (hsurface : stmtTouchesUnsupportedContractSurface (.ite cond thenBranch elseBranch) = false)
+    (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
+    StmtListScopeCore (fields.map (·.name)) (.ite cond thenBranch elseBranch :: rest) := by
+  simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+  rcases compileStmt_ite_ok_inv hhead with ⟨_, thenIR, elseIR, _, hthen, helse⟩
+  exact .ite (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hsurface.1.1)
+    (ih scope thenBranch thenIR (by simp only [Stmt.ite.sizeOf_spec]; omega) hsurface.1.2 hthen)
+    (ih scope elseBranch elseIR (by simp only [Stmt.ite.sizeOf_spec]; omega) hsurface.2 helse)
+    hrest
+
+private theorem stmtListScopeCore_cons_forEach_zero
+    {fields : List Field} {scope : List String} {varName : String}
+    {body rest : List Stmt} {headIR : List YulStmt}
+    (ih : ScopeCoreIH fields (sizeOf (Stmt.forEach varName (.literal 0) body)))
+    (hhead :
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.forEach varName (.literal 0) body) = Except.ok headIR)
+    (hsurface : stmtTouchesUnsupportedContractSurface (.forEach varName (.literal 0) body) = false)
+    (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
+    StmtListScopeCore (fields.map (·.name)) (.forEach varName (.literal 0) body :: rest) := by
+  have hbodySurface : stmtListTouchesUnsupportedContractSurface body = false := by
+    cases body with
+    | nil => simp [stmtListTouchesUnsupportedContractSurface]
+    | cons stmt rest =>
+        simp only [stmtTouchesUnsupportedContractSurface,
+          stmtListTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+        exact Bool.or_eq_false_iff.mpr hsurface
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    bind, Except.bind] at hhead
+  cases hbody : CompilationModel.compileStmtList fields [] [] .calldata [] false
+      (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
+  | error e =>
+      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+        CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
+  | ok loopBodyIR =>
+      exact .forEachLiteralZero (ih _ body loopBodyIR
+        (by simp only [Stmt.forEach.sizeOf_spec]; omega) hbodySurface hbody) hrest
+
+private theorem stmtListScopeCore_cons_forEach
+    {fields : List Field} {scope : List String} {varName : String} {count : Expr}
+    {body rest : List Stmt} {headIR : List YulStmt}
+    (ih : ScopeCoreIH fields (sizeOf (Stmt.forEach varName count body)))
+    (hhead :
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.forEach varName count body) = Except.ok headIR)
+    (hsurface : stmtTouchesUnsupportedContractSurface (.forEach varName count body) = false)
+    (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
+    StmtListScopeCore (fields.map (·.name)) (.forEach varName count body :: rest) := by
+  cases count with
+  | literal n =>
+      cases n with
+      | zero => exact stmtListScopeCore_cons_forEach_zero ih hhead hsurface hrest
+      | succ n =>
+          cases body with
+          | nil => exact .forEachLiteralEmpty hrest
+          | cons _ _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+  | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+
+/-- One statement of a surface-free, successfully compiled list extends the
+scope-core witness of its tail; nested bodies are discharged by `ih`. -/
+private theorem stmtListScopeCore_cons_of_compileStmt_ok
+    {fields : List Field} {scope : List String} {stmt : Stmt} {rest : List Stmt}
+    {headIR : List YulStmt}
+    (ih : ScopeCoreIH fields (sizeOf stmt))
+    (hhead :
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt =
+        Except.ok headIR)
+    (hsurface : stmtTouchesUnsupportedContractSurface stmt = false)
+    (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
+    StmtListScopeCore (fields.map (·.name)) (stmt :: rest) := by
+  have core := @exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
+  cases stmt
+  case ite => exact stmtListScopeCore_cons_ite ih hhead hsurface hrest
+  case forEach => exact stmtListScopeCore_cons_forEach ih hhead hsurface hrest
+  all_goals simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff,
+    Bool.true_eq_false] at hsurface
+  all_goals constructor <;> first
+    | exact hrest | exact core hsurface | exact core hsurface.1 | exact core hsurface.2
+    | exact core hsurface.1.1 | exact core hsurface.1.2
+    | exact fieldName_mem_fields_of_compileStmt_setStorage_ok hhead
+    | exact fieldName_mem_fields_of_compileStmt_setStorageAddr_ok hhead
+    | exact fieldName_mem_fields_of_compileStmt_setStorageWord_ok hhead
+
 private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
     (fields : List Field)
     (scope : List String)
@@ -466,137 +538,12 @@ private theorem stmtListScopeCore_of_unsupportedContractSurface_eq_false
   | stmt :: rest =>
       rcases FunctionBody.compileStmtList_cons_ok_inv hcompile with
         ⟨headIR, tailIR, hhead, htail, rfl⟩
-      have hstmtSurface :
-          stmtTouchesUnsupportedContractSurface stmt = false := by
-        simpa [stmtListTouchesUnsupportedContractSurface] using
-          (Bool.or_eq_false_iff.mp hsurface).1
-      have hrestSurface :
-          stmtListTouchesUnsupportedContractSurface rest = false := by
-        simpa [stmtListTouchesUnsupportedContractSurface] using
-          (Bool.or_eq_false_iff.mp hsurface).2
-      have ihRest := stmtListScopeCore_of_unsupportedContractSurface_eq_false
-        fields _ rest _ hrestSurface htail
-      cases stmt with
-      | letVar _ value =>
-          exact .letVar (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | assignVar _ value =>
-          exact .assignVar (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | setStorage fieldName value =>
-          exact .setStorage
-            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
-                exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | setStorageAddr fieldName value =>
-          exact .setStorageAddr
-            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
-                exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | setImmutable name value =>
-          exact .setImmutable
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | setStorageWord fieldName wordOffset value =>
-          exact .setStorageWord
-            (by
-              simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-                bind, Except.bind] at hhead
-              rcases hfind : findFieldWithResolvedSlot fields fieldName with _ | ⟨f, slot⟩
-              · simp [hfind] at hhead
-              · exact fieldName_mem_fields_of_findFieldWithResolvedSlot_some hfind)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | require cond message =>
-          exact .require (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | «return» value =>
-          exact .return_ (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface)) ihRest
-      | stop => exact .stop ihRest
-      | mstore offset value =>
-          have hor := Bool.or_eq_false_iff.mp hstmtSurface
-          exact .mstore (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hor.1))
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2)) ihRest
-      | tstore offset value =>
-          have hor := Bool.or_eq_false_iff.mp hstmtSurface
-          exact .tstore (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-            (by simpa [stmtTouchesUnsupportedContractSurface] using hor.1))
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2)) ihRest
-      | calldatacopy destOffset sourceOffset size =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          exact .calldatacopy
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
-            ihRest
-      | returndataCopy destOffset sourceOffset size =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          exact .returndataCopy
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
-            ihRest
-      | revertEmpty =>
-          exact .revertEmpty ihRest
-      | revertReturndata =>
-          exact .revertReturndata ihRest
-      | ite cond thenBranch elseBranch =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          rcases compileStmt_ite_ok_inv hhead with
-            ⟨_, thenIR, elseIR, _, hthenCompile, helseCompile⟩
-          exact .ite (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              hstmtSurface.1.1)
-            (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-              fields scope thenBranch thenIR hstmtSurface.1.2 hthenCompile)
-            (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-              fields scope elseBranch elseIR hstmtSurface.2 helseCompile) ihRest
-      | forEach varName count body =>
-          cases count with
-          | literal n =>
-              cases n with
-              | zero =>
-                  have hbodySurface :
-                      stmtListTouchesUnsupportedContractSurface body = false := by
-                    cases body with
-                    | nil =>
-                        simp [stmtListTouchesUnsupportedContractSurface]
-                    | cons stmt rest =>
-                        simp only [stmtTouchesUnsupportedContractSurface,
-                          stmtListTouchesUnsupportedContractSurface,
-                          Bool.or_eq_false_iff] at hstmtSurface
-                        exact Bool.or_eq_false_iff.mpr hstmtSurface
-                  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-                    bind, Except.bind] at hhead
-                  cases hbody :
-                      CompilationModel.compileStmtList fields [] [] .calldata [] false
-                        (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e =>
-                      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
-                        CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
-                  | ok loopBodyIR =>
-                      exact .forEachLiteralZero
-                        (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-                          fields (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body)
-                            body loopBodyIR hbodySurface hbody)
-                        ihRest
-              | succ n =>
-                  cases body with
-                  | nil =>
-                      exact .forEachLiteralEmpty ihRest
-                  | cons _ _ =>
-                      simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
-          | _ =>
-              simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
-      | _ => simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
+      have hs := stmtListTouchesUnsupportedContractSurface_cons_eq_false hsurface
+      exact stmtListScopeCore_cons_of_compileStmt_ok
+        (fun sc ss ir _ hss hc =>
+          stmtListScopeCore_of_unsupportedContractSurface_eq_false fields sc ss ir hss hc)
+        hhead hs.1
+        (stmtListScopeCore_of_unsupportedContractSurface_eq_false fields _ rest _ hs.2 htail)
 termination_by sizeOf stmts
 
 theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface
@@ -616,163 +563,10 @@ theorem stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsuppo
   | cons stmt rest ih =>
       rcases FunctionBody.compileStmtList_cons_ok_inv hcompile with
         ⟨headIR, tailIR, hhead, htail, rfl⟩
-      have hstmtSurface :
-          stmtTouchesUnsupportedContractSurface stmt = false := by
-        simpa [stmtListTouchesUnsupportedContractSurface] using
-          (Bool.or_eq_false_iff.mp hsurface).1
-      have hrestSurface :
-          stmtListTouchesUnsupportedContractSurface (rest ++ «suffix») = false := by
-        simpa [stmtListTouchesUnsupportedContractSurface] using
-          (Bool.or_eq_false_iff.mp hsurface).2
-      cases stmt with
-      | letVar name value =>
-          exact StmtListScopeCore.letVar
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | assignVar name value =>
-          exact StmtListScopeCore.assignVar
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | setStorage fieldName value =>
-          exact StmtListScopeCore.setStorage
-            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
-                exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | setStorageAddr fieldName value =>
-          exact StmtListScopeCore.setStorageAddr
-            (by simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] at hhead
-                exact fieldName_mem_fields_of_compileSetStorage_ok hhead)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | setImmutable name value =>
-          exact StmtListScopeCore.setImmutable
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | setStorageWord fieldName wordOffset value =>
-          exact StmtListScopeCore.setStorageWord
-            (by
-              simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-                bind, Except.bind] at hhead
-              rcases hfind : findFieldWithResolvedSlot fields fieldName with _ | ⟨f, slot⟩
-              · simp [hfind] at hhead
-              · exact fieldName_mem_fields_of_findFieldWithResolvedSlot_some hfind)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | require cond message =>
-          exact StmtListScopeCore.require
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | «return» value =>
-          exact StmtListScopeCore.return_
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hstmtSurface))
-            (ih hrestSurface htail)
-      | stop => exact StmtListScopeCore.stop (ih hrestSurface htail)
-      | mstore offset value =>
-          have hor := Bool.or_eq_false_iff.mp hstmtSurface
-          exact StmtListScopeCore.mstore
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.1))
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2))
-            (ih hrestSurface htail)
-      | tstore offset value =>
-          have hor := Bool.or_eq_false_iff.mp hstmtSurface
-          exact StmtListScopeCore.tstore
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.1))
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              (by simpa [stmtTouchesUnsupportedContractSurface] using hor.2))
-            (ih hrestSurface htail)
-      | calldatacopy destOffset sourceOffset size =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          exact StmtListScopeCore.calldatacopy
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
-            (ih hrestSurface htail)
-      | returndataCopy destOffset sourceOffset size =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          exact StmtListScopeCore.returndataCopy
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.1)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.1.2)
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false hstmtSurface.2)
-            (ih hrestSurface htail)
-      | revertEmpty =>
-          exact StmtListScopeCore.revertEmpty (ih hrestSurface htail)
-      | revertReturndata =>
-          exact StmtListScopeCore.revertReturndata (ih hrestSurface htail)
-      | ite cond thenBranch elseBranch =>
-          simp only [stmtTouchesUnsupportedContractSurface,
-            Bool.or_eq_false_iff] at hstmtSurface
-          rcases compileStmt_ite_ok_inv hhead with
-            ⟨_, thenIR, elseIR, _, hthenCompile, helseCompile⟩
-          exact StmtListScopeCore.ite
-            (exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false
-              hstmtSurface.1.1)
-            (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-              fields scope thenBranch thenIR hstmtSurface.1.2 hthenCompile)
-            (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-              fields scope elseBranch elseIR hstmtSurface.2 helseCompile)
-            (ih hrestSurface htail)
-      | forEach varName count body =>
-          cases count with
-          | literal n =>
-              cases n with
-              | zero =>
-                  have hbodySurface :
-                      stmtListTouchesUnsupportedContractSurface body = false := by
-                    cases body with
-                    | nil =>
-                        simp [stmtListTouchesUnsupportedContractSurface]
-                    | cons stmt rest =>
-                        simp only [stmtTouchesUnsupportedContractSurface,
-                          stmtListTouchesUnsupportedContractSurface,
-                          Bool.or_eq_false_iff] at hstmtSurface
-                        exact Bool.or_eq_false_iff.mpr hstmtSurface
-                  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-                    bind, Except.bind] at hhead
-                  cases hbody :
-                      CompilationModel.compileStmtList fields [] [] .calldata [] false
-                        (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
-                  | error e =>
-                      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
-                        CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
-                  | ok loopBodyIR =>
-                      exact StmtListScopeCore.forEachLiteralZero
-                        (stmtListScopeCore_of_unsupportedContractSurface_eq_false
-                          fields (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body)
-                            body loopBodyIR hbodySurface hbody)
-                        (ih hrestSurface htail)
-              | succ n =>
-                  cases body with
-                  | nil =>
-                      exact StmtListScopeCore.forEachLiteralEmpty (ih hrestSurface htail)
-                  | cons _ _ =>
-                      simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
-          | _ =>
-              simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
-      | setMapping _ _ _ | setMappingWord _ _ _ _ | setMappingPackedWord _ _ _ _ _
-      | setMapping2 _ _ _ _ | setMapping2Word _ _ _ _ _ | setMappingUint _ _ _
-      | setMappingChain _ _ _ | forEachSetBit _ _ _
-      | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
-      | storageArrayPush _ _ | storageArrayPop _ | setStorageArrayElement _ _ _
-      | requireError _ _ _ | revertError _ _ | panicCode _ | panic _ | returnValues _ | returnArray _
-      | returnBytes _ | returnStorageWords _ | returnCodeData _
-      | emit _ _ | internalCall _ _ | internalCallAssign _ _ _
-      | rawLog _ _ _ | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _
-      | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
-          simp [stmtTouchesUnsupportedContractSurface] at hstmtSurface
+      have hs := stmtListTouchesUnsupportedContractSurface_cons_eq_false hsurface
+      exact stmtListScopeCore_cons_of_compileStmt_ok
+        (fun sc ss ir _ => stmtListScopeCore_of_unsupportedContractSurface_eq_false fields sc ss ir)
+        hhead hs.1 (ih hs.2 htail)
 
 theorem stmtTouchesUnsupportedContractSurface_of_stmtListTouchesUnsupportedContractSurface_append_cons
     {«prefix» «suffix» : List Stmt}
@@ -984,6 +778,49 @@ private theorem exprBoundNamesInScope_constructorArg {idx : Nat}
   subst name
   exact hconstructorArgsInScope idx count hcount hidx
 
+private theorem exprBoundNamesInScope_of_nil {expr : Expr}
+    (hnames : FunctionBody.exprBoundNames expr = [] := by simp [FunctionBody.exprBoundNames]) :
+    FunctionBody.exprBoundNamesInScope expr scope :=
+  fun _ hmem => by simp [hnames] at hmem
+
+private theorem exprBoundNamesInScope_builtinExp_of_validate {base exponent : Expr}
+    (ihL : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount base = Except.ok () →
+      FunctionBody.exprBoundNamesInScope base scope)
+    (ihR : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount exponent = Except.ok () →
+      FunctionBody.exprBoundNamesInScope exponent scope)
+    (hvalidate : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount
+        (.externalCall builtinExpName [base, exponent]) = Except.ok ()) :
+    FunctionBody.exprBoundNamesInScope (.externalCall builtinExpName [base, exponent]) scope := by
+  simp only [validateScopedExprIdentifiers, validateScopedExprIdentifiersList] at hvalidate
+  have h := except_bind_ok_inv hvalidate
+  exact exprBoundNamesInScope_of_append (ihL h.1) (ihR (except_bind_ok_inv h.2).1)
+    (by simp [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames])
+
+private theorem exprBoundNamesInScope_ite_of_validate {cond thenVal elseVal : Expr}
+    (ihA : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount cond = Except.ok () →
+      FunctionBody.exprBoundNamesInScope cond scope)
+    (ihB : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount thenVal = Except.ok () →
+      FunctionBody.exprBoundNamesInScope thenVal scope)
+    (ihC : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount elseVal = Except.ok () →
+      FunctionBody.exprBoundNamesInScope elseVal scope)
+    (hvalidate : validateScopedExprIdentifiers context params paramScope dynamicParams
+      immutableNames localScope constructorArgCount (.ite cond thenVal elseVal) = Except.ok ()) :
+    FunctionBody.exprBoundNamesInScope (.ite cond thenVal elseVal) scope := by
+  simp only [validateScopedExprIdentifiers] at hvalidate
+  split at hvalidate
+  · cases hvalidate
+  · exact exprBoundNamesInScope_of_triple_ok (except_bind_ok_inv hvalidate).2 ihA ihB ihC
+      (by simp [FunctionBody.exprBoundNames])
+
+/-- Validated core expressions only mention in-scope names. Leaves and the
+identifier/builtin/conditional cases have dedicated lemmas; every remaining
+operator validates and binds exactly its one to three operands. -/
 private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core {expr : Expr}
     (hcore : FunctionBody.ExprCompileCore expr)
     (hvalidate : validateScopedExprIdentifiers context params paramScope dynamicParams
@@ -994,46 +831,23 @@ private theorem exprBoundNamesInScope_of_validateScopedExprIdentifiers_core {exp
     FunctionBody.exprBoundNamesInScope expr scope := by
   induction hcore with
   | literal | caller | contractAddress | txOrigin | msgValue | blockTimestamp | blockNumber
-  | chainid | blobbasefee | calldatasize | returndataSize =>
-      exact fun _ hmem => by simp [FunctionBody.exprBoundNames] at hmem
+  | chainid | blobbasefee | calldatasize | returndataSize => exact exprBoundNamesInScope_of_nil
   | param => exact exprBoundNamesInScope_param hvalidate hparamsInScope
   | localVar => exact exprBoundNamesInScope_localVar hvalidate hlocalsInScope
   | constructorArg => exact exprBoundNamesInScope_constructorArg hvalidate hconstructorArgsInScope
-  | add _ _ ihL ihR | sub _ _ ihL ihR | mul _ _ ihL ihR | div _ _ ihL ihR | mod _ _ ihL ihR
-  | eq _ _ ihL ihR | lt _ _ ihL ihR | gt _ _ ihL ihR | ge _ _ ihL ihR | le _ _ ihL ihR
-  | bitAnd _ _ ihL ihR | bitOr _ _ ihL ihR | bitXor _ _ ihL ihR | keccak256 _ _ ihL ihR
-  | slt _ _ ihL ihR | sgt _ _ ihL ihR | sdiv _ _ ihL ihR | smod _ _ ihL ihR | sar _ _ ihL ihR
-  | byte _ _ ihL ihR | signextend _ _ ihL ihR | shl _ _ ihL ihR | shr _ _ ihL ihR
-  | wMulDown _ _ ihL ihR =>
-      exact exprBoundNamesInScope_of_pair_ok (by simpa only [validateScopedExprIdentifiers]
-        using hvalidate) ihL ihR (by simp [FunctionBody.exprBoundNames])
-  | min _ _ ihL ihR | max _ _ ihL ihR | ceilDiv _ _ ihL ihR | wDivUp _ _ ihL ihR
-  | logicalAnd _ _ ihL ihR | logicalOr _ _ ihL ihR =>
+  | builtinExp _ _ a b => exact exprBoundNamesInScope_builtinExp_of_validate a b hvalidate
+  | ite _ _ _ a b c => exact exprBoundNamesInScope_ite_of_validate a b c hvalidate
+  | _ =>
       simp only [validateScopedExprIdentifiers] at hvalidate
-      exact exprBoundNamesInScope_of_pair_ok (except_bind_ok_inv hvalidate).2 ihL ihR
-        (by simp [FunctionBody.exprBoundNames])
-  | builtinExp _ _ ihL ihR =>
-      simp only [validateScopedExprIdentifiers, validateScopedExprIdentifiersList] at hvalidate
-      have h := except_bind_ok_inv hvalidate
-      exact exprBoundNamesInScope_of_append (ihL h.1) (ihR (except_bind_ok_inv h.2).1)
-        (by simp [FunctionBody.exprBoundNames, FunctionBody.exprListBoundNames])
-  | logicalNot _ ih | bitNot _ ih | tload _ ih | calldataload _ ih | mload _ ih
-  | extcodesize _ ih | returndataOptionalBoolAt _ ih =>
-      exact exprBoundNamesInScope_of_exprBoundNames_eq (ih (by simpa only
-        [validateScopedExprIdentifiers] using hvalidate)) (by simp [FunctionBody.exprBoundNames])
-  | mulDivDown _ _ _ ihA ihB ihC =>
-      exact exprBoundNamesInScope_of_triple_ok (by simpa only [validateScopedExprIdentifiers]
-        using hvalidate) ihA ihB ihC (by simp [FunctionBody.exprBoundNames])
-  | mulDivUp _ _ _ ihA ihB ihC =>
-      simp only [validateScopedExprIdentifiers] at hvalidate
-      exact exprBoundNamesInScope_of_triple_ok (except_bind_ok_inv hvalidate).2 ihA ihB ihC
-        (by simp [FunctionBody.exprBoundNames])
-  | ite _ _ _ ihA ihB ihC =>
-      simp only [validateScopedExprIdentifiers] at hvalidate
-      split at hvalidate
-      · cases hvalidate
-      · exact exprBoundNamesInScope_of_triple_ok (except_bind_ok_inv hvalidate).2 ihA ihB ihC
-          (by simp [FunctionBody.exprBoundNames])
+      first
+        | rename_i a b c
+          refine exprBoundNamesInScope_of_triple_ok ?_ a b c (by simp [FunctionBody.exprBoundNames])
+        | rename_i a b
+          refine exprBoundNamesInScope_of_pair_ok ?_ a b (by simp [FunctionBody.exprBoundNames])
+        | rename_i a
+          exact exprBoundNamesInScope_of_exprBoundNames_eq (a hvalidate)
+            (by simp [FunctionBody.exprBoundNames])
+      all_goals first | exact hvalidate | exact (except_bind_ok_inv hvalidate).2
 
 /-- A successful `Except` bind ending in `pure` pins the returned value. -/
 private theorem except_bind_pure_ok_inv {ε α : Type} {m : Except ε Unit} {a b : α}

@@ -10,6 +10,64 @@ open Compiler
 open Compiler.CompilationModel
 open Compiler.Yul
 
+/-- A one-statement lowering whose source↔IR bridge is stated at `irFuel + 3`
+discharges the helper-aware step interface: the singleton's size forces
+`1 ≤ extraFuel`, so the bridge is instantiated at `extraFuel - 1`. -/
+private theorem compiledStmtStepWithHelpersAndHelperIR_singleton
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {stmt : Stmt} {irStmt : YulStmt}
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false
+      scope [] stmt = Except.ok [irStmt])
+    (bridge :
+      ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel irFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        stmtStepMatchesIRExecWithInternals fields (stmtNextScope scope stmt)
+          (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime stmt)
+          (execIRStmtsWithInternals runtimeContract (irFuel + 3) state [irStmt])) :
+    CompiledStmtStepWithHelpersAndHelperIR runtimeContract spec fields scope stmt [irStmt] where
+  compileOk := hcompile
+  preserves runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack := by
+    have hfuel : [irStmt].length + extraFuel + 1 = (extraFuel - 1) + 3 := by
+      simp at hslack ⊢
+      omega
+    rw [hfuel]
+    exact ⟨_, _, rfl, rfl,
+      bridge runtime state helperFuel _ hfuelPos hexact hscope hbounded hruntime⟩
+
+private theorem compiledIR_eq_of_compileStmt_internalCallAssign
+    {spec : CompilationModel} {fields : List Field} {scope names : List String}
+    {calleeName : String} {args : List Expr} {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false
+      scope [] (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
+    (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs) :
+    compiledIR = [YulStmt.letMany names
+      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] := by
+  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompileEmpty
+  cases hargCompile.symm.trans hargOk
+  exact hshape
+
+private theorem compiledIR_eq_of_compileStmt_internalCall
+    {spec : CompilationModel} {fields : List Field} {scope : List String}
+    {calleeName : String} {args : List Expr} {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false
+      scope [] (Stmt.internalCall calleeName args) = Except.ok compiledIR)
+    (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs) :
+    compiledIR = [YulStmt.exprStmt
+      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] := by
+  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCall calleeName args) = Except.ok compiledIR := by
+    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
+  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompileEmpty
+  cases hargCompile.symm.trans hargOk
+  exact hshape
+
 /-- Constructor for the helper-aware single-step interface when the head
 statement is `Stmt.internalCallAssign`. The proof is parameterised by a single
 source-to-IR alignment bridge that the rank-decreasing callee induction will
@@ -22,23 +80,16 @@ instantiate it at the right fuel level derived from `extraFuel`.
 
 The `compileOk` obligation is passed through from the compilation hypothesis. -/
 theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {names : List String} {calleeName : String} {args : List Expr}
-    {compiledIR : List YulStmt}
-    {argExprs : List YulExpr}
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr}
     (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
     (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
     -- End-to-end source↔IR alignment bridge.
     (bridge :
-      ∀ (runtime : SourceSemantics.RuntimeState)
-        (state : IRState)
-        (helperFuel : Nat)
-        (irFuel : Nat),
-        0 < helperFuel →
+      ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel : Nat)
+        (irFuel : Nat), 0 < helperFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -50,59 +101,22 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCallAssign
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
             [YulStmt.letMany names (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
-    CompiledStmtStepWithHelpersAndHelperIR
-      runtimeContract spec fields scope
-      (Stmt.internalCallAssign names calleeName args)
-      compiledIR := by
-  refine {
-    compileOk := by
-      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
-    preserves := ?_ }
-  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-      (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR := by
-    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
-  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCallAssign_shape hcompileEmpty
-  have hArgEq : argExprs' = argExprs := by
-    simp [hargCompile] at hargOk
-    exact hargOk.symm
-  subst hArgEq
-  set singletonIR :=
-    [YulStmt.letMany names
-      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs')]
-  have hshape' : compiledIR = singletonIR := by
-    simpa [singletonIR] using hshape
-  have hlenOne : singletonIR.length = 1 := by simp [singletonIR]
-  have hExtraPos : 1 ≤ extraFuel := by
-    have hsz : sizeOf singletonIR ≥ 2 := by simp [singletonIR]
-    rw [hshape'] at hslack; rw [hlenOne] at hslack; omega
-  set irFuel := extraFuel - 1 with hirFuel
-  have hMatch := bridge runtime state helperFuel irFuel hfuelPos hexact hscope hbounded hruntime
-  have hFuelEq : singletonIR.length + extraFuel + 1 = irFuel + 3 := by
-    rw [hlenOne, hirFuel]; omega
-  rw [hshape'] at hslack ⊢
-  rw [hlenOne] at hslack
-  rw [hFuelEq]
-  exact ⟨_, _, rfl, rfl, hMatch⟩
+    CompiledStmtStepWithHelpersAndHelperIR runtimeContract spec fields scope
+      (Stmt.internalCallAssign names calleeName args) compiledIR := by
+  obtain rfl := compiledIR_eq_of_compileStmt_internalCallAssign hcompile hargCompile
+  exact compiledStmtStepWithHelpersAndHelperIR_singleton hcompile bridge
 
 theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {calleeName : String} {args : List Expr}
-    {compiledIR : List YulStmt}
-    {argExprs : List YulExpr}
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {calleeName : String} {args : List Expr}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr}
     (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
       (Stmt.internalCall calleeName args) = Except.ok compiledIR)
     (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
     -- End-to-end source↔IR alignment bridge.
     (bridge :
-      ∀ (runtime : SourceSemantics.RuntimeState)
-        (state : IRState)
-        (helperFuel : Nat)
-        (irFuel : Nat),
-        0 < helperFuel →
+      ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState) (helperFuel : Nat)
+        (irFuel : Nat), 0 < helperFuel →
         FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
         FunctionBody.scopeNamesPresent scope runtime.bindings →
         FunctionBody.bindingsBounded runtime.bindings →
@@ -114,43 +128,10 @@ theorem compiledStmtStepWithHelpersAndHelperIR_internalCall
           (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
             [YulStmt.exprStmt (YulExpr.call
               (CompilationModel.internalFunctionYulName calleeName) argExprs)])) :
-    CompiledStmtStepWithHelpersAndHelperIR
-      runtimeContract spec fields scope
-      (Stmt.internalCall calleeName args)
-      compiledIR := by
-  refine {
-    compileOk := by
-      simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
-    preserves := ?_ }
-  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
-  have hcompileEmpty : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-      (Stmt.internalCall calleeName args) = Except.ok compiledIR := by
-    simpa [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork] using hcompile
-  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompileEmpty
-  have hArgEq : argExprs' = argExprs := by
-    simp [hargCompile] at hargOk
-    exact hargOk.symm
-  subst hArgEq
-  set singletonIR :=
-    [YulStmt.exprStmt
-      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs')]
-  have hshape' : compiledIR = singletonIR := by
-    simpa [singletonIR] using hshape
-  have hlenOne : singletonIR.length = 1 := by
-    simp [singletonIR]
-  have hExtraPos : 1 ≤ extraFuel := by
-    have hsz : sizeOf singletonIR ≥ 2 := by simp [singletonIR]
-    rw [hshape'] at hslack
-    rw [hlenOne] at hslack
-    omega
-  set irFuel := extraFuel - 1 with hirFuel
-  have hMatch := bridge runtime state helperFuel irFuel hfuelPos hexact hscope hbounded hruntime
-  have hFuelEq : singletonIR.length + extraFuel + 1 = irFuel + 3 := by
-    rw [hlenOne, hirFuel]; omega
-  rw [hshape'] at hslack ⊢
-  rw [hlenOne] at hslack
-  rw [hFuelEq]
-  exact ⟨_, _, rfl, rfl, hMatch⟩
+    CompiledStmtStepWithHelpersAndHelperIR runtimeContract spec fields scope
+      (Stmt.internalCall calleeName args) compiledIR := by
+  obtain rfl := compiledIR_eq_of_compileStmt_internalCall hcompile hargCompile
+  exact compiledStmtStepWithHelpersAndHelperIR_singleton hcompile bridge
 
 theorem compileStmt_internalCallAssign_shape_with_internals
     {fields : List CompilationModel.Field}
@@ -2007,114 +1988,96 @@ private theorem internalFunctionYulName_ne_return
     CompilationModel.internalFunctionYulName calleeName ≠ "return" := by
   exact internalFunctionYulName_ne_of_head calleeName "return" 'r' (by decide) (by decide)
 
-/-- Runtime-helper-table packaged version of
-`execIRStmtsWithInternals_of_internalCallAssign_compile`: the caller no longer
-threads a raw `findInternalFunction?` hypothesis by hand, only the compiled
-helper witness coming from `SupportedRuntimeHelperTableInterface`. -/
-theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {names : List String}
-    {calleeName : String}
-    {args : List Expr}
-    {compiledIR : List YulStmt}
-    (compiledHelper :
-      SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
-    (state : IRState)
-    (irFuel : Nat)
-    {argVals : List Nat}
-    {state' : IRState}
-    (hcompile :
-      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
-    (argExprs : List YulExpr)
-    (hargCompile :
-      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
-    (hargs :
-      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
-        .values argVals state') :
-    ∃ helper,
-      compiledIR = [YulStmt.letMany names
+private theorem internalFunctionYulName_ne_tstore
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "tstore" := by
+  exact internalFunctionYulName_ne_of_head calleeName "tstore" 't' (by decide) (by decide)
+
+private theorem internalFunctionYulName_ne_calldatacopy
+    (calleeName : String) :
+    CompilationModel.internalFunctionYulName calleeName ≠ "calldatacopy" := by
+  exact internalFunctionYulName_ne_of_head calleeName "calldatacopy" 'c'
+    (by decide) (by decide)
+
+/-- The compiled-helper witness pins a runtime helper under the callee's Yul name. -/
+private theorem exists_findInternalFunction?_of_compiledHelperWitness
+    {spec : CompilationModel} {runtimeContract : IRContract} {calleeName : String}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName) :
+    ∃ helper, findInternalFunction? runtimeContract
+      (CompilationModel.internalFunctionYulName calleeName) = some helper := by
+  have hfindSome :
+      (findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName)).isSome = true := by
+    simpa [compiledHelper.sourceWitness.nameEq] using
+      (findInternalFunction?_of_compileInternalFunction_mem
+        compiledHelper.compileOk compiledHelper.presentInRuntime)
+  exact Option.isSome_iff_exists.mp hfindSome
+
+/-- A singleton void call to an internal helper dispatches to the helper body:
+helper Yul names never collide with the builtins the interpreter special-cases. -/
+private theorem execIRStmtsWithInternals_singleton_internalFunctionYulName_call
+    {contract : IRContract} {fuel : Nat} {state state' : IRState} {calleeName : String}
+    {args : List YulExpr} {helper : IRInternalFunctionDef} {argVals : List Nat}
+    (hargs : evalIRExprsWithInternals contract (fuel + 1) state args = .values argVals state')
+    (hfind : findInternalFunction? contract
+      (CompilationModel.internalFunctionYulName calleeName) = some helper) :
+    execIRStmtsWithInternals contract (fuel + 3) state
+      [YulStmt.exprStmt (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) args)] =
+      match execIRInternalFunctionWithInternals contract fuel state' helper argVals with
+      | .values _ state'' => .continue state''
+      | .stop state'' => .stop state''
+      | .return value' state'' => .return value' state''
+      | .revert state'' => .revert state'' :=
+  execIRStmtsWithInternals_singleton_expr_call_internal contract fuel state _ args helper argVals
+    state' hargs hfind (internalFunctionYulName_ne_stop calleeName)
+    (internalFunctionYulName_ne_sstore calleeName) (internalFunctionYulName_ne_mstore calleeName)
+    (internalFunctionYulName_ne_tstore calleeName)
+    (internalFunctionYulName_ne_calldatacopy calleeName)
+    (internalFunctionYulName_ne_returndatacopy calleeName)
+    (internalFunctionYulName_ne_revert calleeName) (internalFunctionYulName_ne_return calleeName)
+    (internalFunctionYulName_ne_invalid calleeName)
+    (internalFunctionYulName_ne_selfdestruct calleeName)
+    (internalFunctionYulName_isYulLogName_false calleeName)
+
+private theorem execIRStmtsWithInternals_letMany_of_compile
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope names : List String} {calleeName : String} {args : List Expr}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    {state state' : IRState} {irFuel : Nat} {argVals : List Nat}
+    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
+    (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
+    (hargs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state') :
+    ∃ helper, compiledIR = [YulStmt.letMany names
         (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
       findInternalFunction? runtimeContract
         (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
       execIRStmtsWithInternals runtimeContract (irFuel + 3) state compiledIR =
         match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
         | .values values state'' =>
-            if names.length = values.length then
-              .continue (state''.setVars (names.zip values))
+            if names.length = values.length then .continue (state''.setVars (names.zip values))
             else .revert state''
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
         | .revert state'' => .revert state'' := by
-  have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
-    compiledHelper.sourceWitness.nameEq
-  have hfindSome :
-      (findInternalFunction? runtimeContract
-        (CompilationModel.internalFunctionYulName calleeName)).isSome = true :=
-    by
-      simpa [hcalleeName] using
-        (findInternalFunction?_of_compileInternalFunction_mem
-          compiledHelper.compileOk
-          compiledHelper.presentInRuntime)
-  cases hfind : findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName) with
-  | none =>
-      simp [hfind] at hfindSome
-  | some helper =>
-      rcases
-          execIRStmtsWithInternals_of_internalCallAssign_compile
-            (fields := fields)
-            (scope := scope)
-            (names := names)
-            (functionName := calleeName)
-            (args := args)
-            (compiledIR := compiledIR)
-            runtimeContract
-            irFuel
-            state
-            helper
-            argVals
-            state'
-            hcompile
-            hfind
-            argExprs
-            hargCompile
-            hargs with
-        ⟨hshape, hexec⟩
-      refine ⟨helper, ?_⟩
-      exact ⟨hshape, ⟨rfl, hexec⟩⟩
+  obtain ⟨argExprs', hargOk, rfl⟩ := compileStmt_internalCallAssign_shape hcompile
+  cases hargCompile.symm.trans hargOk
+  obtain ⟨helper, hfind⟩ := exists_findInternalFunction?_of_compiledHelperWitness compiledHelper
+  exact ⟨helper, rfl, hfind, execIRStmtsWithInternals_singleton_letMany_call_internal
+    runtimeContract irFuel state names _ argExprs helper argVals state' hargs hfind⟩
 
-/-- Runtime-helper-table packaged version of
-`execIRStmtsWithInternals_of_internalCall_compile`: the caller no longer threads
-raw helper lookup or builtin-name side conditions by hand. -/
-theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
-    {runtimeContract : IRContract}
-    {spec : CompilationModel}
-    {fields : List Field}
-    {scope : List String}
-    {calleeName : String}
-    {args : List Expr}
-    {compiledIR : List YulStmt}
-    (compiledHelper :
-      SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
-    (state : IRState)
-    (irFuel : Nat)
-    {argVals : List Nat}
-    {state' : IRState}
-    (hcompile :
-      CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (Stmt.internalCall calleeName args) = Except.ok compiledIR)
-    (argExprs : List YulExpr)
-    (hargCompile :
-      CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
-    (hargs :
-      evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
-        .values argVals state') :
-    ∃ helper,
-      compiledIR = [YulStmt.exprStmt
+private theorem execIRStmtsWithInternals_internalCall_of_shape
+    {runtimeContract : IRContract} {spec : CompilationModel} {calleeName : String}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    {state state' : IRState} {irFuel : Nat} {argVals : List Nat}
+    (hshape : compiledIR = [YulStmt.exprStmt
+      (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)])
+    (hargs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state') :
+    ∃ helper, compiledIR = [YulStmt.exprStmt
         (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
       findInternalFunction? runtimeContract
         (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
@@ -2124,47 +2087,68 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
         | .stop state'' => .stop state''
         | .return value' state'' => .return value' state''
         | .revert state'' => .revert state'' := by
-  have hcalleeName : compiledHelper.sourceWitness.callee.name = calleeName :=
-    compiledHelper.sourceWitness.nameEq
-  have hfindSome :
-      (findInternalFunction? runtimeContract
-        (CompilationModel.internalFunctionYulName calleeName)).isSome = true :=
-    by
-      simpa [hcalleeName] using
-        (findInternalFunction?_of_compileInternalFunction_mem
-          compiledHelper.compileOk
-          compiledHelper.presentInRuntime)
-  cases hfind : findInternalFunction? runtimeContract
-      (CompilationModel.internalFunctionYulName calleeName) with
-  | none =>
-      simp [hfind] at hfindSome
-  | some helper =>
-      rcases
-          execIRStmtsWithInternals_of_internalCall_compile
-            (fields := fields)
-            (scope := scope)
-            (functionName := calleeName)
-            (args := args)
-            (compiledIR := compiledIR)
-            runtimeContract
-            irFuel
-            state
-            helper
-            argVals
-            state'
-            hcompile
-            hfind
-            argExprs
-            hargCompile
-            hargs
-            (internalFunctionYulName_ne_stop calleeName)
-            (internalFunctionYulName_ne_sstore calleeName)
-            (internalFunctionYulName_ne_mstore calleeName)
-            (internalFunctionYulName_ne_revert calleeName)
-            (internalFunctionYulName_ne_return calleeName) with
-        ⟨hshape, hexec⟩
-      refine ⟨helper, ?_⟩
-      exact ⟨hshape, ⟨rfl, hexec⟩⟩
+  obtain ⟨helper, hfind⟩ := exists_findInternalFunction?_of_compiledHelperWitness compiledHelper
+  subst hshape
+  exact ⟨helper, rfl, hfind,
+    execIRStmtsWithInternals_singleton_internalFunctionYulName_call hargs hfind⟩
+
+/-- Runtime-helper-table packaged version of
+`execIRStmtsWithInternals_of_internalCallAssign_compile`: the caller no longer
+threads a raw `findInternalFunction?` hypothesis by hand, only the compiled
+helper witness coming from `SupportedRuntimeHelperTableInterface`. -/
+theorem execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
+    {compiledIR : List YulStmt}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (state : IRState) (irFuel : Nat) {argVals : List Nat} {state' : IRState}
+    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCallAssign names calleeName args) = Except.ok compiledIR)
+    (argExprs : List YulExpr)
+    (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
+    (hargs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state') :
+    ∃ helper, compiledIR = [YulStmt.letMany names
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
+      findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+      execIRStmtsWithInternals runtimeContract (irFuel + 3) state compiledIR =
+        match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+        | .values values state'' =>
+            if names.length = values.length then .continue (state''.setVars (names.zip values))
+            else .revert state''
+        | .stop state'' => .stop state''
+        | .return value' state'' => .return value' state''
+        | .revert state'' => .revert state'' := by
+  exact execIRStmtsWithInternals_letMany_of_compile compiledHelper hcompile hargCompile hargs
+
+/-- Runtime-helper-table packaged version of
+`execIRStmtsWithInternals_of_internalCall_compile`: the caller no longer threads
+raw helper lookup or builtin-name side conditions by hand. -/
+theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {calleeName : String} {args : List Expr} {compiledIR : List YulStmt}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (state : IRState) (irFuel : Nat) {argVals : List Nat} {state' : IRState}
+    (hcompile : CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+      (Stmt.internalCall calleeName args) = Except.ok compiledIR)
+    (argExprs : List YulExpr)
+    (hargCompile : CompilationModel.compileExprList fields .calldata args = Except.ok argExprs)
+    (hargs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state') :
+    ∃ helper, compiledIR = [YulStmt.exprStmt
+        (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)] ∧
+      findInternalFunction? runtimeContract
+        (CompilationModel.internalFunctionYulName calleeName) = some helper ∧
+      execIRStmtsWithInternals runtimeContract (irFuel + 3) state compiledIR =
+        match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+        | .values _ state'' => .continue state''
+        | .stop state'' => .stop state''
+        | .return value' state'' => .return value' state''
+        | .revert state'' => .revert state'' := by
+  obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape hcompile
+  cases hargCompile.symm.trans hargOk
+  exact execIRStmtsWithInternals_internalCall_of_shape compiledHelper hshape hargs
 
 /-- Runtime-helper-table packaged dispatch for a direct helper return-binding
 compiled with the caller's internal-function environment. -/
@@ -2238,46 +2222,7 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
         | .return value' state'' => .return value' state''
         | .revert state'' => .revert state'' := by
   obtain ⟨argExprs', hargOk, hshape⟩ := compileStmt_internalCall_shape_with_internals hcompile
-  have hArgEq : argExprs' = argExprs := by
-    simp [hargCompile] at hargOk
-    exact hargOk.symm
-  subst argExprs'
-  obtain ⟨retNames, bodyStmts, hfind, hcompiled⟩ :=
-    findInternalFunction?_exact_of_compileInternalFunction_mem_unique
-      compiledHelper.compileOk compiledHelper.presentInRuntime (by
-        simpa [compiledHelper.sourceWitness.nameEq] using compiledHelper.uniqueInRuntime)
-  refine ⟨{ name := CompilationModel.internalFunctionYulName calleeName
-            params := CompilationModel.internalFunctionYulParamNames compiledHelper.sourceWitness.callee.params
-            rets := retNames
-            body := bodyStmts }, hshape, ?_, ?_⟩
-  · simpa [compiledHelper.sourceWitness.nameEq] using hfind
-  · rw [hshape]
-    exact execIRStmtsWithInternals_singleton_expr_call_internal runtimeContract irFuel state
-      (CompilationModel.internalFunctionYulName calleeName) argExprs _ argVals state' hargs
-        (by simpa [compiledHelper.sourceWitness.nameEq] using hfind)
-        (internalFunctionYulName_ne_stop calleeName) (internalFunctionYulName_ne_sstore calleeName)
-        (internalFunctionYulName_ne_mstore calleeName)
-        (by
-          intro hEq
-          have hHead := congrArg (fun s => s.toList.head?) hEq
-          have hT : ("tstore" : String).toList.head? = some 't' := by decide
-          change (CompilationModel.internalFunctionYulName calleeName).toList.head? =
-            ("tstore" : String).toList.head? at hHead
-          rw [internalFunctionYulName_head calleeName, hT] at hHead
-          exact nomatch hHead)
-        (by
-          intro hEq
-          have hHead := congrArg (fun s => s.toList.head?) hEq
-          have hT : ("calldatacopy" : String).toList.head? = some 'c' := by decide
-          change (CompilationModel.internalFunctionYulName calleeName).toList.head? =
-            ("calldatacopy" : String).toList.head? at hHead
-          rw [internalFunctionYulName_head calleeName, hT] at hHead
-          exact nomatch hHead)
-        (internalFunctionYulName_ne_returndatacopy calleeName)
-        (internalFunctionYulName_ne_revert calleeName)
-        (internalFunctionYulName_ne_return calleeName)
-        (internalFunctionYulName_ne_invalid calleeName)
-        (internalFunctionYulName_ne_selfdestruct calleeName)
-        (internalFunctionYulName_isYulLogName_false calleeName)
+  cases hargCompile.symm.trans hargOk
+  exact execIRStmtsWithInternals_internalCall_of_shape compiledHelper hshape hargs
 
 end Compiler.Proofs.IRGeneration
