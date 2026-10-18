@@ -5738,6 +5738,146 @@ theorem compiledStmtStep_setStructMember2_singleSlot_of_slotSafety
     hcoreKey1 hinScopeKey1 hcoreKey2 hinScopeKey2 hcoreValue hinScopeValue
     hmembers hmember hwriteSlots hslotSafety hkey1IR hkey2IR hvalueIR
 
+private theorem exists_evalExpr_eq_evalIRExpr_of_core
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {expr : Expr} {exprIR : YulExpr}
+    (hcore : FunctionBody.ExprCompileCore expr)
+    (hexprIR : CompilationModel.compileExpr fields .calldata expr = Except.ok exprIR)
+    (hinScope : FunctionBody.exprBoundNamesInScope expr scope)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    ∃ value, SourceSemantics.evalExpr fields runtime expr = some value ∧
+      evalIRExpr state exprIR = some value := by
+  have hpresent : FunctionBody.exprBoundNamesPresent expr runtime.bindings :=
+    FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope
+  have heval := FunctionBody.eval_compileExpr_core_of_scope
+    hcore hexact hinScope hbounded hpresent hruntime
+  rw [hexprIR] at heval
+  simp [Except.toOption] at heval
+  rcases hIRValue : evalIRExpr state exprIR with _ | value
+  · simp [hIRValue, Option.bind] at heval
+  · simp [hIRValue, Option.bind] at heval
+    exact ⟨value, heval.symm, rfl⟩
+
+private theorem evalExpr_lt_modulus_of_core
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {expr : Expr} {value : Nat}
+    (hcore : FunctionBody.ExprCompileCore expr)
+    (hinScope : FunctionBody.exprBoundNamesInScope expr scope)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (heval : SourceSemantics.evalExpr fields runtime expr = some value) :
+    value < Verity.Core.Uint256.modulus := by
+  have hlt := FunctionBody.evalExpr_lt_evmModulus_core_of_scope hcore hexact hinScope hbounded
+    (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope) hruntime
+  rw [heval] at hlt
+  simpa using hlt
+
+/-- Body of the block emitted for a scalar storage write mirrored into alias slots. -/
+private abbrev aliasSlotsBody (valueIR : YulExpr) (slots : List Nat) : List YulStmt :=
+  [YulStmt.let_ "__compat_value" valueIR] ++
+    slots.map (fun writeSlot =>
+      YulStmt.exprStmt
+        (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"]))
+
+/-- IR state after binding `__compat_value` and storing it to every slot in `slots`. -/
+private abbrev aliasSlotsPostState (state : IRState) (slots : List Nat) (value : Nat) :
+    IRState :=
+  { state.setVar "__compat_value" value with
+      storage := abstractStoreStorageOrMappingMany
+        (state.setVar "__compat_value" value).storage slots value }
+
+private theorem compileStmt_setStorage_aliasSlots_eq
+    {fields : List Field} {scope : List String} {fieldName : String} {value : Expr}
+    {valueIR : YulExpr} {f : Field} {slot : Nat}
+    (hfind : findFieldWithResolvedSlot fields fieldName = some (f, slot))
+    (halias : f.aliasSlots ≠ [])
+    (hunpacked : f.packedBits = none)
+    (hnotTransient : f.isTransient = false)
+    (hNotMapping : isMapping fields fieldName = false)
+    (hNotAdt : ∀ name maxFields, f.ty ≠ FieldType.adt name maxFields)
+    (hvalueIR : CompilationModel.compileExpr fields .calldata value = Except.ok valueIR) :
+    CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.setStorage fieldName value) =
+      Except.ok [YulStmt.block (aliasSlotsBody valueIR (slot :: f.aliasSlots))] := by
+  cases hty : f.ty with
+  | adt name maxFields => exact False.elim (hNotAdt name maxFields hty)
+  | uint256 | int256 | address | fixedArrayUint128 | dynamicArray | mappingTyped
+    | mappingStruct | mappingStruct2 | mappingFixedArray =>
+      simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        CompilationModel.compileSetStorage, hNotMapping, hfind, halias, hunpacked,
+        hnotTransient, hvalueIR, hty, pure, Except.pure, Bind.bind, Except.bind]
+
+private theorem execIRStmts_aliasSlotsBlock_eq
+    {state : IRState} {valueIR : YulExpr} {slots : List Nat} {value extraFuel : Nat}
+    (hvalueEval : evalIRExpr state valueIR = some value)
+    (hslack : sizeOf [YulStmt.block (aliasSlotsBody valueIR slots)] -
+      [YulStmt.block (aliasSlotsBody valueIR slots)].length ≤ extraFuel) :
+    execIRStmts ([YulStmt.block (aliasSlotsBody valueIR slots)].length + extraFuel + 1) state
+        [YulStmt.block (aliasSlotsBody valueIR slots)] =
+      .continue (aliasSlotsPostState state slots value) := by
+  have hle := singletonBlock_length_add_one_le_slack (aliasSlotsBody valueIR slots)
+  have hlen : (aliasSlotsBody valueIR slots).length = 1 + slots.length := by
+    simp [aliasSlotsBody]
+    omega
+  have hbody := execIRStmts_let_then_sstore_lit_ident_slots_continue
+    (extraFuel - (slots.length + 2)) state slots "__compat_value" valueIR value hvalueEval
+  rw [show slots.length + (extraFuel - (slots.length + 2)) + 2 = extraFuel by omega] at hbody
+  have hblock := execIRStmts_single_block_of_continue extraFuel state
+    (aliasSlotsPostState state slots value) (aliasSlotsBody valueIR slots) hbody
+  rw [List.length_singleton, show 1 + extraFuel + 1 = extraFuel + 2 by omega]
+  exact hblock
+
+private theorem execStmt_setStorage_aliasSlots_eq
+    {fields : List Field} {runtime : SourceSemantics.RuntimeState} {fieldName : String}
+    {value : Expr} {f : Field} {slot valueNat : Nat}
+    (hfind : findFieldWithResolvedSlot fields fieldName = some (f, slot))
+    (hwriteSlots : findFieldWriteSlots fields fieldName = some (slot :: f.aliasSlots))
+    (hunpacked : f.packedBits = none)
+    (hnotTransient : f.isTransient = false)
+    (hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat) :
+    SourceSemantics.execStmt fields runtime (.setStorage fieldName value) =
+      .continue { runtime with world :=
+        SourceSemantics.writeUintSlots runtime.world (slot :: f.aliasSlots) valueNat } := by
+  have hfieldTransient : SourceSemantics.fieldIsTransient fields fieldName = false := by
+    simp [SourceSemantics.fieldIsTransient, hfind, hnotTransient]
+  simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
+    SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
+    hfind, hunpacked, hnotTransient]
+
+private theorem stmtStepMatchesIRExec_setStorage_aliasSlots
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {fieldName : String} {value : Expr} {f : Field} {slots : List Nat}
+    {valueNat : Nat}
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state)
+    (hscopeReserved : scopeAvoidsReservedCompilerPrefix scope)
+    (hresolved : ∀ writeSlot ∈ slots, findResolvedFieldAtSlotCopy fields writeSlot = some f)
+    (hnotAddr : SourceSemantics.fieldUsesAddressStorage f = false)
+    (hnotDyn : SourceSemantics.fieldUsesDynamicArrayStorage f = false)
+    (hvalueLt : valueNat < Verity.Core.Uint256.modulus) :
+    stmtStepMatchesIRExec fields (stmtNextScope scope (.setStorage fieldName value))
+      (.continue { runtime with
+        world := SourceSemantics.writeUintSlots runtime.world slots valueNat })
+      (.continue (aliasSlotsPostState state slots valueNat)) := by
+  have hincl : FunctionBody.scopeNamesIncluded
+      (stmtNextScope scope (.setStorage fieldName value)) scope := fun n hn => by
+    simpa [stmtNextScope, collectStmtBindNames] using hn
+  have hexactSet := FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
+    (value := valueNat) hexact (compatValue_not_mem_scope_of_reservedPrefix hscopeReserved)
+  exact ⟨runtimeStateMatchesIR_writeUintSlots
+      (FunctionBody.runtimeStateMatchesIR_setVar_irrelevant hruntime)
+      hresolved hnotAddr hnotDyn hvalueLt,
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
+      (bindingsExactlyMatchIRVarsOnScope_writeUintSlots hexactSet) hincl,
+    hbounded, FunctionBody.scopeNamesPresent_of_included hscope hincl⟩
+
 theorem compiledStmtStep_setStorage_aliasSlots
     {fields : List Field}
     {scope : List String}
@@ -5766,152 +5906,18 @@ theorem compiledStmtStep_setStorage_aliasSlots
           (slot :: f.aliasSlots).map (fun writeSlot =>
             YulStmt.exprStmt
               (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"])))] where
-  compileOk := by
-    cases hty : f.ty with
-    | adt name maxFields =>
-        exact False.elim (hNotAdt name maxFields hty)
-    | uint256 | int256 | address | fixedArrayUint128 | dynamicArray | mappingTyped | mappingStruct | mappingStruct2 | mappingFixedArray =>
-        simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileSetStorage,
-          hNotMapping, hfind, hwriteSlots, halias, hunpacked, hnotTransient, hvalueIR, hty,
-          pure, Except.pure, Bind.bind, Except.bind]
+  compileOk := compileStmt_setStorage_aliasSlots_eq hfind halias hunpacked hnotTransient
+    hNotMapping hNotAdt hvalueIR
   preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    let slots := slot :: f.aliasSlots
-    let blockBody :=
-      [YulStmt.let_ "__compat_value" valueIR] ++
-        slots.map (fun writeSlot =>
-          YulStmt.exprStmt
-            (YulExpr.call "sstore" [YulExpr.lit writeSlot, YulExpr.ident "__compat_value"]))
-    let compiledIR := [YulStmt.block blockBody]
-    have heval :=
-      FunctionBody.eval_compileExpr_core_of_scope
-        hcore hexact hinScope hbounded
-        (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope)
-        hruntime
-    rw [hvalueIR] at heval
-    simp [Except.toOption] at heval
-    rcases hIRValue : evalIRExpr state valueIR with _ | valueNat
-    · simp [hIRValue, Option.bind] at heval
-    · simp [hIRValue, Option.bind] at heval
-      have hValueSrc : SourceSemantics.evalExpr fields runtime value = some valueNat :=
-        heval.symm
-      have hvalueEval : evalIRExpr state valueIR = some valueNat := hIRValue
-      -- Prove sizeOf of any YulStmt list ≥ length + 1
-      have hSizeOfListBound : ∀ (l : List YulStmt), l.length + 1 ≤ sizeOf l := by
-        intro l
-        induction l with
-        | nil => simp
-        | cons h t ih =>
-          show t.length + 1 + 1 ≤ 1 + sizeOf h + sizeOf t
-          omega
-      have hbodyFuelLe : slots.length + 2 ≤ extraFuel := by
-        have hslack' : sizeOf compiledIR - compiledIR.length ≤ extraFuel := by
-          simpa [compiledIR, blockBody, slots] using hslack
-        have hlen : compiledIR.length = 1 := by simp [compiledIR]
-        -- blockBody.length = 1 + slots.length (let_ + map)
-        have hBodyLen : blockBody.length = 1 + slots.length := by
-          simp [blockBody, slots]; omega
-        have hBodyBound := hSizeOfListBound blockBody
-        -- sizeOf compiledIR = 1 + sizeOf (YulStmt.block blockBody) + 1
-        have hCompSizeOf : sizeOf compiledIR = 1 + sizeOf (YulStmt.block blockBody) + 1 := by
-          dsimp only [compiledIR]; rfl
-        -- sizeOf (YulStmt.block body) ≥ 1 + sizeOf body
-        have hBlockSizeOf : 1 + sizeOf blockBody ≤ sizeOf (YulStmt.block blockBody) := by
-          simp [YulStmt.block.sizeOf_spec]
-        omega
-      let bodyExtraFuel := extraFuel - (slots.length + 2)
-      have hbodyFuelEq : slots.length + bodyExtraFuel + 2 = extraFuel := by
-        dsimp [bodyExtraFuel]
-        omega
-      have hresolvedSlots :
-          ∀ writeSlot ∈ slots, findResolvedFieldAtSlotCopy fields writeSlot = some f := by
-        intro writeSlot hmem
-        exact
-          findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
-            hnoConflict hfind hwriteSlots hmem hnotTransient hunpacked
-      have hbody :
-          execIRStmts extraFuel state blockBody =
-            .continue
-              { state.setVar "__compat_value" valueNat with
-                  storage :=
-                    abstractStoreStorageOrMappingMany
-                      (state.setVar "__compat_value" valueNat).storage
-                      slots
-                      valueNat } := by
-        have := execIRStmts_let_then_sstore_lit_ident_slots_continue
-          bodyExtraFuel state slots "__compat_value" valueIR valueNat hvalueEval
-        rw [hbodyFuelEq] at this
-        simpa [blockBody, slots] using this
-      have hwhole :
-          execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
-            .continue
-              { state.setVar "__compat_value" valueNat with
-                  storage :=
-                    abstractStoreStorageOrMappingMany
-                    (state.setVar "__compat_value" valueNat).storage
-                    slots
-                    valueNat } := by
-        have hblock := execIRStmts_single_block_of_continue
-          extraFuel state
-          { state.setVar "__compat_value" valueNat with
-              storage :=
-                abstractStoreStorageOrMappingMany
-                  (state.setVar "__compat_value" valueNat).storage
-                  slots
-                  valueNat }
-          blockBody
-          hbody
-        convert hblock using 2
-        simp [compiledIR]; omega
-      -- Prove value bound
-      have hvalueLt := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
-          hcore hexact hinScope hbounded
-          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope)
-          hruntime
-      rw [hValueSrc] at hvalueLt
-      simp at hvalueLt
-      -- Source execution
-      have hfieldTransient :
-          SourceSemantics.fieldIsTransient fields fieldName = false := by
-        simp [SourceSemantics.fieldIsTransient, hfind, hnotTransient]
-      have hSrcExec : SourceSemantics.execStmt fields runtime
-          (.setStorage fieldName value) = .continue
-            { runtime with
-                world := SourceSemantics.writeUintSlots runtime.world (slot :: f.aliasSlots) valueNat } := by
-        simp [SourceSemantics.execStmt, SourceSemantics.writeUintFieldSlots,
-          SourceSemantics.writeMappingTargets, hwriteSlots, hValueSrc, hfieldTransient,
-          hfind, hunpacked, hnotTransient, slots]
-      -- Scope inclusion
-      have hincl : FunctionBody.scopeNamesIncluded
-          (stmtNextScope scope (.setStorage fieldName value)) scope := by
-        intro n hn
-        simpa [stmtNextScope, collectStmtBindNames] using hn
-      have hscope' := FunctionBody.scopeNamesPresent_of_included hscope hincl
-      -- Runtime state match
-      have hruntimeSet :
-          FunctionBody.runtimeStateMatchesIR fields runtime (state.setVar "__compat_value" valueNat) :=
-        FunctionBody.runtimeStateMatchesIR_setVar_irrelevant hruntime
-      have hruntime' : FunctionBody.runtimeStateMatchesIR fields
-          { runtime with world := SourceSemantics.writeUintSlots runtime.world slots valueNat }
-          { (state.setVar "__compat_value" valueNat) with
-              storage := abstractStoreStorageOrMappingMany
-                (state.setVar "__compat_value" valueNat).storage slots valueNat } :=
-        runtimeStateMatchesIR_writeUintSlots hruntimeSet hresolvedSlots hnotAddr hnotDyn hvalueLt
-      -- Bindings match
-      have hexactSet :
-          FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings
-            (state.setVar "__compat_value" valueNat) :=
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_irrelevant
-          hexact (compatValue_not_mem_scope_of_reservedPrefix hscopeReserved)
-      have hexact' : FunctionBody.bindingsExactlyMatchIRVarsOnScope
-          (stmtNextScope scope (.setStorage fieldName value)) runtime.bindings
-          { (state.setVar "__compat_value" valueNat) with
-              storage := abstractStoreStorageOrMappingMany
-                (state.setVar "__compat_value" valueNat).storage slots valueNat } :=
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (bindingsExactlyMatchIRVarsOnScope_writeUintSlots hexactSet) hincl
-      refine ⟨_, _, hSrcExec, hwhole, ?_⟩
-      simp [stmtStepMatchesIRExec, slots]
-      exact ⟨hruntime', hexact', hbounded, hscope'⟩
+    obtain ⟨valueNat, hValueSrc, hvalueEval⟩ := exists_evalExpr_eq_evalIRExpr_of_core
+      hcore hvalueIR hinScope hexact hscope hbounded hruntime
+    refine ⟨_, _, execStmt_setStorage_aliasSlots_eq hfind hwriteSlots hunpacked hnotTransient
+      hValueSrc, execIRStmts_aliasSlotsBlock_eq hvalueEval hslack, ?_⟩
+    exact stmtStepMatchesIRExec_setStorage_aliasSlots hexact hscope hbounded hruntime
+      hscopeReserved
+      (fun _ hmem => findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_member
+        hnoConflict hfind hwriteSlots hmem hnotTransient hunpacked) hnotAddr hnotDyn
+      (evalExpr_lt_modulus_of_core hcore hinScope hexact hscope hbounded hruntime hValueSrc)
 
 theorem compiledStmtStep_setStorage_of_validateIdentifierShapes
     {spec : CompilationModel}
@@ -6205,6 +6211,161 @@ private theorem terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
   · exact hmatch
   · exact hmatch
 
+/-- Fresh temporary holding the condition value of a compiled terminal `ite`. -/
+private abbrev iteTempName (scope : List String) (cond : Expr)
+    (thenBranch elseBranch : List Stmt) : String :=
+  CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
+    (scope ++ collectExprNames cond ++
+      collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)
+
+/-- The single block emitted for a terminal `ite` statement. -/
+private abbrev compiledIteIR (tempName : String) (condIR : YulExpr)
+    (thenIR elseIR : List YulStmt) : List YulStmt :=
+  [YulStmt.block
+    [ YulStmt.let_ tempName condIR
+    , YulStmt.if_ (YulExpr.ident tempName) thenIR
+    , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]]
+
+private theorem compileStmt_ite_eq_compiledIteIR
+    {fields : List Field} {scope : List String} {cond : Expr}
+    {thenBranch elseBranch : List Stmt} {condIR : YulExpr} {thenIR elseIR : List YulStmt}
+    (hcondIR : CompilationModel.compileExpr fields .calldata cond = Except.ok condIR)
+    (hthenIR : CompilationModel.compileStmtList
+      fields [] [] .calldata [] false scope [] thenBranch = Except.ok thenIR)
+    (helseIR : CompilationModel.compileStmtList
+      fields [] [] .calldata [] false scope [] elseBranch = Except.ok elseIR)
+    (helse : FunctionBody.StmtListTerminalCore scope elseBranch) :
+    CompilationModel.compileStmt fields [] [] .calldata [] false scope []
+        (.ite cond thenBranch elseBranch) =
+      Except.ok (compiledIteIR (iteTempName scope cond thenBranch elseBranch)
+        condIR thenIR elseIR) := by
+  have helseNonempty : elseBranch.isEmpty = false := by
+    cases elseBranch with
+    | nil => exact absurd rfl (FunctionBody.stmtListTerminalCore_ne_nil helse)
+    | cons => simp
+  have hcondIRInternal := compileExprWithInternals_nil_ok hcondIR
+  unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
+  simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+    hcondIRInternal, hthenIR, helseIR, Except.bind, helseNonempty]
+  simp [compiledIteIR, iteTempName, List.append_assoc, Bind.bind, Except.bind,
+    Pure.pure, Except.pure]
+
+/-- A terminal `ite` branch, run after binding the condition temporary, matches its source. -/
+private theorem stmtResultMatchesIRExec_iteBranch_of_setTemp
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {cond : Expr} {thenBranch elseBranch branch : List Stmt}
+    {branchIR : List YulStmt} {condVal : Nat} (fuel : Nat)
+    (hbranch : FunctionBody.StmtListTerminalCore scope branch)
+    (hbranchIR : CompilationModel.compileStmtList
+      fields [] [] .calldata [] false scope [] branch = Except.ok branchIR)
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime branch)
+      (execIRStmts (sizeOf branchIR + fuel + 1)
+        (state.setVar (iteTempName scope cond thenBranch elseBranch) condVal) branchIR) := by
+  have hBindIte :=
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_setCompiledTerminalIteTemp_irrelevant
+      (inScopeNames := scope) (cond := cond) (thenBranch := thenBranch)
+      (elseBranch := elseBranch) (value := condVal) hexact FunctionBody.scopeNamesIncluded_refl
+  have hRuntimeIte := FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
+    (name := iteTempName scope cond thenBranch elseBranch) (value := condVal) hruntime
+  rcases FunctionBody.exec_compileStmtList_terminal_core_sizeOf_extraFuel (extraFuel := fuel)
+      hbranch FunctionBody.scopeNamesIncluded_refl hscope hBindIte hbounded hRuntimeIte with
+    ⟨branchIR', hbranchIR', hsem⟩
+  rw [hbranchIR] at hbranchIR'
+  cases hbranchIR'
+  exact hsem
+
+private theorem stmtResultMatchesIRExec_compiledIteIR_else
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {cond : Expr} {elseBranch : List Stmt}
+    {tempName : String} {condIR : YulExpr} {thenIR elseIR : List YulStmt}
+    {condVal wholeExtraFuel : Nat}
+    (helse : FunctionBody.StmtListTerminalCore scope elseBranch)
+    (hbranch : ∀ fuel, FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime elseBranch)
+      (execIRStmts (sizeOf elseIR + fuel + 1) (state.setVar tempName condVal) elseIR))
+    (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some condVal)
+    (hcondEval : evalIRExpr state condIR = some condVal)
+    (hcondZero : condVal = 0) :
+    FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime elseBranch)
+      (execIRStmts (sizeOf (compiledIteIR tempName condIR thenIR elseIR) + wholeExtraFuel + 1)
+        state (compiledIteIR tempName condIR thenIR elseIR)) := by
+  have hElse6 : sizeOf elseIR + 6 ≤ sizeOf (compiledIteIR tempName condIR thenIR elseIR) := by
+    simp_wf; omega
+  have hmatch := FunctionBody.stmtResultMatchesIRExec_compiled_terminal_ite_else
+    (thenBranch := []) (rest := []) (extraFuel := wholeExtraFuel)
+    (tempName := tempName) (condIR := condIR) (thenIR := thenIR) (tailIR := []) helse
+    (hbranch (sizeOf (compiledIteIR tempName condIR thenIR elseIR) - (sizeOf elseIR + 5) +
+      wholeExtraFuel - 1))
+    hCondSrc (by simp [hcondZero]) hcondEval hcondZero
+    (by congr 1; simp only [List.append_nil, compiledIteIR] at hElse6 ⊢; omega)
+  rw [FunctionBody.execStmtList_terminal_core_ite_else_eq helse hCondSrc
+    (by simp [hcondZero])] at hmatch
+  simpa only [List.append_nil] using hmatch
+
+private theorem stmtResultMatchesIRExec_compiledIteIR_then
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {cond : Expr} {thenBranch : List Stmt}
+    {tempName : String} {condIR : YulExpr} {thenIR elseIR : List YulStmt}
+    {condVal wholeExtraFuel : Nat}
+    (hthen : FunctionBody.StmtListTerminalCore scope thenBranch)
+    (hbranch : ∀ fuel, FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime thenBranch)
+      (execIRStmts (sizeOf thenIR + fuel + 1) (state.setVar tempName condVal) thenIR))
+    (hCondSrc : SourceSemantics.evalExpr fields runtime cond = some condVal)
+    (hcondEval : evalIRExpr state condIR = some condVal)
+    (hcondNonzero : condVal ≠ 0) :
+    FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime thenBranch)
+      (execIRStmts (sizeOf (compiledIteIR tempName condIR thenIR elseIR) + wholeExtraFuel + 1)
+        state (compiledIteIR tempName condIR thenIR elseIR)) := by
+  have hmatch := FunctionBody.stmtResultMatchesIRExec_compiled_terminal_ite_then
+    (elseBranch := []) (rest := []) (extraFuel := wholeExtraFuel)
+    (tempName := tempName) (condIR := condIR) (thenIR := thenIR) (elseIR := elseIR)
+    (tailIR := []) hthen
+    (hbranch (sizeOf (compiledIteIR tempName condIR thenIR elseIR) - (sizeOf thenIR + 5) +
+      wholeExtraFuel))
+    hCondSrc (by simp [hcondNonzero]) hcondEval hcondNonzero
+    (by simp only [List.append_nil, compiledIteIR])
+  rw [FunctionBody.execStmtList_terminal_core_ite_then_eq hthen hCondSrc
+    (by simp [hcondNonzero])] at hmatch
+  simpa only [List.append_nil] using hmatch
+
+/-- Close a terminal `ite` step from the match of the branch it selects. -/
+private theorem stmtStep_ite_of_branch_match
+    {fields : List Field} {scope : List String} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} {cond : Expr} {thenBranch elseBranch branch : List Stmt}
+    {compiledIR : List YulStmt} {extraFuel : Nat}
+    (hbranch : FunctionBody.StmtListTerminalCore scope branch)
+    (hexec : SourceSemantics.execStmt fields runtime (.ite cond thenBranch elseBranch) =
+      SourceSemantics.execStmtList fields runtime branch)
+    (hle : compiledIR.length ≤ sizeOf compiledIR)
+    (hslack : sizeOf compiledIR - compiledIR.length ≤ extraFuel)
+    (hmatch : FunctionBody.stmtResultMatchesIRExec fields
+      (SourceSemantics.execStmtList fields runtime branch)
+      (execIRStmts (sizeOf compiledIR + (extraFuel - (sizeOf compiledIR - compiledIR.length)) +
+        1) state compiledIR)) :
+    ∃ sourceResult irExec,
+      SourceSemantics.execStmt fields runtime (.ite cond thenBranch elseBranch) =
+        sourceResult ∧
+      execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR = irExec ∧
+      stmtStepMatchesIRExec fields (stmtNextScope scope (.ite cond thenBranch elseBranch))
+        sourceResult irExec := by
+  have hfuel : compiledIR.length + extraFuel + 1 =
+      sizeOf compiledIR + (extraFuel - (sizeOf compiledIR - compiledIR.length)) + 1 := by
+    omega
+  refine ⟨_, _, rfl, rfl, ?_⟩
+  apply terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
+  · rw [hexec, hfuel]
+    exact hmatch
+  · rw [hexec]
+    exact FunctionBody.execStmtList_terminal_core_not_continue hbranch
+
 theorem compiledStmtStep_ite
     {fields : List Field}
     {scope : List String}
@@ -6216,239 +6377,23 @@ theorem compiledStmtStep_ite
     (helse : FunctionBody.StmtListTerminalCore scope elseBranch) :
     ∃ compiledIR, CompiledStmtStep fields scope (.ite cond thenBranch elseBranch) compiledIR := by
   rcases FunctionBody.compileExpr_core_ok (fields := fields) hcond with ⟨condIR, hcondIR⟩
-  rcases FunctionBody.compileStmtList_terminal_core_ok
-      (fields := fields) (scope := scope) (inScopeNames := scope) (stmts := thenBranch)
-      hthen with ⟨thenIR, hthenIR⟩
-  rcases FunctionBody.compileStmtList_terminal_core_ok
-      (fields := fields) (scope := scope) (inScopeNames := scope) (stmts := elseBranch)
-      helse with ⟨elseIR, helseIR⟩
-  have helseNonempty : elseBranch.isEmpty = false := by
-    cases elseBranch with
-    | nil => exfalso; exact FunctionBody.stmtListTerminalCore_ne_nil helse rfl
-    | cons => simp
-  let tempName :=
-    CompilationModel.pickFreshName (CompilationModel.iteCondBaseName thenBranch elseBranch)
-      (scope ++ collectExprNames cond ++
-        collectStmtListNames thenBranch ++ collectStmtListNames elseBranch)
-  let compiledIR :=
-    [YulStmt.block
-      [ YulStmt.let_ tempName condIR
-      , YulStmt.if_ (YulExpr.ident tempName) thenIR
-      , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]]
-  refine ⟨compiledIR, ?_⟩
-  refine
-    { compileOk := ?_
-      preserves := ?_ }
-  · show CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (.ite cond thenBranch elseBranch) = Except.ok compiledIR
-    have hcondIRInternal := compileExprWithInternals_nil_ok hcondIR
-    unfold CompilationModel.compileStmt CompilationModel.compileStmtWithFork
-    simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
-      hcondIRInternal, hthenIR, helseIR, Except.bind, helseNonempty]
-    simp [compiledIR, tempName, List.append_assoc, Bind.bind, Except.bind,
-      Pure.pure, Except.pure]
-  · intro runtime state extraFuel hexact hscope hbounded hruntime hslack
-    set wholeExtraFuel := extraFuel - (sizeOf compiledIR - compiledIR.length) with hWF
-    have hsizeOf_eq : sizeOf compiledIR = 1 + sizeOf (YulStmt.block
-        [ YulStmt.let_ tempName condIR
-        , YulStmt.if_ (YulExpr.ident tempName) thenIR
-        , YulStmt.if_ (YulExpr.call "iszero" [YulExpr.ident tempName]) elseIR ]) + 1 := by
-      rfl
-    have hlength_eq : compiledIR.length = 1 := by rfl
-    have hwholeFuel :
-        compiledIR.length + extraFuel + 1 =
-          sizeOf compiledIR + wholeExtraFuel + 1 := by
-      rw [hWF, hsizeOf_eq, hlength_eq]
-      have : sizeOf compiledIR - compiledIR.length ≤ extraFuel := hslack
-      rw [hsizeOf_eq, hlength_eq] at this
-      omega
-    have hpresent : FunctionBody.exprBoundNamesPresent cond runtime.bindings :=
-      FunctionBody.exprBoundNamesPresent_of_scope hscope hinScope
-    -- Extract the Nat condition value via the eval bridge
-    have heval := FunctionBody.eval_compileExpr_core_of_scope
-        hcond hexact hinScope hbounded hpresent hruntime
-    rw [hcondIR] at heval; simp [Except.toOption] at heval
-    rcases hCondIRVal : evalIRExpr state condIR with _ | condVal
-    · simp [hCondIRVal, Option.bind] at heval
-    · simp [hCondIRVal, Option.bind] at heval
-      have hCondSrc : SourceSemantics.evalExpr fields runtime cond = some condVal :=
-        heval.symm
-      have hcondEval : evalIRExpr state condIR = some condVal := hCondIRVal
-      by_cases hcondZero : condVal = 0
-      · -- Condition is zero → take else branch
-        have hBindIte :=
-          FunctionBody.bindingsExactlyMatchIRVarsOnScope_setCompiledTerminalIteTemp_irrelevant
-            (scope := scope) (inScopeNames := scope)
-            (cond := cond) (thenBranch := thenBranch) (elseBranch := elseBranch)
-            (value := condVal) hexact FunctionBody.scopeNamesIncluded_refl
-        have hRuntimeIte :=
-          FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
-            (name := tempName) (value := condVal) hruntime
-        have hElse6 : sizeOf elseIR + 6 ≤ sizeOf compiledIR := by
-          simp_wf
-          omega
-        let branchExtraFuel :=
-          sizeOf compiledIR - (sizeOf elseIR + 5) + wholeExtraFuel - 1
-        rcases FunctionBody.exec_compileStmtList_terminal_core_sizeOf_extraFuel
-            (fields := fields) (runtime := runtime)
-            (state := state.setVar tempName condVal) (scope := scope)
-            (inScopeNames := scope) (stmts := elseBranch)
-            (extraFuel := branchExtraFuel)
-            helse
-            FunctionBody.scopeNamesIncluded_refl
-            hscope hBindIte hbounded hRuntimeIte with
-          ⟨elseIR', helseIR', helseSem⟩
-        rw [helseIR] at helseIR'
-        have helseEq : elseIR' = elseIR := (Except.ok.inj helseIR').symm
-        rw [show elseIR' = elseIR from helseEq] at helseSem
-        -- Fuel alignment: convert helseSem fuel to the form _ite_else expects
-        have hfuelAlign : sizeOf elseIR + branchExtraFuel + 1 =
-            sizeOf elseIR + (sizeOf (compiledIR ++ ([] : List YulStmt)) -
-              (sizeOf elseIR + 5) + wholeExtraFuel) := by
-          simp only [List.append_nil, branchExtraFuel]
-          have := hElse6
-          omega
-        have helseSem' :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmtList fields runtime elseBranch)
-              (execIRStmts (sizeOf elseIR + (sizeOf (compiledIR ++ ([] : List YulStmt)) -
-                  (sizeOf elseIR + 5) + wholeExtraFuel))
-                (state.setVar tempName condVal) elseIR) := by
-          rw [← hfuelAlign]; exact helseSem
-        -- Apply _ite_else to get match for the whole ITE statement list
-        have hiteMatch :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmtList fields runtime
-                [Stmt.ite cond thenBranch elseBranch])
-              (execIRStmts (sizeOf compiledIR + wholeExtraFuel + 1)
-                state compiledIR) := by
-          have := FunctionBody.stmtResultMatchesIRExec_compiled_terminal_ite_else
-              (fields := fields) (runtime := runtime) (state := state)
-              (scope := scope) (cond := cond)
-              (thenBranch := thenBranch) (elseBranch := elseBranch) (rest := [])
-              (extraFuel := wholeExtraFuel) (tempName := tempName)
-              (condIR := condIR) (thenIR := thenIR) (elseIR := elseIR)
-              (tailIR := []) (condValue := condVal)
-              (sourceCondValue := condVal)
-              helse helseSem' hCondSrc
-              (by simp [hcondZero])
-              hcondEval hcondZero rfl
-          simp only [List.append_nil] at this
-          exact this
-        -- execStmt (.ite ...) = execStmtList elseBranch (by source semantics)
-        have hexecStmtElse : SourceSemantics.execStmt fields runtime
-            (Stmt.ite cond thenBranch elseBranch) =
-            SourceSemantics.execStmtList fields runtime elseBranch := by
-          simp [SourceSemantics.execStmt, hCondSrc, hcondZero]
-        -- execStmtList [.ite ...] = execStmtList elseBranch (by terminal_ite_else_eq)
-        have hsourceEq :=
-          FunctionBody.execStmtList_terminal_core_ite_else_eq
-            (fields := fields) (runtime := runtime) (scope := scope)
-            (cond := cond) (thenBranch := thenBranch)
-            (elseBranch := elseBranch) (rest := [])
-            (condValue := condVal) helse hCondSrc
-            (by simp [hcondZero])
-        -- Rewrite hiteMatch source from execStmtList [.ite ...] to execStmtList elseBranch
-        rw [hsourceEq] at hiteMatch
-        -- Now hiteMatch : stmtResultMatchesIRExec fields
-        --   (execStmtList fields runtime elseBranch) (execIRStmts ... state compiledIR)
-        -- Convert to stmtResultMatchesIRExec about execStmt
-        have hbodyMatch :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmt fields runtime
-                (Stmt.ite cond thenBranch elseBranch))
-              (execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR) := by
-          rw [hexecStmtElse, hwholeFuel]; exact hiteMatch
-        refine ⟨_, _, rfl, rfl, ?_⟩
-        exact terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
-            hbodyMatch
-            (by rw [hexecStmtElse]
-                exact FunctionBody.execStmtList_terminal_core_not_continue
-                  (fields := fields) (runtime := runtime) (scope := scope)
-                  (stmts := elseBranch) helse)
-      · -- Condition is nonzero → take then branch
-        have hBindIte :=
-          FunctionBody.bindingsExactlyMatchIRVarsOnScope_setCompiledTerminalIteTemp_irrelevant
-            (scope := scope) (inScopeNames := scope)
-            (cond := cond) (thenBranch := thenBranch) (elseBranch := elseBranch)
-            (value := condVal) hexact FunctionBody.scopeNamesIncluded_refl
-        have hRuntimeIte :=
-          FunctionBody.runtimeStateMatchesIR_setVar_irrelevant
-            (name := tempName) (value := condVal) hruntime
-        have hThen5 : sizeOf thenIR + 5 ≤ sizeOf compiledIR := by
-          simp_wf
-          omega
-        let branchExtraFuel :=
-          sizeOf compiledIR - (sizeOf thenIR + 5) + wholeExtraFuel
-        rcases FunctionBody.exec_compileStmtList_terminal_core_sizeOf_extraFuel
-            (fields := fields) (runtime := runtime)
-            (state := state.setVar tempName condVal) (scope := scope)
-            (inScopeNames := scope) (stmts := thenBranch)
-            (extraFuel := branchExtraFuel)
-            hthen
-            FunctionBody.scopeNamesIncluded_refl
-            hscope hBindIte hbounded hRuntimeIte with
-          ⟨thenIR', hthenIR', hthenSem⟩
-        rw [hthenIR] at hthenIR'
-        have hthenEq : thenIR' = thenIR := (Except.ok.inj hthenIR').symm
-        rw [show thenIR' = thenIR from hthenEq] at hthenSem
-        -- Fuel alignment for then branch (has +1 on both sides, so direct)
-        have hthenSem' :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmtList fields runtime thenBranch)
-              (execIRStmts (sizeOf thenIR + (sizeOf (compiledIR ++ ([] : List YulStmt)) -
-                  (sizeOf thenIR + 5) + wholeExtraFuel) + 1)
-                (state.setVar tempName condVal) thenIR) := by
-          simp only [List.append_nil, branchExtraFuel] at hthenSem ⊢
-          exact hthenSem
-        -- Apply _ite_then to get match for the whole ITE statement list
-        have hiteMatch :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmtList fields runtime
-                [Stmt.ite cond thenBranch elseBranch])
-              (execIRStmts (sizeOf compiledIR + wholeExtraFuel + 1)
-                state compiledIR) := by
-          have := FunctionBody.stmtResultMatchesIRExec_compiled_terminal_ite_then
-              (fields := fields) (runtime := runtime) (state := state)
-              (scope := scope) (cond := cond)
-              (thenBranch := thenBranch) (elseBranch := elseBranch) (rest := [])
-              (extraFuel := wholeExtraFuel) (tempName := tempName)
-              (condIR := condIR) (thenIR := thenIR) (elseIR := elseIR)
-              (tailIR := []) (condValue := condVal)
-              (sourceCondValue := condVal)
-              hthen hthenSem' hCondSrc
-              (by simp [hcondZero])
-              hcondEval
-              (by intro hzero; exact hcondZero hzero) rfl
-          simp only [List.append_nil] at this
-          exact this
-        -- execStmt (.ite ...) = execStmtList thenBranch (by source semantics)
-        have hexecStmtThen : SourceSemantics.execStmt fields runtime
-            (Stmt.ite cond thenBranch elseBranch) =
-            SourceSemantics.execStmtList fields runtime thenBranch := by
-          simp [SourceSemantics.execStmt, hCondSrc, hcondZero]
-        -- execStmtList [.ite ...] = execStmtList thenBranch
-        have hsourceEq :=
-          FunctionBody.execStmtList_terminal_core_ite_then_eq
-            (fields := fields) (runtime := runtime) (scope := scope)
-            (cond := cond) (thenBranch := thenBranch)
-            (elseBranch := elseBranch) (rest := [])
-            (condValue := condVal) hthen hCondSrc
-            (by simp [hcondZero])
-        rw [hsourceEq] at hiteMatch
-        have hbodyMatch :
-            FunctionBody.stmtResultMatchesIRExec fields
-              (SourceSemantics.execStmt fields runtime
-                (Stmt.ite cond thenBranch elseBranch))
-              (execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR) := by
-          rw [hexecStmtThen, hwholeFuel]; exact hiteMatch
-        refine ⟨_, _, rfl, rfl, ?_⟩
-        exact terminal_stmtResultMatchesIRExec_implies_stmtStepMatchesIRExec
-            hbodyMatch
-            (by rw [hexecStmtThen]
-                exact FunctionBody.execStmtList_terminal_core_not_continue
-                  (fields := fields) (runtime := runtime) (scope := scope)
-                  (stmts := thenBranch) hthen)
+  rcases FunctionBody.compileStmtList_terminal_core_ok (fields := fields) (inScopeNames := scope)
+    hthen with ⟨thenIR, hthenIR⟩
+  rcases FunctionBody.compileStmtList_terminal_core_ok (fields := fields) (inScopeNames := scope)
+    helse with ⟨elseIR, helseIR⟩
+  refine ⟨_, compileStmt_ite_eq_compiledIteIR hcondIR hthenIR helseIR helse, ?_⟩
+  intro runtime state extraFuel hexact hscope hbounded hruntime hslack
+  obtain ⟨condVal, hCondSrc, hcondEval⟩ :=
+    exists_evalExpr_eq_evalIRExpr_of_core hcond hcondIR hinScope hexact hscope hbounded hruntime
+  by_cases hcondZero : condVal = 0
+  · exact stmtStep_ite_of_branch_match helse (by simp [SourceSemantics.execStmt, hCondSrc,
+      hcondZero]) (by simp_wf) hslack <| stmtResultMatchesIRExec_compiledIteIR_else helse
+      (stmtResultMatchesIRExec_iteBranch_of_setTemp · helse helseIR hexact hscope hbounded
+        hruntime) hCondSrc hcondEval hcondZero
+  · exact stmtStep_ite_of_branch_match hthen (by simp [SourceSemantics.execStmt, hCondSrc,
+      hcondZero]) (by simp_wf) hslack <| stmtResultMatchesIRExec_compiledIteIR_then hthen
+      (stmtResultMatchesIRExec_iteBranch_of_setTemp · hthen hthenIR hexact hscope hbounded
+        hruntime) hCondSrc hcondEval hcondZero
 
 theorem stmtListTouchesUnsupportedContractSurface_append
     {«prefix» «suffix» : List Stmt} :

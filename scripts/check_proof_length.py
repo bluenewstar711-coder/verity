@@ -24,8 +24,15 @@ from property_utils import ROOT, THEOREM_RE, strip_lean_comments
 _DECL_RE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|unsafe)\s+)*"
     r"(?:(?:partial)\s+)?"
-    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque)\s+"
+    r"(?:theorem|lemma|def|example|instance|inductive|structure|class|abbrev|opaque)"
+    r"(?:\s+|$)"
 )
+# A theorem header whose name is on the following line (used for names that
+# would not fit in 100 columns), e.g. `theorem` alone, then `    longName`.
+_SPLIT_THEOREM_RE = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected)\s+)*(?:theorem|lemma)\s*$"
+)
+_SPLIT_NAME_RE = re.compile(r"^\s*(?P<name>[A-Za-z_][A-Za-z0-9_.']*)\b")
 _END_RE = re.compile(r"^\s*end\b")
 _SECTION_RE = re.compile(r"^\s*(?:section|namespace)\b")
 
@@ -99,12 +106,6 @@ ALLOWLIST: set[str] = {
     # mutual recursion shape.
     "execForEachLoop_agree",
     # --- Expression compilation correctness proofs ---
-    "eval_compileExpr_ceilDiv_of_compiled",
-    "eval_compileExpr_wDivUp_of_compiled",
-    "eval_compileExpr_mulDivDown_of_compiled",
-    "eval_compileExpr_mulDivUp_of_compiled",
-    "eval_compileExpr_logicalAnd_of_compiled",
-    "eval_compileExpr_logicalOr_of_compiled",
     # Per-constructor cases-on-Expr proofs: each new Expr constructor (e.g.
     # paramDynamicHeadWord, mulDiv512Down/Up from upstream commits cf5cb844 +
     # 6b2af37c) adds a new arm. The proof body is mechanical (same simp pattern
@@ -113,24 +114,7 @@ ALLOWLIST: set[str] = {
     "exprUsesDynamicBytesEq_eq_false_of_coreClosed",
     "exprUsesArrayElement_eq_false_of_coreClosed",
     "exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed",
-    # SupportedStmtList → unused-feature-surface inductions for new partial-def
-    # flags from upstream cf5cb844 + 6b2af37c. The proof induct on every
-    # SupportedStmtList constructor (~30 cases each) with mechanical simp.
-    "supportedStmtList_usesParamDynamicHeadWord_false",
-    "supportedStmtList_usesMulDiv512_false",
     # --- Core expression/statement compilation ---
-    "compileExpr_core_ok",
-    "compileRequireFailCond_core_ok",
-    "compileStmt_core_ok_any_scope",  # mstore/tstore widening — mechanical per-constructor cases
-    "compileStmtList_core_ok",
-    "compileStmtList_terminal_core_ok",
-    "compileStmtList_terminal_core_ok_nonempty",
-    # Mechanical per-constructor legacy-compatible Yul shape witnesses for the
-    # compile-core / terminal-core statement-list grammars. Splitting further
-    # would duplicate the same compile-success destructuring and constructor
-    # plumbing without reducing proof complexity.
-    "stmtListCompileCore_compiledLegacyCompatible",
-    "stmtListTerminalCore_compiledLegacyCompatible",
     # Helper-body shape seam: the proof follows the compiler's own
     # validate/returns/body split and then applies the mutually recursive
     # return-free shape-irrelevance lemma. Splitting would duplicate that
@@ -141,27 +125,11 @@ ALLOWLIST: set[str] = {
     # head/tail compile-success plumbing.
     "compileStmtList_append_ok_inv",
     "constructorOnly_compileBody_empty_surfaces_withFork",
-    "execStmtList_terminal_core_not_continue",  # mstore/tstore widening — 9 per-constructor cases
-    "compileStmtList_terminal_ite_ok_inv",
-    "compileStmt_terminal_ite_ok_inv",
-    "compileStmt_ok_any_scope_aux",
-    # Fuel-indexed mutual stmt/list induction proving compileStmt ignores the
-    # event/error catalogs off the contract surface; one mechanical arm per
-    # statement constructor (~35 cases), so splitting would only duplicate it.
-    "compileStmt_eventsErrorsAgnostic_aux",
-    "eval_compileExpr_core_onExpr",
-    "evalExpr_lt_evmModulus_core_onExpr",
-    "eval_compileRequireFailCond_core_onExpr",
-    # Constructor mode equivalence is a structural expression-constructor split;
-    # each case is direct, but splitting further would duplicate the same
-    # surface-closure plumbing across dozens of one-line cases.
-    "compileExpr_constructor_mode_eq",
     # --- Statement-level compiled step proofs ---
     "compiledStmtStep_letVar",
     "compiledStmtStep_assignVar",
     "compiledStmtStep_require",
     "compiledStmtStep_return",
-    "compiledStmtStep_ite",
     # Nat-indexed forEach empty-body proof witnesses. Positive non-empty
     # literal loops intentionally remain outside the supported fragment. The
     # longer witnesses below are recurrence/state-relation proofs where
@@ -169,7 +137,6 @@ ALLOWLIST: set[str] = {
     "execIRStmt_forEach_empty_loop_from_idx",
     "execIRStmt_for_empty_init_recurrence",
     "forEach_empty_final_rel",
-    "stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed",
     "execIRStmts_forEach_literal_empty_compiled",
     "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
@@ -179,7 +146,6 @@ ALLOWLIST: set[str] = {
     # fuel, and scope bindings aligned in one witness; factoring it would only
     # move that coupled witness into a private wrapper.
     "compiledStmtStep_setStorageWord_singleSlot_zeroOffset",
-    "compiledStmtStep_setStorage_aliasSlots",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_scopeDiscipline",
     "compiledStmtStep_setStorage_of_validateIdentifierShapes_of_validateFunctionIdentifierReferences",
@@ -204,12 +170,6 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # --- Helper-aware result packaging bridge ---
-    "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
-    # #2080 phase 21 function-level WithInternals bridge: threads generated ABI
-    # param-load execution into the helper-aware compiled body while preserving
-    # the exact fuel equality needed by `execIRFunctionWithInternals`.
-    "exec_compiledFunctionIR_withInternals_of_body_extraFuel",
     # #2205 selector dispatch with populated internal tables: these two proofs
     # mirror the same payable/argument-length case split as the legacy dispatch
     # theorem while threading the helper-aware interpreter. Splitting either
@@ -219,18 +179,9 @@ ALLOWLIST: set[str] = {
     # equation (hinterp) that pins the interpreter's fallback records.
     "interpretContractWithInternals_correct_of_compiled_functions",
     "interpretContractWithHelpersWithInternals_correct_of_compiled_functions",
-    # #2205 helper-rich function seam: source/IR rollback states, parameter
-    # prefix execution, and the exact helper/body fuel equality form one coupled
-    # witness. Factoring the cases would only move that witness into wrappers.
-    "supported_function_correct_with_helper_rich_support_body_goal_with_internals",
     # #2205 contract-facing adapter: the body is one application; its length is
     # dominated by the mirrored helper-rich function premises and named types.
     "compileFunctionSpec_correct_with_helper_rich_support_of_body_goal",
-    # #2080 phase 21 direct helper-aware function theorem: packages source
-    # helper semantics, the exact helper-IR body goal, function compilation
-    # shape, rollback state, and param-prefix execution into the final
-    # `execIRFunctionWithInternals` result.
-    "supported_function_correct_with_helper_proofs_body_goal_with_internals",
     # #2080 phase 21 contract-level consumer: exposes the direct helper-aware
     # function theorem through the contract proof API while keeping the
     # generated param-load disjointness premise explicit.
@@ -296,7 +247,6 @@ ALLOWLIST: set[str] = {
     # member bindings. Splitting would duplicate the same option-case spine.
     "decodePackedUserOperationAt",
     "compiledStmtStep_setStructMember2_singleSlot_of_slotSafety_preserves",
-    "stmtListGenericCore_singleton_setStructMember2Single_of_slotSafety",
     # --- Transient/memory write singleton bridges ---
     "compiledStmtStep_tstore_single_preserves",
     "compiledStmtStep_mstore_single_preserves",
@@ -314,63 +264,13 @@ ALLOWLIST: set[str] = {
     # bridge, out-of-bounds revert) that the bounded semantics requires.
     # Splitting would duplicate the eval-agreement spine and fuel accounting.
     "compiledStmtStep_returndatacopy_bounded_single_preserves",
-    # --- IR execution proofs (terminal ite, core append/tail) ---
-    "execIRStmt_compiled_terminal_ite_then_branch_entry",
-    "execIRStmt_compiled_terminal_ite_else_branch_entry",
-    "execIRStmt_compiled_terminal_ite_else_branch_entry_tailFuel",
-    "execIRStmts_compiled_terminal_ite_then_of_irExec",
-    "execIRStmts_compiled_terminal_ite_else_of_irExec",
-    "stmtResultMatchesIRExec_compiled_terminal_ite_then",
-    "stmtResultMatchesIRExec_compiled_terminal_ite_else",
-    "execIRStmts_compiled_return_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_let_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_let_core_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_assign_core_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_assign_core_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_require_core_pass_append_wholeFuel_of_scope",
-    "execIRStmts_compiled_require_core_pass_tailExtraFuel_of_scope",
-    "execIRStmts_compiled_require_core_fail_append_wholeFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_let_core_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_assign_core_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_require_core_pass_tailExtraFuel_of_scope",
-    "stmtResultMatchesIRExec_compiled_return_core_append_wholeFuel_of_scope",
-    "exec_compileStmtList_core",
-    "exec_compileStmtList_core_extraFuel",
-    "exec_compileStmtList_terminal_core_sizeOf_extraFuel",
-    "exec_compileStmtList_generic_sizeOf_extraFuel_step",
     # --- Generic induction and scope proofs ---
-    "stmtListGenericCore_of_stmtListCompileCore_of_scopeNamesIncluded",
-    "stmtListGenericCore_of_stmtListTerminalCore_of_scopeNamesIncluded",
     "stmtListGenericCore_of_supportedStmtList_of_surface",
-    "stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites",
-    "stmtListGenericCore_of_supportedStmtList_of_surface_exceptMappingWrites_stmtSafety",
-    "stmtListGenericCore_singleton_requireLiteralGuardFamilyClause",
     "stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface",
     "stmtListScopeCore_of_unsupportedContractSurface_eq_false",
     "exprBoundNamesInScope_of_validateScopedExprIdentifiers_core",
-    "stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers",
-    "scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers",
-    "stmtListScopeDiscipline_scope_names",
     # --- Surface predicate bridge proofs ---
     "exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false",
-    "exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
-    "exprTouchesUnsupportedCallSurface_eq_featureOr",
-    "exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed",
-    "exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed",
-    "stmtTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed",
-    "stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames",
-    "stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
-    "stmtListTerminalCore_helperSurfaceClosed",  # mstore/tstore widening — mechanical per-constructor cases
-    "SupportedStmtList.helperSurfaceClosed",
-    "SupportedStmtList.internalHelperCallNames_nil",
-    "supportedStmtList_usesStorageArrayElement_false",
-    "supportedStmtList_usesDynamicBytesEq_false",
-    "supportedStmtList_usesArrayElement_false",
-    # Mirror of supportedStmtList_usesDynamicBytesEq_false for verity#1761/#1832:
-    # one explicit case per SupportedStmtList constructor, dispatching to the
-    # matching exprCompileCore_uses{MulDiv512,ParamDynamicHeadWord}_false leaf.
-    "supportedStmtList_usesMulDiv512_false",
-    "supportedStmtList_usesParamDynamicHeadWord_false",
     # --- Mapping slot and field resolution proofs ---
     "findResolvedFieldAtSlotCopyFrom_of_member",
     "firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member",
@@ -402,28 +302,15 @@ ALLOWLIST: set[str] = {
     "compatScratch_startsWith_reserved",
     "scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes",
     # --- Function-level compilation proofs ---
-    "compileFunctionSpec_correct_of_body",
-    "compileFunctionSpec_correct_of_body_normalized_extraFuel",
     "compileFunctionSpec_correct_generic",
-    "exec_compiledFunctionIR_of_body",
-    "exec_compiledFunctionIR_of_body_extraFuel",
     "exec_genParamLoadBodyFrom_supported_then",
     "exec_genParamLoads_supported_then_extraFuel",
     "bindSupportedParams_lookupBinding",
-    "supported_function_body_correct_from_exact_state_core",
-    "supported_function_body_correct_from_exact_state_core_extraFuel",
-    "supported_function_body_correct_from_exact_state_terminal_core_extraFuel",
-    "supported_function_body_correct_from_exact_state_generic",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
     # generic keystones above; the line count is the inherited hypothesis
     # block, not proof complexity (proof bodies are <10 lines each).
     "denote_sound",
     "denote_sound_with_helpers",
-    "supported_function_correct",
-    "supported_function_correct_except_mapping_writes",
-    "supported_function_correct_except_mapping_writes_stmtSafety",
-    "supported_function_correct_with_body_interface_except_mapping_writes",
-    "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # bounded-loop fuel stability: the induction on remaining iterations must
@@ -443,7 +330,6 @@ ALLOWLIST: set[str] = {
     "compile_preserves_semantics",
     "compile_preserves_semantics_except_mapping_writes",
     "compile_preserves_semantics_except_mapping_writes_stmtSafety",
-    "initialIRStateForTx_matches_runtime",
     "resultsMatch_of_execResultsAligned",
     # --- SimpleStorage native EVMYulLean dispatcher closed forms ---
     # These are concrete generated-code reductions for the store(uint256)
@@ -469,43 +355,13 @@ ALLOWLIST: set[str] = {
     # RBMap erase-self lookup fact in one generated store-body endpoint.
     "primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_projectResult_slot0_zero_of_erase",
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
-    "supported_function_body_correct_from_exact_state_generic_with_helpers",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_goal",
-    "supported_function_body_correct_from_exact_state_generic_with_helpers_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_raw",
-    # Issue #2080: exact helper-IR body seams remain mechanical wrappers around
-    # the generic list execution theorem while the helper-world API is split.
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_helper_steps_and_helper_ir_with_internals",
-    "supported_function_body_correct_from_exact_state_generic_split_helper_steps_and_helper_ir_with_internals",
-    "supported_function_body_correct_from_exact_state_generic_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_correct_from_exact_state_generic_finer_split_internal_helper_surface_steps_and_helper_ir_callsDisjoint",
-    "supported_function_body_correct_from_exact_state_generic_split_internal_helper_surface_steps_and_helper_ir",
-    "supported_function_body_with_helpers_ir_goal_of_helper_ir_goal_callsDisjoint",
-    "supported_function_correct_with_helper_proofs",
-    "supported_function_correct_with_helper_proofs_goal",
-    "supported_function_correct_with_helper_proofs_body_goal",
-    "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir",
-    "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint",
-    # Issue #2080: interface-heavy bridge from function compile facts into the
-    # split WithInternals body consumer; state/binding plumbing is factored.
-    "supported_function_body_with_internals_goal_of_compileFunctionSpec_with_internals",
     "compileFunctionSpec_correct_generic_with_helper_proofs",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
     "interpretContract_correct_of_compiled_functions_with_helper_proofs",
     "interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_goal",
     "compile_preserves_semantics_with_helper_proofs",
-    "exec_compileStmtList_generic_with_helpers_sizeOf_extraFuel_step",
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_sizeOf_extraFuel_step",
-    # Issue #2080: spec-functions-aware sibling of the helper-IR list
-    # execution theorem; proof mirrors the existing helper-IR induction.
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel_step",
-    "exec_compileStmtList_generic_with_helpers_and_helper_ir_with_internals_sizeOf_extraFuel",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
-    "stmtListGenericWithHelpersAndHelperIR_of_withHelpers_and_compiledLegacyCompatible",
     # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
     "evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint",
     "evalIRExprWithInternals_eq_evalIRExpr_of_no_internal",
@@ -530,17 +386,10 @@ ALLOWLIST: set[str] = {
     "compiledStmtStepWithHelpersAndHelperIR_internalCall",
     "evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed",
     "execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux",
-    # Spec-aware compile-scope transport is one mutual induction over
-    # statements and statement lists; splitting it would duplicate the scope
-    # bookkeeping that the theorem is meant to centralize.
-    "compileStmt_ok_any_scope_with_surface_aux",
     # --- Contract feature fixtures ---
     "literalMappingWrite_calldataFits",
-    # Constructor-body bridge and its focused fixture for issue #1723.
-    "supported_constructor_body_correct_with_body_interface",
+    # Constructor-body fixture for issue #1723.
     "constructorOnly_noConflict",
-    # Call-surface decomposition kept as one structural recursion proof.
-    "stmtOrListTouchesUnsupportedCallSurface_eq_featureOr",
     # --- Yul generation / Layer 3 proofs ---
     "stmt_and_stmts_equiv",
     "execIRStmtsFuel_equiv_execYulStmtsFuel_of_stmt_equiv",
@@ -1137,6 +986,22 @@ def _is_proof_terminator(line: str) -> bool:
     return bool(_DECL_RE.match(line) or _END_RE.match(line) or _SECTION_RE.match(line))
 
 
+def _theorem_name_at(lines: list[str], i: int) -> str | None:
+    """Return the theorem name declared at line *i*, if any.
+
+    Handles both `theorem name ...` and split headers where the name sits on
+    the next line.
+    """
+    m = THEOREM_RE.match(lines[i])
+    if m:
+        return m.group("name")
+    if _SPLIT_THEOREM_RE.match(lines[i]) and i + 1 < len(lines):
+        m = _SPLIT_NAME_RE.match(lines[i + 1])
+        if m:
+            return m.group("name")
+    return None
+
+
 def measure_proofs(lean_file: Path) -> list[tuple[str, int, int]]:
     """Return (name, start_line_1indexed, length) for every theorem/lemma."""
     text = lean_file.read_text(encoding="utf-8")
@@ -1148,12 +1013,12 @@ def measure_proofs(lean_file: Path) -> list[tuple[str, int, int]]:
     current_start: int | None = None
 
     for i, line in enumerate(lines):
-        m = THEOREM_RE.match(line)
-        if m:
+        name = _theorem_name_at(lines, i)
+        if name is not None:
             # Close previous proof span.
             if current_name is not None and current_start is not None:
                 results.append((current_name, current_start + 1, i - current_start))
-            current_name = m.group("name")
+            current_name = name
             current_start = i
         elif current_name is not None and _is_proof_terminator(line):
             results.append((current_name, current_start + 1, i - current_start))  # type: ignore[arg-type]

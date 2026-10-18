@@ -73,7 +73,7 @@ private def expandedPrefix : List Byte :=
 
 /-- Structural byte checks, not a name-based SSTORE2 shortcut. -/
 def templateCost (code : List Byte) : Option Nat :=
-  if hasMidnightPrefix code then
+  if hasPush11CopyReturnPrefix code then
     let words := (code.length - 11 + 31) / 32
     some (21 + 6 * words + words * words / 512)
   else if code.take 13 == expandedPrefix then

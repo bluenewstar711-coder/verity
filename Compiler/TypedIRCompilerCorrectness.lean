@@ -1414,10 +1414,10 @@ theorem compile_setMappingUint_params_stop_semantics
     Verity.ContractState.writeMapUint]
 
 -- ============================================================================
--- Morpho Blue admin function base semantics definitions
+-- Owner-guarded admin fragment base semantics definitions
 -- ============================================================================
 
-/-- Source semantics for the Morpho setOwner/setFeeRecipient pattern.
+/-- Source semantics for the owner-guarded set-owner pattern.
 Params: paramName (address, id 0).
 Locals: senderVar (address, id 1), ownerVar (address, id 2). -/
 def execSourceLetCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
@@ -1435,7 +1435,7 @@ def execSourceLetCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
     else .revert msg2
   else .revert msg1
 
-/-- Compiled semantics for the Morpho setOwner/setFeeRecipient pattern.
+/-- Compiled semantics for the owner-guarded set-owner pattern.
 Pre-populated CompileState: paramName (address, id 0). -/
 def execCompiledLetCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
     (fields : List Field) (ownerField senderVar ownerVar paramName : String)
@@ -1455,7 +1455,7 @@ def execCompiledLetCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
   | .error err => .revert err
   | .ok (_, st) => evalTStmts init st.body.toList
 
-/-- Source semantics for the Morpho setFeeRecipient owner-auth pattern.
+/-- Source semantics for the owner-authorized set-address-field pattern.
 Params: paramName (address, id 0).
 Locals: senderVar (address, id 1), ownerVar (address, id 2), targetVar (address, id 3). -/
 def execSourceLetCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrParamStop
@@ -1475,13 +1475,13 @@ def execSourceLetCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrPara
     else .revert msg2
   else .revert msg1
 
-/-- Compiled semantics for the Morpho setFeeRecipient owner-auth pattern.
+/-- Compiled semantics for the owner-authorized set-address-field pattern.
 Pre-populated CompileState: paramName (address, id 0). -/
 def execCompiledLetCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrParamStop
     (fields : List Field) (ownerField targetField senderVar ownerVar targetVar paramName : String)
     (msg1 msg2 : String) (init : TExecState) : TExecResult :=
   match (compileStmts fields
-      (morphoSetFeeRecipientOwnerAuthStmts
+      (ownerAuthSetFeeRecipientStmts
         ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2)).run
       (CompileState.mk 1
         [(paramName, { id := 0, ty := Ty.address })]
@@ -1490,7 +1490,7 @@ def execCompiledLetCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrPa
   | .error err => .revert err
   | .ok (_, st) => evalTStmts init st.body.toList
 
-/-- Source semantics for the Morpho enableIrm pattern.
+/-- Source semantics for the owner-guarded enable-flag pattern.
 Params: keyParam (address, id 0).
 Locals: senderVar (address, id 1), ownerVar (address, id 2), currentVar (uint256, id 3). -/
 def execSourceLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
@@ -1511,7 +1511,7 @@ def execSourceLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
     else .revert msg2
   else .revert msg1
 
-/-- Compiled semantics for the Morpho enableIrm pattern.
+/-- Compiled semantics for the owner-guarded enable-flag pattern.
 Pre-populated CompileState: keyParam (address, id 0). -/
 def execCompiledLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
@@ -1532,7 +1532,7 @@ def execCompiledLetCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
   | .error err => .revert err
   | .ok (_, st) => evalTStmts init st.body.toList
 
-/-- Source semantics for the Morpho enableLltv pattern.
+/-- Source semantics for the owner-guarded enable-threshold pattern.
 Params: keyParam (uint256, id 0).
 Locals: senderVar (address, id 1), ownerVar (address, id 2), currentVar (uint256, id 3). -/
 def execSourceLetCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop
@@ -1556,7 +1556,7 @@ def execSourceLetCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingU
     else .revert msg2
   else .revert msg1
 
-/-- Compiled semantics for the Morpho enableLltv pattern.
+/-- Compiled semantics for the owner-guarded enable-threshold pattern.
 Pre-populated CompileState: keyParam (uint256, id 0). -/
 def execCompiledLetCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
@@ -1632,7 +1632,7 @@ def execCompiledLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddPar
   | .error err => .revert err
   | .ok (_, st) => evalTStmts init st.body.toList
 
-/-- Source semantics for the Morpho setAuthorization pattern.
+/-- Source semantics for the delegate-authorization pattern.
 Params: authParam (address, id 0), boolParam (bool, id 1).
 Locals: senderVar (address, id 2), currentVar (uint256, id 3). -/
 def execSourceLetCallerLetMapping2IteParamReqSetMapping2Stop
@@ -1659,7 +1659,7 @@ def execSourceLetCallerLetMapping2IteParamReqSetMapping2Stop
           (0 : Verity.Core.Uint256) }
     else .revert msg2
 
-/-- Compiled semantics for the Morpho setAuthorization pattern.
+/-- Compiled semantics for the delegate-authorization pattern.
 Pre-populated CompileState: authParam (address, id 0), boolParam (bool, id 1). -/
 def execCompiledLetCallerLetMapping2IteParamReqSetMapping2Stop
     (fields : List Field) (mappingField senderVar currentVar authParam boolParam : String)
@@ -1685,10 +1685,10 @@ def execCompiledLetCallerLetMapping2IteParamReqSetMapping2Stop
   | .ok (_, st) => evalTStmts init st.body.toList
 
 -- ============================================================================
--- Morpho Blue admin function correctness theorems
+-- Owner-guarded admin fragment correctness theorems
 -- ============================================================================
 
-/-- Semantic-preservation for the Morpho setOwner/setFeeRecipient pattern. -/
+/-- Semantic-preservation for the owner-guarded set-owner pattern. -/
 theorem compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_semantics
     (fields : List Field) (ownerField senderVar ownerVar paramName msg1 msg2 : String)
     (ownerSlot : Nat) (init : TExecState)
@@ -1712,7 +1712,7 @@ theorem compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_
     · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
 
-/-- Semantic-preservation for the Morpho setFeeRecipient owner-auth pattern. -/
+/-- Semantic-preservation for the owner-authorized set-address-field pattern. -/
 theorem compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageAddr_param_stop_semantics
     (fields : List Field) (ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2 : String)
     (ownerSlot targetSlot : Nat) (init : TExecState)
@@ -1737,35 +1737,46 @@ theorem compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageA
     evalTStmts, defaultEvalFuel]
   by_cases hEq1 : init.env.sender = init.world.storageAddr ownerSlot
   · by_cases hEq2 : init.vars.address 0 = init.world.storageAddr targetSlot
-    · simp [morphoSetFeeRecipientOwnerAuthExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+    · simp [ownerAuthSetFeeRecipientExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
         hEq1, hEq2, TVars.set, TVars.get]
-    · simp [morphoSetFeeRecipientOwnerAuthExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+    · simp [ownerAuthSetFeeRecipientExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
         hEq1, hEq2, TVars.set, TVars.get]
-  · simp [morphoSetFeeRecipientOwnerAuthExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
+  · simp [ownerAuthSetFeeRecipientExpectedState, evalTStmtsFuel, evalTStmtFuel, evalTExpr,
       hEq1, TVars.set, TVars.get]
+
+/-- Storage-word rewrite shared by the owner-auth mint pattern: the compiled side
+adds with `Uint256.add`, the source side with `+` and the mapping summands swapped. -/
+private theorem storageWords_add_slot_add_map_eq
+    (words : StorageKey → Uint256) (supplySlot mappingSlot : Nat) (holder : Address)
+    (supply balance amount : Uint256) :
+    (fun key => if key = StorageKey.slot supplySlot then Uint256.add supply amount
+      else if key = StorageKey.map mappingSlot holder then Uint256.add balance amount
+      else words key) =
+    fun key => if key = StorageKey.slot supplySlot then supply + amount
+      else if key = StorageKey.map mappingSlot holder then amount + balance
+      else words key := by
+  funext key
+  split
+  · rfl
+  · split
+    · exact Verity.Core.Uint256.add_comm _ _
+    · rfl
 
 /-- Semantic-preservation for the owner-auth mint pattern with one balance read
 and one total-supply read before updating both values. -/
 theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_add_param_setStorage_add_param_stop_semantics
-    (fields : List Field)
-    (ownerField mappingField supplyField senderVar ownerVar balanceVar supplyVar toParam amountParam
-      : String)
-    (ownerSlot mappingSlot supplySlot : Nat) (init : TExecState) (msg : String)
-    (hOwner : findFieldWithResolvedSlot fields ownerField =
+    (fields : List Field) (ownerField mappingField supplyField senderVar ownerVar : String)
+    (balanceVar supplyVar toParam amountParam : String) (ownerSlot mappingSlot supplySlot : Nat)
+    (init : TExecState) (msg : String) (hOwner : findFieldWithResolvedSlot fields ownerField =
       some ({ name := ownerField, ty := FieldType.address }, ownerSlot))
     (hMapping : findFieldSlot fields mappingField = some mappingSlot)
     (hSupply : findFieldWithResolvedSlot fields supplyField =
       some ({ name := supplyField, ty := FieldType.uint256 }, supplySlot))
-    (hne_ap_tp : amountParam ≠ toParam)
-    (hne_sv_tp : senderVar ≠ toParam)
-    (hne_sv_ap : senderVar ≠ amountParam)
-    (hne_ov_tp : ownerVar ≠ toParam)
-    (hne_ov_ap : ownerVar ≠ amountParam)
-    (hne_ov_sv : ownerVar ≠ senderVar)
-    (hne_bv_tp : balanceVar ≠ toParam)
-    (hne_bv_ap : balanceVar ≠ amountParam)
-    (hne_sp_tp : supplyVar ≠ toParam)
-    (hne_sp_ap : supplyVar ≠ amountParam)
+    (hne_ap_tp : amountParam ≠ toParam) (hne_sv_tp : senderVar ≠ toParam)
+    (hne_sv_ap : senderVar ≠ amountParam) (hne_ov_tp : ownerVar ≠ toParam)
+    (hne_ov_ap : ownerVar ≠ amountParam) (hne_ov_sv : ownerVar ≠ senderVar)
+    (hne_bv_tp : balanceVar ≠ toParam) (hne_bv_ap : balanceVar ≠ amountParam)
+    (hne_sp_tp : supplyVar ≠ toParam) (hne_sp_ap : supplyVar ≠ amountParam)
     (hne_sp_bv : supplyVar ≠ balanceVar) :
     execCompiledLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParamSetStorageAddParamStop
         fields ownerField mappingField supplyField senderVar ownerVar balanceVar supplyVar toParam
@@ -1775,37 +1786,13 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_letStorage_setMapping_
   simp [execCompiledLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParamSetStorageAddParamStop,
     execSourceLetCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParamSetStorageAddParamStop,
     compileStmts_letCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingAddParamSetStorageAddParamStop_run,
-    hOwner, hMapping, hSupply, hne_ap_tp, hne_sv_tp, hne_sv_ap, hne_ov_tp, hne_ov_ap, hne_ov_sv,
-    hne_bv_tp, hne_bv_ap, hne_sp_tp, hne_sp_ap, hne_sp_bv, evalTStmts, defaultEvalFuel]
-  by_cases hEq : init.env.sender = init.world.storageAddr ownerSlot
-  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
+    *, evalTStmts, defaultEvalFuel]
+  by_cases hEq : init.env.sender = init.world.storageAddr ownerSlot <;>
+    simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get,
       Verity.ContractState.writeMap, Verity.ContractState.writeSlot]
-    funext key
-    cases key with
-    | slot slot =>
-      by_cases h : slot = supplySlot
-      · subst slot
-        simp
-        change Verity.Core.Uint256.add (init.world.storage supplySlot) (init.vars.uint256 1) =
-          Verity.Core.Uint256.add (init.world.storage supplySlot) (init.vars.uint256 1)
-        rfl
-      · simp [h]
-    | map slot mapKey =>
-      by_cases h : slot = mappingSlot ∧ mapKey = init.vars.address 0
-      · simp [h]
-        exact Verity.Core.Uint256.add_comm _ _
-      · simp [h]
-    | contractSlot contract slot => simp
-    | transient slot => simp
-    | addr slot => simp
-    | mapUint slot mapKey => simp
-    | map2 slot key1 key2 => simp
-    | mapChain slot keys offset => simp
-    | transientMapChain slot keys => simp
-    | «scoped» contract key => simp
-  · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq, TVars.set, TVars.get]
+  exact storageWords_add_slot_add_map_eq _ _ _ _ _ _ _
 
-/-- Semantic-preservation for the Morpho enableIrm pattern. -/
+/-- Semantic-preservation for the owner-guarded enable-flag pattern. -/
 theorem compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_stop_semantics
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
     (ownerSlot mappingSlot : Nat) (writeVal : Nat) (init : TExecState) (msg1 msg2 : String)
@@ -1831,7 +1818,7 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_st
     · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
 
-/-- Semantic-preservation for the Morpho enableLltv pattern. -/
+/-- Semantic-preservation for the owner-guarded enable-threshold pattern. -/
 theorem compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam : String)
     (ownerSlot mappingSlot : Nat) (bound writeVal : Nat) (init : TExecState)
@@ -1865,7 +1852,7 @@ theorem compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_set
     · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, hEq2, TVars.set, TVars.get]
   · simp [evalTStmtsFuel, evalTStmtFuel, evalTExpr, hEq1, TVars.set, TVars.get]
 
-/-- Semantic-preservation for the Morpho setAuthorization pattern. -/
+/-- Semantic-preservation for the delegate-authorization pattern. -/
 theorem compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics
     (fields : List Field) (mappingField senderVar currentVar authParam boolParam : String)
     (mappingSlot : Nat) (init : TExecState) (msg1 msg2 : String)
@@ -4373,7 +4360,7 @@ inductive RequireFamilyClausesTail (fields : List Field) where
       (fieldName p1 p2 : String) (slot : Nat)
       (hSlot : findFieldSlot fields fieldName = some slot)
       (hp : p1 ≠ p2)
-  -- Morpho Blue admin function patterns (monolithic tails)
+  -- Owner-guarded admin fragment patterns (monolithic tails)
   | letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
       (ownerField senderVar ownerVar paramName msg1 msg2 : String) (ownerSlot : Nat)
       (hOwner : findFieldWithResolvedSlot fields ownerField =
@@ -4530,7 +4517,7 @@ def execSourceRequireFamilyClausesThenTail
       execSourceRequireFamilyClausesThenLetMappingUintParamReturnLocal init clauses slot
   | .setMappingUintParamsStop _ _ _ slot _ _ =>
       execSourceRequireFamilyClausesThenSetMappingUintParamsStop init clauses slot
-  -- Morpho admin tails: for these monolithic patterns, the require-clause prefix is empty,
+  -- Owner-guarded admin fragment tails: for these monolithic patterns, the require-clause prefix is empty,
   -- so the source semantics just runs the tail directly on init (no clause processing needed).
   | .letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop _ _ _ _ msg1 msg2 ownerSlot _ _ _ _ =>
       match execSourceRequireLiteralGuardFamilyClauses init clauses with
@@ -4685,7 +4672,7 @@ def execCompiledRequireFamilyClausesThenTail
   | .setMappingUintParamsStop fieldName p1 p2 _ _ _ =>
       execCompiledRequireFamilyClausesThenSetMappingUintParamsStop
         fields fieldName p1 p2 init clauses
-  -- Morpho admin tails
+  -- Owner-guarded admin fragment tails
   | .letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
       ownerField senderVar ownerVar paramName msg1 msg2 _ _ _ _ _ =>
       match execCompiledRequireLiteralGuardFamilyClauses fields init clauses with
@@ -4719,188 +4706,125 @@ def execCompiledRequireFamilyClausesThenTail
           fields mappingField senderVar currentVar authParam boolParam msg1 msg2 st
       | .revert reason => .revert reason
 
+/-- `require`-family tail semantics for the literal and single `ite` tails
+(constructor indices `0` to `10`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_lt_11
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hHi : tail.ctorIdx < 11) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_noop_semantics,
+    compile_require_family_clauses_then_rawLog_literals_semantics,
+    compile_require_family_clauses_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_setStorage_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_setStorage_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_return_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_return_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_then_return_literal_semantics]
+
+/-- `require`-family tail semantics for the nested `ite` and local-literal tails
+(constructor indices `11` to `21`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_Ico_11_22
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 11 ≤ tail.ctorIdx) (hHi : tail.ctorIdx < 22) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_return_literal_semantics,
+    compile_require_family_clauses_then_let_return_local_literal_semantics,
+    compile_require_family_clauses_then_let_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_add_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_sub_setStorage_local_literal_semantics]
+
+/-- `require`-family tail semantics for the local-arithmetic and storage-read tails
+(constructor indices `22` to `32`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_Ico_22_33
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 22 ≤ tail.ctorIdx) (hHi : tail.ctorIdx < 33) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_let_assign_mul_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_storage_setStorage_add_local_stop_semantics,
+    compile_require_family_clauses_then_let_storage_setStorage_sub_local_stop_semantics,
+    compile_require_family_clauses_then_let_blockTimestamp_setStorage_local_stop_semantics,
+    compile_require_family_clauses_then_let_storage_return_local_semantics,
+    compile_require_family_clauses_then_return_storage_semantics,
+    compile_require_family_clauses_then_return_storage_addr_semantics,
+    compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_add_stop_semantics,
+    compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_sub_stop_semantics,
+    compile_require_family_clauses_then_return_mapping_caller_semantics,
+    compile_require_family_clauses_then_let_storage_addr_return_local_semantics]
+
+/-- `require`-family tail semantics for the mapping and owner-guarded admin fragment tails
+(constructor indices `33` to `42`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_ge_33
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 33 ≤ tail.ctorIdx) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail,
+        compile_require_literal_guard_family_clauses_semantics]
+      (try split) <;> first | rfl | solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_let_mapping_param_return_local_semantics,
+    compile_require_family_clauses_then_let_mapping2_params_return_local_semantics,
+    compile_require_family_clauses_then_let_caller_setMapping2_stop_semantics,
+    compile_require_family_clauses_then_let_mappingUint_param_return_local_semantics,
+    compile_require_family_clauses_then_setMappingUint_params_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageAddr_param_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics,
+    compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics]
+
 /-- Generic sequencing semantic-preservation theorem over the supported tail
 family after unified `require` guard-family clause lists. -/
-syntax "simpa_require_family_tail" " using " term : tactic
-
-macro_rules
-  | `(tactic| simpa_require_family_tail using $h) =>
-      `(tactic| simpa [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail] using $h)
-
 theorem compile_require_family_clauses_then_tail_semantics
     (fields : List Field) (init : TExecState)
     (clauses : List RequireLiteralGuardFamilyClause)
     (tail : RequireFamilyClausesTail fields) :
     execCompiledRequireFamilyClausesThenTail fields init clauses tail =
       execSourceRequireFamilyClausesThenTail fields init clauses tail := by
-  cases tail with
-  | noOp =>
-      simpa_require_family_tail using compile_require_family_clauses_then_noop_semantics fields init clauses
-  | rawLogLiterals topics dataOffset dataSize htopics =>
-      simpa_require_family_tail using compile_require_family_clauses_then_rawLog_literals_semantics
-          fields init clauses topics dataOffset dataSize htopics
-  | setStorageLiteral fieldName slot writeVal hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_setStorage_literal_semantics
-          fields fieldName slot init clauses writeVal hfind
-  | iteEqSetStorageLiterals fieldName slot n m thenVal elseVal hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_ite_eq_setStorage_literals_semantics
-          fields fieldName slot init clauses n m thenVal elseVal hfind
-  | iteEqSetStorageThenReturnLiteral fieldName slot n m thenVal elseVal hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_ite_eq_setStorage_then_return_literal_semantics
-          fields fieldName slot init clauses n m thenVal elseVal hfind
-  | iteEqReturnThenSetStorageLiteral fieldName slot n m thenVal elseVal hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_ite_eq_return_then_setStorage_literal_semantics
-          fields fieldName slot init clauses n m thenVal elseVal hfind
-  | iteEqReturnLiterals n m thenVal elseVal =>
-      simpa_require_family_tail using compile_require_family_clauses_then_ite_eq_return_literals_semantics
-          fields init clauses n m thenVal elseVal
-  | iteEqThenIteEqReturnLiterals n m p q thenVal elseVal outerElseVal =>
-      simpa_require_family_tail using compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_semantics
-          fields init clauses n m p q thenVal elseVal outerElseVal
-  | iteEqThenIteEqSetStorageLiteralsThenReturnLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_return_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqReturnLiteralsThenSetStorageLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqReturnLiteralsThenSetStorageLiteralThenReturnLiteral
-      fieldName slot n m p q thenVal elseVal outerElseWriteVal outerElseRetVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_then_return_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseWriteVal outerElseRetVal hfind
-  | iteEqThenIteEqSetStorageLiteralsThenSetStorageLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_setStorage_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqSetStorageThenReturnLiteralThenReturnLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_return_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqSetStorageThenReturnLiteralThenSetStorageLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_setStorage_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqReturnThenSetStorageLiteralThenReturnLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_return_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | iteEqThenIteEqReturnThenSetStorageLiteralThenSetStorageLiteral
-      fieldName slot n m p q thenVal elseVal outerElseVal hfind =>
-      simpa_require_family_tail using
-          compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_setStorage_literal_semantics
-            fields fieldName slot init clauses n m p q thenVal elseVal outerElseVal hfind
-  | returnLiteral retVal =>
-      simpa_require_family_tail using compile_require_family_clauses_then_return_literal_semantics fields init clauses retVal
-  | letReturnLocalLiteral tmp retVal =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_return_local_literal_semantics
-          fields tmp init clauses retVal
-  | letSetStorageLocalLiteral fieldName tmp slot n hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_setStorage_local_literal_semantics
-          fields fieldName tmp slot init clauses n hfind
-  | letAssignSetStorageLocalLiteral fieldName tmp slot n m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_assign_setStorage_local_literal_semantics
-          fields fieldName tmp slot init clauses n m hfind
-  | letAssignAddSetStorageLocalLiteral fieldName tmp slot n m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_assign_add_setStorage_local_literal_semantics
-          fields fieldName tmp slot init clauses n m hfind
-  | letAssignSubSetStorageLocalLiteral fieldName tmp slot n m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_assign_sub_setStorage_local_literal_semantics
-          fields fieldName tmp slot init clauses n m hfind
-  | letAssignMulSetStorageLocalLiteral fieldName tmp slot n m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_assign_mul_setStorage_local_literal_semantics
-          fields fieldName tmp slot init clauses n m hfind
-  | letStorageSetStorageAddLocalStop fieldName tmp slot m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_storage_setStorage_add_local_stop_semantics
-          fields fieldName tmp slot init clauses m hfind
-  | letStorageSetStorageSubLocalStop fieldName tmp slot m hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_storage_setStorage_sub_local_stop_semantics
-          fields fieldName tmp slot init clauses m hfind
-  | letBlockTimestampSetStorageLocalStop fieldName tmp slot hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_blockTimestamp_setStorage_local_stop_semantics
-          fields fieldName tmp slot init clauses hfind
-  | letStorageReturnLocal fieldName tmp slot hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_storage_return_local_semantics
-          fields fieldName tmp slot init clauses hfind
-  | returnStorage fieldName slot hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_return_storage_semantics
-          fields fieldName slot init clauses hfind
-  | returnStorageAddr fieldName slot hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_return_storage_addr_semantics
-          fields fieldName slot init clauses hfind
-  | requireCallerEqStorageAddrSetStorageAddStop ownerField countField msg ownerSlot countSlot n hOwner hCount =>
-      simpa_require_family_tail using compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_add_stop_semantics
-          fields ownerField countField ownerSlot countSlot init clauses n msg hOwner hCount
-  | requireCallerEqStorageAddrSetStorageSubStop ownerField countField msg ownerSlot countSlot n hOwner hCount =>
-      simpa_require_family_tail using compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_sub_stop_semantics
-          fields ownerField countField ownerSlot countSlot init clauses n msg hOwner hCount
-  | returnMappingCaller fieldName slot hSlot =>
-      simpa_require_family_tail using compile_require_family_clauses_then_return_mapping_caller_semantics
-          fields fieldName slot init clauses hSlot
-  | letStorageAddrReturnLocal fieldName tmp slot hfind =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_storage_addr_return_local_semantics
-          fields fieldName tmp slot init clauses hfind
-  | letMappingParamReturnLocal fieldName paramName tmp slot hSlot =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_mapping_param_return_local_semantics
-          fields fieldName paramName tmp slot init clauses hSlot
-  | letMapping2ParamsReturnLocal fieldName p1 p2 tmp slot hSlot hp =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_mapping2_params_return_local_semantics
-          fields fieldName p1 p2 tmp slot init clauses hSlot hp
-  | letCallerSetMapping2Stop fieldName senderVar p1 p2 slot hSlot h1 h2 h3 h4 h5 h6 =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_caller_setMapping2_stop_semantics
-          fields fieldName senderVar p1 p2 slot init clauses hSlot h1 h2 h3 h4 h5 h6
-  | letMappingUintParamReturnLocal fieldName paramName tmp slot hSlot =>
-      simpa_require_family_tail using compile_require_family_clauses_then_let_mappingUint_param_return_local_semantics
-          fields fieldName paramName tmp slot init clauses hSlot
-  | setMappingUintParamsStop fieldName p1 p2 slot hSlot hp =>
-      simpa_require_family_tail using compile_require_family_clauses_then_setMappingUint_params_stop_semantics
-          fields fieldName p1 p2 slot init clauses hSlot hp
-  -- Morpho admin tails
-  | letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
-      ownerField senderVar ownerVar paramName msg1 msg2 ownerSlot hOwner hne_sv_p hne_ov_p hne_ov_sv =>
-      simp [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-        compile_require_literal_guard_family_clauses_semantics,
-        compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_semantics
-          fields ownerField senderVar ownerVar paramName msg1 msg2 ownerSlot _ hOwner hne_sv_p hne_ov_p hne_ov_sv]
-  | letCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrParamStop
-      ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2 ownerSlot targetSlot
-      hOwner hTarget hne_sv_p hne_ov_p hne_ov_sv hne_tv_p hne_tv_sv hne_tv_ov =>
-      simp [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-        compile_require_literal_guard_family_clauses_semantics,
-        compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageAddr_param_stop_semantics
-          fields ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2
-          ownerSlot targetSlot _ hOwner hTarget hne_sv_p hne_ov_p hne_ov_sv hne_tv_p hne_tv_sv hne_tv_ov]
-  | letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
-      ownerField mappingField senderVar ownerVar currentVar keyParam ownerSlot mappingSlot writeVal msg1 msg2
-      hOwner hMapping hne_sv_kp hne_ov_kp hne_ov_sv hne_cv_kp =>
-      simp [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-        compile_require_literal_guard_family_clauses_semantics,
-        compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_stop_semantics
-          fields ownerField mappingField senderVar ownerVar currentVar keyParam ownerSlot mappingSlot writeVal _
-          msg1 msg2 hOwner hMapping hne_sv_kp hne_ov_kp hne_ov_sv hne_cv_kp]
-  | letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop
-      ownerField mappingField senderVar ownerVar currentVar keyParam ownerSlot mappingSlot bound writeVal
-      msg1 msg2 msg3 hOwner hMapping hne_sv_kp hne_ov_kp hne_ov_sv hne_cv_kp =>
-      simp [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-        compile_require_literal_guard_family_clauses_semantics,
-        compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics
-          fields ownerField mappingField senderVar ownerVar currentVar keyParam ownerSlot mappingSlot bound writeVal _
-          msg1 msg2 msg3 hOwner hMapping hne_sv_kp hne_ov_kp hne_ov_sv hne_cv_kp]
-  | letCallerLetMapping2IteParamReqSetMapping2Stop
-      mappingField senderVar currentVar authParam boolParam msg1 msg2 mappingSlot
-      hMapping hne_sv_bp hne_sv_ap hne_cv_bp hne_cv_ap hne_cv_sv hne_bp_ap =>
-      simp [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-        compile_require_literal_guard_family_clauses_semantics,
-        compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics
-          fields mappingField senderVar currentVar authParam boolParam mappingSlot _
-          msg1 msg2 hMapping hne_sv_bp hne_sv_ap hne_cv_bp hne_cv_ap hne_cv_sv hne_bp_ap]
+  by_cases h11 : tail.ctorIdx < 11
+  · exact require_family_tail_semantics_ctorIdx_lt_11 fields init clauses tail h11
+  by_cases h22 : tail.ctorIdx < 22
+  · exact require_family_tail_semantics_ctorIdx_Ico_11_22 fields init clauses tail
+      (by omega) h22
+  by_cases h33 : tail.ctorIdx < 33
+  · exact require_family_tail_semantics_ctorIdx_Ico_22_33 fields init clauses tail
+      (by omega) h33
+  · exact require_family_tail_semantics_ctorIdx_ge_33 fields init clauses tail (by omega)
 
 /-- Program fragment in the currently supported 2.2 generic family:
 one unified require-clause list followed by one supported tail. -/
@@ -5207,7 +5131,7 @@ inductive SupportedStmtFragment (fields : List Field) where
       (fieldName p1 p2 : String) (slot : Nat)
       (hSlot : findFieldSlot fields fieldName = some slot)
       (hp : p1 ≠ p2)
-  -- Morpho Blue admin function fragments (empty clause prefix)
+  -- Owner-guarded admin fragments (empty clause prefix)
   | letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
       (ownerField senderVar ownerVar paramName msg1 msg2 : String) (ownerSlot : Nat)
       (hOwner : findFieldWithResolvedSlot fields ownerField =
@@ -5404,7 +5328,7 @@ def SupportedStmtFragment.toRequireFamilyClausesTailProgram
   | .requireClausesThenSetMappingUintParamsStop clauses fieldName p1 p2 slot hSlot hp =>
       { clauses := clauses
         tail := .setMappingUintParamsStop fieldName p1 p2 slot hSlot hp }
-  -- Morpho admin fragments: empty clause list, tail encodes the full body
+  -- Owner-guarded admin fragments: empty clause list, tail encodes the full body
   | .letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
       ownerField senderVar ownerVar paramName msg1 msg2 ownerSlot hOwner hne_sv_p hne_ov_p hne_ov_sv =>
       { clauses := []
@@ -5632,7 +5556,7 @@ def RequireFamilyClausesTail.toStmts
   | .setMappingUintParamsStop fieldName p1 p2 _ _ _ =>
       [ Stmt.setMappingUint fieldName (Expr.param p1) (Expr.param p2)
       , Stmt.stop ]
-  -- Morpho admin tails
+  -- Owner-guarded admin fragment tails
   | .letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop
       ownerField senderVar ownerVar paramName msg1 msg2 _ _ _ _ _ =>
       [ Stmt.letVar senderVar Expr.caller
@@ -6660,24 +6584,24 @@ theorem witness_letCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageAddrPa
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)], rfl⟩
 
 /-- Field layout for `enableIrm` witness coverage. -/
-def morphoEnableIrmFields : List Field :=
+def ownerEnableFlagFields : List Field :=
   [ { name := "owner", ty := FieldType.address }
   , { name := "isIrmEnabled", ty := FieldType.mappingTyped (.simple .address) } ]
 
-/-- `owner` resolves to slot 0 as an address field in `morphoEnableIrmFields`. -/
-theorem morphoEnableIrmOwnerFieldResolution :
-    findFieldWithResolvedSlot morphoEnableIrmFields "owner" =
+/-- `owner` resolves to slot 0 as an address field in `ownerEnableFlagFields`. -/
+theorem ownerEnableFlagOwnerFieldResolution :
+    findFieldWithResolvedSlot ownerEnableFlagFields "owner" =
       some ({ name := "owner", ty := FieldType.address }, 0) := by
   rfl
 
-/-- `isIrmEnabled` resolves to slot 1 in `morphoEnableIrmFields`. -/
-theorem morphoEnableIrmMappingFieldResolution :
-    findFieldSlot morphoEnableIrmFields "isIrmEnabled" = some 1 := by
+/-- `isIrmEnabled` resolves to slot 1 in `ownerEnableFlagFields`. -/
+theorem ownerEnableFlagMappingFieldResolution :
+    findFieldSlot ownerEnableFlagFields "isIrmEnabled" = some 1 := by
   rfl
 
 /-- Concrete witness for mapping-based enablement (`enableIrm`-style). -/
 theorem witness_letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop_enableIrm_supported :
-    SupportedStmtList morphoEnableIrmFields
+    SupportedStmtList ownerEnableFlagFields
       [ Stmt.letVar "sender" Expr.caller
       , Stmt.letVar "ownerVar" (Expr.storage "owner")
       , Stmt.require (Expr.eq (Expr.localVar "sender") (Expr.localVar "ownerVar")) "not owner"
@@ -6688,28 +6612,28 @@ theorem witness_letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop_ena
   exact ⟨[.letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop
     "owner" "isIrmEnabled" "sender" "ownerVar" "isEnabled" "irm"
     0 1 1 "not owner" "already enabled"
-    morphoEnableIrmOwnerFieldResolution morphoEnableIrmMappingFieldResolution
+    ownerEnableFlagOwnerFieldResolution ownerEnableFlagMappingFieldResolution
     (by decide) (by decide) (by decide) (by decide)], rfl⟩
 
 /-- Field layout for `enableLltv` witness coverage. -/
-def morphoEnableLltvFields : List Field :=
+def ownerEnableThresholdFields : List Field :=
   [ { name := "owner", ty := FieldType.address }
   , { name := "isLltvEnabled", ty := FieldType.mappingTyped (.simple .uint256) } ]
 
-/-- `owner` resolves to slot 0 as an address field in `morphoEnableLltvFields`. -/
-theorem morphoEnableLltvOwnerFieldResolution :
-    findFieldWithResolvedSlot morphoEnableLltvFields "owner" =
+/-- `owner` resolves to slot 0 as an address field in `ownerEnableThresholdFields`. -/
+theorem ownerEnableThresholdOwnerFieldResolution :
+    findFieldWithResolvedSlot ownerEnableThresholdFields "owner" =
       some ({ name := "owner", ty := FieldType.address }, 0) := by
   rfl
 
-/-- `isLltvEnabled` resolves to slot 1 in `morphoEnableLltvFields`. -/
-theorem morphoEnableLltvMappingFieldResolution :
-    findFieldSlot morphoEnableLltvFields "isLltvEnabled" = some 1 := by
+/-- `isLltvEnabled` resolves to slot 1 in `ownerEnableThresholdFields`. -/
+theorem ownerEnableThresholdMappingFieldResolution :
+    findFieldSlot ownerEnableThresholdFields "isLltvEnabled" = some 1 := by
   rfl
 
 /-- Concrete witness for mappingUint-based enablement (`enableLltv`-style). -/
 theorem witness_letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop_enableLltv_supported :
-    SupportedStmtList morphoEnableLltvFields
+    SupportedStmtList ownerEnableThresholdFields
       [ Stmt.letVar "sender" Expr.caller
       , Stmt.letVar "ownerVar" (Expr.storage "owner")
       , Stmt.require (Expr.eq (Expr.localVar "sender") (Expr.localVar "ownerVar")) "not owner"
@@ -6722,21 +6646,21 @@ theorem witness_letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappin
   exact ⟨[.letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop
     "owner" "isLltvEnabled" "sender" "ownerVar" "isEnabled" "lltv"
     0 1 1000000000000000000 1 "not owner" "already enabled" "lltv too high"
-    morphoEnableLltvOwnerFieldResolution morphoEnableLltvMappingFieldResolution
+    ownerEnableThresholdOwnerFieldResolution ownerEnableThresholdMappingFieldResolution
     (by decide) (by decide) (by decide) (by decide)], rfl⟩
 
 /-- Field layout for `setAuthorization` witness coverage. -/
-def morphoSetAuthorizationFields : List Field :=
+def delegateAuthorizationFields : List Field :=
   [{ name := "isAuthorized", ty := FieldType.mappingTyped (.nested .address .address) }]
 
-/-- `isAuthorized` resolves to slot 0 in `morphoSetAuthorizationFields`. -/
-theorem morphoSetAuthorizationFieldResolution :
-    findFieldSlot morphoSetAuthorizationFields "isAuthorized" = some 0 := by
+/-- `isAuthorized` resolves to slot 0 in `delegateAuthorizationFields`. -/
+theorem delegateAuthorizationFieldResolution :
+    findFieldSlot delegateAuthorizationFields "isAuthorized" = some 0 := by
   rfl
 
 /-- Concrete witness for authorization toggle (`setAuthorization`-style). -/
 theorem witness_letCallerLetMapping2IteParamReqSetMapping2Stop_setAuthorization_supported :
-    SupportedStmtList morphoSetAuthorizationFields
+    SupportedStmtList delegateAuthorizationFields
       [ Stmt.letVar "sender" Expr.caller
       , Stmt.letVar "isAuthorizedNow"
           (Expr.mapping2 "isAuthorized" (Expr.localVar "sender") (Expr.param "authorized"))
@@ -6753,7 +6677,7 @@ theorem witness_letCallerLetMapping2IteParamReqSetMapping2Stop_setAuthorization_
       , Stmt.stop ] := by
   exact ⟨[.letCallerLetMapping2IteParamReqSetMapping2Stop
     "isAuthorized" "sender" "isAuthorizedNow" "authorized" "newIsAuthorized"
-    "already authorized" "already not authorized" 0 morphoSetAuthorizationFieldResolution
+    "already authorized" "already not authorized" 0 delegateAuthorizationFieldResolution
     (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)], rfl⟩
 
 end Verity.Core.Free

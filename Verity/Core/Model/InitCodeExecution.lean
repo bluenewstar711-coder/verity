@@ -1,12 +1,15 @@
-import Verity.Core.Model.DenoteMemory
+import Verity.Core
 
 /-!
 # Bounded initcode execution
 
-Executable bytecode semantics for the instructions in Midnight's eleven-byte
-SSTORE2 initcode. Unsupported opcodes are explicit errors, not approximations.
-This module is a prerequisite for deployment denotation: it neither admits
-CREATE2 in the importer nor chooses an adversary-supplied runtime byte string.
+Executable bytecode semantics for the instructions of the generic eleven-byte
+runtime-payload prologue `PUSH1 11; CODESIZE; SUB; DUP1; PUSH1 11; PUSH0;
+CODECOPY; PUSH0; RETURN`, which copies every byte after the prologue into memory
+and returns it as runtime code (the SSTORE2-style data-contract initcode).
+Unsupported opcodes are explicit errors, not approximations. This module is a
+prerequisite for deployment denotation: it neither admits CREATE2 in the
+importer nor chooses an adversary-supplied runtime byte string.
 
 The model is functional: gas, call depth, initcode/code size limits, account
 collision, code-deposit checks and world rollback belong to the deployment
@@ -99,28 +102,30 @@ theorem run_after_step {code : List Byte} {state next : Machine} (fuel : Nat)
     run (fuel + 1) code state = run fuel code next := by
   rw [run_succ, transition]
 
-/-- Exact bytes from pinned IdLib: PUSH1 11; CODESIZE; SUB; DUP1;
-PUSH1 11; PUSH0; CODECOPY; PUSH0; RETURN. No contract-name recognition. -/
-def midnightPrefix : List Byte :=
+/-- Exact prologue bytes: PUSH1 11; CODESIZE; SUB; DUP1; PUSH1 11; PUSH0;
+CODECOPY; PUSH0; RETURN. No contract-name recognition. -/
+def push11CopyReturnPrefix : List Byte :=
   [⟨0x60, by decide⟩, ⟨0x0b, by decide⟩, ⟨0x38, by decide⟩,
    ⟨0x03, by decide⟩, ⟨0x80, by decide⟩, ⟨0x60, by decide⟩,
    ⟨0x0b, by decide⟩, ⟨0x5f, by decide⟩, ⟨0x39, by decide⟩,
    ⟨0x5f, by decide⟩, ⟨0xf3, by decide⟩]
 
-def midnightInitcode (payload : List Byte) : List Byte := midnightPrefix ++ payload
+/-- Initcode consisting of the eleven-byte prologue followed by the runtime payload. -/
+def push11CopyReturnInitcode (payload : List Byte) : List Byte :=
+  push11CopyReturnPrefix ++ payload
 
-@[simp] theorem midnightInitcode_length (payload : List Byte) :
-    (midnightInitcode payload).length = 11 + payload.length := by
-  simp [midnightInitcode, midnightPrefix]
+@[simp] theorem push11CopyReturnInitcode_length (payload : List Byte) :
+    (push11CopyReturnInitcode payload).length = 11 + payload.length := by
+  simp [push11CopyReturnInitcode, push11CopyReturnPrefix]
   omega
 
 /-- This predicate inspects bytes; it does not accept a library/function name. -/
-def hasMidnightPrefix (code : List Byte) : Bool :=
-  code.take 11 == midnightPrefix
+def hasPush11CopyReturnPrefix (code : List Byte) : Bool :=
+  code.take 11 == push11CopyReturnPrefix
 
-@[simp] theorem hasMidnightPrefix_initcode (payload : List Byte) :
-    hasMidnightPrefix (midnightInitcode payload) = true := by
-  simp [hasMidnightPrefix, midnightInitcode, midnightPrefix]
+@[simp] theorem hasPush11CopyReturnPrefix_initcode (payload : List Byte) :
+    hasPush11CopyReturnPrefix (push11CopyReturnInitcode payload) = true := by
+  simp [hasPush11CopyReturnPrefix, push11CopyReturnInitcode, push11CopyReturnPrefix]
 
 theorem expandedLength_ge (endOffset : Nat) : endOffset ≤ expandedLength endOffset := by
   by_cases h : endOffset = 0
@@ -188,64 +193,78 @@ theorem prefix_sub_length (size : Nat) (fits : 11 + size < Uint256.modulus) :
   omega
 
 private def s1 : Machine := { pc := 2, stack := [11] }
-private def s2 (size : Nat) : Machine := { pc := 3, stack := [Uint256.ofNat (11 + size), 11] }
+private def s2 (size : Nat) : Machine :=
+  { pc := 3, stack := [Uint256.ofNat (11 + size), 11] }
 private def s3 (size : Nat) : Machine := { pc := 4, stack := [Uint256.ofNat size] }
-private def s4 (size : Nat) : Machine := { pc := 5, stack := [Uint256.ofNat size, Uint256.ofNat size] }
-private def s5 (size : Nat) : Machine := { pc := 7, stack := [11, Uint256.ofNat size, Uint256.ofNat size] }
-private def s6 (size : Nat) : Machine := { pc := 8, stack := [0, 11, Uint256.ofNat size, Uint256.ofNat size] }
+private def s4 (size : Nat) : Machine :=
+  { pc := 5, stack := [Uint256.ofNat size, Uint256.ofNat size] }
+private def s5 (size : Nat) : Machine :=
+  { pc := 7, stack := [11, Uint256.ofNat size, Uint256.ofNat size] }
+private def s6 (size : Nat) : Machine :=
+  { pc := 8, stack := [0, 11, Uint256.ofNat size, Uint256.ofNat size] }
 private def s7 (payload : List Byte) : Machine :=
   { pc := 9, stack := [Uint256.ofNat payload.length],
-    memory := codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length }
+    memory := codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11 payload.length }
 private def s8 (payload : List Byte) : Machine :=
   { pc := 10, stack := [0, Uint256.ofNat payload.length],
-    memory := codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length }
+    memory := codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11 payload.length }
 
 private theorem step1 (payload : List Byte) :
-    step (midnightInitcode payload) {} = .running s1 := rfl
+    step (push11CopyReturnInitcode payload) {} = .running s1 := rfl
 
 private theorem step2 (payload : List Byte) :
-    step (midnightInitcode payload) s1 = .running (s2 payload.length) := by
-  change Result.running { pc := 3, stack := [Uint256.ofNat (midnightInitcode payload).length, 11] } = _
-  rw [midnightInitcode_length]
+    step (push11CopyReturnInitcode payload) s1 = .running (s2 payload.length) := by
+  change Result.running
+    { pc := 3, stack := [Uint256.ofNat (push11CopyReturnInitcode payload).length, 11] } = _
+  rw [push11CopyReturnInitcode_length]
   rfl
 
 private theorem step3 (payload : List Byte) (fits : 11 + payload.length < Uint256.modulus) :
-    step (midnightInitcode payload) (s2 payload.length) = .running (s3 payload.length) := by
-  change Result.running { pc := 4, stack := [Uint256.sub (Uint256.ofNat (11 + payload.length)) 11] } = _
+    step (push11CopyReturnInitcode payload) (s2 payload.length) =
+      .running (s3 payload.length) := by
+  change Result.running
+    { pc := 4, stack := [Uint256.sub (Uint256.ofNat (11 + payload.length)) 11] } = _
   rw [prefix_sub_length _ fits]
   rfl
 
 private theorem step4 (payload : List Byte) :
-    step (midnightInitcode payload) (s3 payload.length) = .running (s4 payload.length) := rfl
+    step (push11CopyReturnInitcode payload) (s3 payload.length) =
+      .running (s4 payload.length) := rfl
 
 private theorem step5 (payload : List Byte) :
-    step (midnightInitcode payload) (s4 payload.length) = .running (s5 payload.length) := rfl
+    step (push11CopyReturnInitcode payload) (s4 payload.length) =
+      .running (s5 payload.length) := rfl
 
 private theorem step6 (payload : List Byte) :
-    step (midnightInitcode payload) (s5 payload.length) = .running (s6 payload.length) := rfl
+    step (push11CopyReturnInitcode payload) (s5 payload.length) =
+      .running (s6 payload.length) := rfl
 
 private theorem step7 (payload : List Byte) (fits : payload.length < Uint256.modulus) :
-    step (midnightInitcode payload) (s6 payload.length) = .running (s7 payload) := by
+    step (push11CopyReturnInitcode payload) (s6 payload.length) = .running (s7 payload) := by
   change Result.running {
     pc := 9
     stack := [Uint256.ofNat payload.length]
-    memory := codeCopy Memory.empty (midnightInitcode payload) 0 11 (Uint256.ofNat payload.length).val } = _
+    memory := codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11
+      (Uint256.ofNat payload.length).val } = _
   rw [Uint256.val_ofNat, Nat.mod_eq_of_lt fits]
   rfl
 
 private theorem step8 (payload : List Byte) :
-    step (midnightInitcode payload) (s7 payload) = .running (s8 payload) := rfl
+    step (push11CopyReturnInitcode payload) (s7 payload) = .running (s8 payload) := rfl
 
 private theorem step9 (payload : List Byte) (fits : payload.length < Uint256.modulus) :
-    step (midnightInitcode payload) (s8 payload) =
-      .returned ((codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length).slice 0 payload.length) := by
-  change Result.returned ((codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length).slice 0
-    (Uint256.ofNat payload.length).val) = _
+    step (push11CopyReturnInitcode payload) (s8 payload) =
+      .returned ((codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11
+        payload.length).slice 0 payload.length) := by
+  change Result.returned ((codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11
+    payload.length).slice 0 (Uint256.ofNat payload.length).val) = _
   rw [Uint256.val_ofNat, Nat.mod_eq_of_lt fits]
 
-theorem midnight_run (payload : List Byte) (fits : 11 + payload.length < Uint256.modulus) :
-    run 9 (midnightInitcode payload) {} =
-      .returned ((codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length).slice 0 payload.length) := by
+theorem push11CopyReturn_run (payload : List Byte)
+    (fits : 11 + payload.length < Uint256.modulus) :
+    run 9 (push11CopyReturnInitcode payload) {} =
+      .returned ((codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11
+        payload.length).slice 0 payload.length) := by
   have hsize : payload.length < Uint256.modulus := by omega
   rw [run_after_step 8 (step1 payload), run_after_step 7 (step2 payload),
       run_after_step 6 (step3 payload fits), run_after_step 5 (step4 payload),
@@ -253,27 +272,30 @@ theorem midnight_run (payload : List Byte) (fits : 11 + payload.length < Uint256
       run_after_step 2 (step7 payload hsize), run_after_step 1 (step8 payload),
       run_succ, step9 _ hsize]
 
-theorem midnight_codeByte (payload : List Byte) (index : Nat) :
-    listByte (midnightInitcode payload) (11 + index) = listByte payload index := by
+theorem push11CopyReturn_codeByte (payload : List Byte) (index : Nat) :
+    listByte (push11CopyReturnInitcode payload) (11 + index) = listByte payload index := by
   rw [Nat.add_comm 11 index]
   rfl
 
-theorem midnight_slice (payload : List Byte) :
-    (codeCopy Memory.empty (midnightInitcode payload) 0 11 payload.length).slice 0 payload.length = payload := by
+theorem push11CopyReturn_slice (payload : List Byte) :
+    (codeCopy Memory.empty (push11CopyReturnInitcode payload) 0 11 payload.length).slice 0
+      payload.length = payload := by
   apply List.ext_getElem
   · simp only [Memory.slice, List.length_map, List.length_range]
   · intro index _ hi
     simp only [Memory.slice, List.getElem_map, List.getElem_range, Nat.zero_add]
     rw [List.getElem_eq_getD zeroByte]
-    have h := codeCopy_readByte_at Memory.empty (midnightInitcode payload) 0 11 payload.length ⟨index, hi⟩
+    have h := codeCopy_readByte_at Memory.empty (push11CopyReturnInitcode payload) 0 11
+      payload.length ⟨index, hi⟩
     simp only [Nat.zero_add] at h
-    rw [midnight_codeByte] at h
+    rw [push11CopyReturn_codeByte] at h
     exact h
 
 /-- Nine decoded instructions return exactly the appended payload for every
 bounded input, including an empty payload. No runtime-code oracle is involved. -/
-theorem midnight_returns_payload (payload : List Byte) (fits : 11 + payload.length < Uint256.modulus) :
-    run 9 (midnightInitcode payload) {} = .returned payload := by
-  rw [midnight_run _ fits, midnight_slice]
+theorem push11CopyReturn_returns_payload (payload : List Byte)
+    (fits : 11 + payload.length < Uint256.modulus) :
+    run 9 (push11CopyReturnInitcode payload) {} = .returned payload := by
+  rw [push11CopyReturn_run _ fits, push11CopyReturn_slice]
 
 end Compiler.CompilationModel.InitCodeExecution
