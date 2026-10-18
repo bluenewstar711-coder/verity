@@ -11,14 +11,21 @@ re-elaborates thousands of lines on every edit. This script keeps a single
   2. `check` or `send` typechecks edited declarations/proofs (or slices of a
      file directly from disk) against `--env 0` in ~1 second without JSON
      escaping or re-elaborating the prefix.
+
+Fast loop: always load the unchanged prefix up to the line *before* the first
+edited declaration (`load-header --until-line N` or `--before-decl NAME`), then
+`check --decl NAME` (or `--start-line/--end-line`) so each check elaborates only
+the 20-50 lines being edited instead of everything from the header to EOF.
 """
 
 from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -29,9 +36,94 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SOCKET = "/tmp/verity-lean-repl.sock"
 DEFAULT_REPL_DIR = "/tmp/lean-repl"
 REPL_REPO_URL = "https://github.com/leanprover-community/repl.git"
+# A `check` range longer than this almost always means the prefix was not
+# loaded with `--until-line`, so the REPL re-elaborates far more than the edit.
+LARGE_CHECK_RANGE = 150
+
+
+def default_socket_path(repo_root: Path = ROOT) -> str:
+    """Per-worktree socket, so sibling worktrees never share one `lake env`.
+
+    `VERITY_LEAN_REPL_SOCKET` overrides the derived path.
+    """
+    override = os.environ.get("VERITY_LEAN_REPL_SOCKET")
+    if override:
+        return override
+    digest = hashlib.sha1(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:10]
+    return f"/tmp/verity-lean-repl-{digest}.sock"
+
+
+DEFAULT_SOCKET = default_socket_path()
+
+_DECL_KEYWORDS = (
+    "theorem|lemma|def|abbrev|instance|example|structure|inductive|class|opaque|axiom"
+)
+_DECL_HEAD_RE = re.compile(
+    r"^(?:@\[[^\]]*\]\s*)*"
+    r"(?:(?:private|protected|noncomputable|unsafe|partial|nonrec)\s+)*"
+    rf"(?:{_DECL_KEYWORDS})\s+([^\s:({{\[]+)"
+)
+# Column-0 lines that still belong to the preceding declaration.
+_DECL_CONTINUATION_RE = re.compile(r"^(?:\||termination_by\b|decreasing_by\b|where\b|deriving\b)")
+_DECL_PREFIX_RE = re.compile(r"^(?:@\[|set_option\s.*\sin\s*$)")
+
+
+def _name_matches(found: str, wanted: str) -> bool:
+    """Match `Ns.foo` against `foo` written inside `namespace Ns`, and vice versa."""
+    return found == wanted or found.endswith(f".{wanted}") or wanted.endswith(f".{found}")
+
+
+def _docstring_start(lines: list[str], end_idx: int) -> int | None:
+    """Index of the `/--` opening a docstring that closes on line `end_idx`."""
+    if not lines[end_idx].rstrip().endswith("-/"):
+        return None
+    for idx in range(end_idx, -1, -1):
+        if lines[idx].startswith("/--"):
+            return idx
+        if idx != end_idx and lines[idx].rstrip().endswith("-/"):
+            return None
+    return None
+
+
+def locate_declaration(path: Path, name: str) -> tuple[int, int]:
+    """1-based inclusive line range of top-level declaration `name`.
+
+    The range includes the docstring, attributes, and `set_option ... in`
+    prefix lines, and ends at the last non-blank line before the next
+    column-0 command. Raises `LookupError` if absent or ambiguous.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    heads = [
+        idx
+        for idx, line in enumerate(lines)
+        if (match := _DECL_HEAD_RE.match(line)) and _name_matches(match.group(1), name)
+    ]
+    if not heads:
+        raise LookupError(f"declaration `{name}` not found in {path}")
+    if len(heads) > 1:
+        found = ", ".join(str(idx + 1) for idx in heads)
+        raise LookupError(f"declaration `{name}` is ambiguous in {path} (lines {found})")
+    head = heads[0]
+    start = head
+    while start > 0:
+        prev = start - 1
+        if _DECL_PREFIX_RE.match(lines[prev]):
+            start = prev
+            continue
+        doc = _docstring_start(lines, prev)
+        if doc is None:
+            break
+        start = doc
+    end = head
+    for idx in range(head + 1, len(lines)):
+        line = lines[idx]
+        if line and not line[0].isspace() and not _DECL_CONTINUATION_RE.match(line):
+            break
+        if line.strip():
+            end = idx
+    return start + 1, end + 1
 
 
 def detect_toolchain_tag(repo_root: Path = ROOT) -> str:
@@ -199,6 +291,7 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                         "repl_pid": proc.pid,
                         "header_env": state["header_env"],
                         "last_env": state["last_env"],
+                        "cwd": str(cwd.resolve()),
                     }
                     conn.sendall(json.dumps(resp).encode("utf-8"))
                     continue
@@ -292,6 +385,14 @@ def cmd_start(args: argparse.Namespace) -> int:
         try:
             status = request_daemon(socket_path, {"action": "status"}, timeout=2.0)
             if status.get("ok"):
+                wanted_cwd = str(Path(args.cwd).resolve())
+                if status.get("cwd") not in (None, wanted_cwd):
+                    print(
+                        f"REPL daemon on {socket_path} serves {status['cwd']}, not {wanted_cwd}; "
+                        "pass a distinct --socket (or set VERITY_LEAN_REPL_SOCKET).",
+                        file=sys.stderr,
+                    )
+                    return 1
                 print(json.dumps({"status": "already_running", **status}))
                 return 0
         except OSError:
@@ -344,10 +445,47 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 1
 
 
+def advise(message: str) -> None:
+    print(f"lean_repl_daemon: hint: {message}", file=sys.stderr)
+
+
+def resolve_header_until_line(args: argparse.Namespace) -> int | None:
+    if args.before_decl is not None:
+        if args.until_line is not None:
+            raise ValueError("pass only one of --until-line / --before-decl")
+        start, _ = locate_declaration(Path(args.file), args.before_decl)
+        return start - 1
+    if args.until_line is None:
+        advise(
+            "only the import header was loaded; every `check` must then re-elaborate "
+            "the file from the header onward. Pass `--until-line <first_edited_decl - 1>` "
+            "(or `--before-decl <name>`) so `check` elaborates just the edited declaration."
+        )
+    return args.until_line
+
+
+def resolve_check_range(args: argparse.Namespace) -> tuple[int, int | None]:
+    if args.decl is not None:
+        if args.start_line is not None or args.end_line is not None:
+            raise ValueError("pass either --decl or --start-line/--end-line, not both")
+        return locate_declaration(Path(args.file), args.decl)
+    if args.start_line is None:
+        raise ValueError("specify --decl NAME or --start-line M [--end-line K]")
+    if args.end_line is None:
+        advise("no --end-line given: checking through EOF. Pass the edited declaration's range.")
+    elif args.end_line - args.start_line + 1 > LARGE_CHECK_RANGE:
+        advise(
+            f"checking {args.end_line - args.start_line + 1} lines. Reload the prefix with "
+            f"`load-header --until-line {args.start_line - 1}` and check one declaration "
+            "at a time (`check --decl <name>`)."
+        )
+    return args.start_line, args.end_line
+
+
 def cmd_load_header(args: argparse.Namespace) -> int:
     socket_path = Path(args.socket)
     file_path = Path(args.file)
-    cmd_text = extract_import_header(file_path, args.until_line)
+    cmd_text = extract_import_header(file_path, resolve_header_until_line(args))
     payload: dict[str, Any] = {"cmd": cmd_text}
     if args.env is not None:
         payload["env"] = args.env
@@ -363,7 +501,8 @@ def cmd_load_header(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     socket_path = Path(args.socket)
     file_path = Path(args.file)
-    snippet = extract_file_slice(file_path, args.start_line, args.end_line)
+    start_line, end_line = resolve_check_range(args)
+    snippet = extract_file_slice(file_path, start_line, end_line)
     env_id = args.env
     if env_id is None:
         status = request_daemon(socket_path, {"action": "status"}, timeout=5.0)
@@ -403,6 +542,12 @@ def cmd_send(args: argparse.Namespace) -> int:
     return 1 if (args.fail_on_error and has_error_messages(resp)) else 0
 
 
+def cmd_locate(args: argparse.Namespace) -> int:
+    start, end = locate_declaration(Path(args.file), args.decl)
+    print(json.dumps({"decl": args.decl, "start_line": start, "end_line": end, "until_line": start - 1}))
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     resp = request_daemon(Path(args.socket), {"action": "status"}, timeout=5.0)
     print(json.dumps(resp, indent=2))
@@ -435,26 +580,43 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_header = sub.add_parser(
         "load-header",
-        help="Load a file's imports (or prefix up to --until-line) once into header_env",
+        help=(
+            "Load a file's prefix once into header_env; pass --until-line "
+            "<first_edited_decl - 1> (or --before-decl NAME) so checks stay small"
+        ),
     )
     p_header.add_argument("--socket", default=DEFAULT_SOCKET)
     p_header.add_argument("--file", required=True)
     p_header.add_argument("--until-line", type=int, default=None)
+    p_header.add_argument(
+        "--before-decl",
+        default=None,
+        help="Load everything before this declaration (docstring/attributes included)",
+    )
     p_header.add_argument("--env", type=int, default=None)
     p_header.add_argument("--timeout", type=float, default=300.0)
     p_header.set_defaults(func=cmd_load_header)
 
     p_check = sub.add_parser(
         "check",
-        help="Typecheck a line range from a file on disk against the loaded header_env",
+        help="Typecheck a declaration (--decl) or line range from a file against header_env",
     )
     p_check.add_argument("--socket", default=DEFAULT_SOCKET)
     p_check.add_argument("--file", required=True)
-    p_check.add_argument("--start-line", type=int, required=True)
+    p_check.add_argument("--decl", default=None, help="Check exactly this declaration's lines")
+    p_check.add_argument("--start-line", type=int, default=None)
     p_check.add_argument("--end-line", type=int, default=None)
     p_check.add_argument("--env", type=int, default=None)
     p_check.add_argument("--timeout", type=float, default=300.0)
     p_check.set_defaults(func=cmd_check)
+
+    p_locate = sub.add_parser(
+        "locate",
+        help="Print a declaration's line range and the --until-line that precedes it",
+    )
+    p_locate.add_argument("--file", required=True)
+    p_locate.add_argument("--decl", required=True)
+    p_locate.set_defaults(func=cmd_locate)
 
     p_send = sub.add_parser("send", help="Send a raw cmd, tactic, or JSON stanza to REPL")
     p_send.add_argument("--socket", default=DEFAULT_SOCKET)
@@ -481,7 +643,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (LookupError, ValueError) as exc:
+        print(f"lean_repl_daemon: error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
