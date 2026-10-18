@@ -39,9 +39,9 @@ def snapshot(destination):
     # directory, not that link, or mutants overwrite the parent's compiled code.
     build = (WORKSPACE / ".lake/build").resolve(strict=True)
     if sys.platform == "darwin":
-        command(["/bin/cp", "-cR", build, cache / "build"], timeout=300)
+        command(["/bin/cp", "-cRL", build, cache / "build"], timeout=300)
     else:
-        command(["cp", "-a", "--reflink=auto", build, cache / "build"], timeout=300)
+        command(["cp", "-aL", "--reflink=auto", build, cache / "build"], timeout=300)
     (cache / "solidity-import").mkdir()
     for compiler_name in ("solc-0.8.34", "solc-0.8.10"):
         compiler_src = WORKSPACE / ".lake/solidity-import" / compiler_name
@@ -74,18 +74,18 @@ def mutation_campaign(output, selected=None):
     from .check_abi_length_for_mutations import mutation_campaign as array_for_campaign
     from .check_scalar_array_abi_mutations import MUTANTS as SCALAR_ARRAY_MUTANTS
     from .check_scalar_array_abi_mutations import mutation_campaign as scalar_array_campaign
-    from .check_market_abi_mutations import MUTANTS as MARKET_ABI_MUTANTS
-    from .check_market_abi_mutations import mutation_campaign as market_abi_campaign
+    from .check_nested_dynamic_struct_abi_mutations import MUTANTS as NESTED_STRUCT_ABI_MUTANTS
+    from .check_nested_dynamic_struct_abi_mutations import mutation_campaign as nested_struct_abi_campaign
     from .check_multiple_dynamic_abi_mutations import MUTANTS as MULTIPLE_ABI_MUTANTS
     from .check_multiple_dynamic_abi_mutations import mutation_campaign as multiple_abi_campaign
-    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *ARRAY_FOR_MUTANTS, *MARKET_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS]:
+    for name in selected or [*MUTANTS, *CONTEXT_MUTANTS, *STORAGE_MUTANTS, *ABI_MUTANTS, *STRUCT_ABI_MUTANTS, *SCALAR_ARRAY_MUTANTS, *ARRAY_FOR_MUTANTS, *NESTED_STRUCT_ABI_MUTANTS, *MULTIPLE_ABI_MUTANTS]:
         if name in MULTIPLE_ABI_MUTANTS:
             result = multiple_abi_campaign(output, [name])
             reports.extend(result['mutants'])
             write_json(output / "mutation-results.json", reports)
             continue
-        if name in MARKET_ABI_MUTANTS:
-            result = market_abi_campaign(output, [name])
+        if name in NESTED_STRUCT_ABI_MUTANTS:
+            result = nested_struct_abi_campaign(output, [name])
             reports.extend(result['mutants'])
             write_json(output / "mutation-results.json", reports)
             continue

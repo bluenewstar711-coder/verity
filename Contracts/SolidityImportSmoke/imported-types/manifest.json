@@ -1,0 +1,12 @@
+{
+  "fixture": "nested-dynamic-struct-imported-types",
+  "files": {
+    "interfaces/INestedRecord.sol": {
+      "sha256": "e4cc3e6b8d8077e92baf499a79e86cc20c6a046ef954279ed49a787e5f879630"
+    },
+    "libraries/RecordHashLib.sol": {
+      "sha256": "6f929816145e918bc0fc83d49394c4aafb959f7292eb9efb36e81b9a8b234789"
+    }
+  },
+  "note": "Construct-generic multi-file imported types for the nested dynamic struct ABI and ABI hashing fixtures. Hashes are also pinned in scripts/solidity_differential/imported_types.py."
+}

@@ -13,7 +13,8 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     output.mkdir(parents=True, exist_ok=False)
     # Finish all compilation before taking executable snapshots in adapters.
     command(['lake', 'build', 'SolidityImportSmoke', 'Compiler.Codegen',
-             'Compiler.Yul.PrettyPrint'], timeout=1800, log=output / 'build.log')
+             'Compiler.Yul.PrettyPrint', 'Compiler.SolidityImport.SequenceRunner',
+             'Compiler.SolidityImport.StaticOracleMocks'], timeout=1800, log=output / 'build.log')
     command(['lake', 'env', 'lean', '--run',
              'Contracts/SolidityImportSmoke/Transactions.lean'],
             log=output / 'transaction-smoke.log')
@@ -41,6 +42,9 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         ('mutations', ['-m', 'solidity_differential.check_stateful_mutations']),
         ('event-mutations', ['-m', 'solidity_differential.check_event_mutations']),
     ]
+    checks.append(('pinned-sequence', ['-m', 'solidity_differential.check_pinned_sequence_fixture',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--output', str(output / 'pinned-sequence')]))
     checks.append(('create2-parent-opcode', ['-m', 'solidity_differential.check_deployment_world',
         '--parent-opcode', '--output', str(output / 'create2-parent-opcode')]))
     checks.append(('hashing-programs', ['-m', 'solidity_differential.check_hashing_programs',
@@ -70,7 +74,7 @@ def stateful_campaign(output, transactions, seed, jobs=1):
     checks.append(('storage-yul-numeric', ['-m', 'solidity_differential.check_storage',
         '--fixture', 'yul-numeric', '--transactions', str(max(64, transactions)),
         '--seed', str(seed), '--output', str(output / 'storage-yul-numeric')]))
-    for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo'):
+    for fixture in ('void', 'bytes', 'mapping', 'short-circuit', 'imported-event', 'narrow-event', 'if-else', 'numeric-literals', 'constant-arrays', 'modulo', 'unchecked-blocks', 'tuple-destructuring'):
         checks.append(('storage-' + fixture, ['-m', 'solidity_differential.check_storage',
             '--fixture', fixture, '--transactions', str(transactions), '--seed', str(seed),
             '--output', str(output / ('storage-' + fixture))]))
@@ -97,10 +101,10 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--output', str(output / 'scalar-array-abi')]))
     checks.append(('scalar-array-abi-rejections', ['-m', 'solidity_differential.check_scalar_array_abi_rejections',
         '--output', str(output / 'scalar-array-abi-rejections')]))
-    checks.append(('market-abi', ['-m', 'solidity_differential.check_market_abi_programs',
-        '--output', str(output / 'market-abi')]))
-    checks.append(('market-abi-rejections', ['-m', 'solidity_differential.check_market_abi_rejections',
-        '--output', str(output / 'market-abi-rejections')]))
+    checks.append(('nested-dynamic-struct-abi', ['-m', 'solidity_differential.check_nested_dynamic_struct_abi_programs',
+        '--output', str(output / 'nested-dynamic-struct-abi')]))
+    checks.append(('nested-dynamic-struct-abi-rejections', ['-m', 'solidity_differential.check_nested_dynamic_struct_abi_rejections',
+        '--output', str(output / 'nested-dynamic-struct-abi-rejections')]))
     checks.append(('block-rejections', ['-m', 'solidity_differential.check_block_rejections',
         '--output', str(output / 'block-rejections')]))
     checks.append(('abi-event-composition', ['-m', 'solidity_differential.check_abi_event_composition',
@@ -112,6 +116,13 @@ def stateful_campaign(output, transactions, seed, jobs=1):
         '--source-fixture', 'scripts/solidity_differential/fixtures/ErrorSequence.sol',
         '--model-driver', 'Contracts/SolidityImportSmoke/ErrorSequenceModel.lean',
         '--output', str(output / 'errors')]))
+    checks.append(('checked-oracle-mock', ['-m', 'solidity_differential.check_checked_static_oracle_mock']))
+    checks.append(('interface-static-call', ['-m', 'solidity_differential.check_interface_static_call',
+        '--transactions', str(max(64, transactions)), '--seed', str(seed),
+        '--output', str(output / 'interface-static-call')]))
+    checks.append(('interface-static-call-rejections', ['-m',
+        'solidity_differential.check_interface_static_call_rejections',
+        '--output', str(output / 'interface-static-call-rejections')]))
     return run_checks(output, checks, transactions, seed, jobs)
 
 

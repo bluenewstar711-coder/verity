@@ -20,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
+
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
@@ -487,7 +489,7 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -531,21 +533,21 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    'import-scalar-array-validation',
                    'import-scalar-array-length',
                    'import-abi-length-for-capture', 'import-abi-length-for-zero', 'import-abi-array-length-calldata', 'import-abi-array-length-memory',
-                   'import-market-root-offset',
-                   'import-market-root-size',
-                   'import-market-calldata-array-size',
-                   'import-market-memory-panic',
-                   'import-market-struct-source-stride',
-                   'import-market-struct-pointer-stride',
-                   'import-market-struct-validation',
-                   'import-market-calldata-element-stride',
-                   'import-market-memory-element-stride',
-                   'import-market-member-validation',
-                   'import-market-root-scalar-validation',
-                   'import-market-memory-scalar-read',
-                   'import-market-calldata-scalar-read',
-                   'import-market-calldata-root-validation',
-                   'import-market-calldata-index-bounds',
+                   'import-nested-dynamic-struct-root-offset',
+                   'import-nested-dynamic-struct-root-size',
+                   'import-nested-dynamic-struct-calldata-array-size',
+                   'import-nested-dynamic-struct-memory-panic',
+                   'import-nested-dynamic-struct-struct-source-stride',
+                   'import-nested-dynamic-struct-struct-pointer-stride',
+                   'import-nested-dynamic-struct-struct-validation',
+                   'import-nested-dynamic-struct-calldata-element-stride',
+                   'import-nested-dynamic-struct-memory-element-stride',
+                   'import-nested-dynamic-struct-member-validation',
+                   'import-nested-dynamic-struct-root-scalar-validation',
+                   'import-nested-dynamic-struct-memory-scalar-read',
+                   'import-nested-dynamic-struct-calldata-scalar-read',
+                   'import-nested-dynamic-struct-calldata-root-validation',
+                   'import-nested-dynamic-struct-calldata-index-bounds',
                    'import-dynamic-root-parameter-offset')
 
 # Removing an order guard must change a located rejection to admission.
@@ -637,7 +639,8 @@ def storage_rejections(part: int) -> None:
 
 def abi_rejections() -> None:
     module_campaign_output("check_scalar_array_abi_rejections", "scalar-array-rejections", 900)
-    module_campaign_output("check_market_abi_rejections", "market-rejections", 900)
+    module_campaign_output("check_nested_dynamic_struct_abi_rejections",
+                           "nested-dynamic-struct-rejections", 900)
     print("pass ABI rejection campaigns", flush=True)
 
 
@@ -719,6 +722,29 @@ def reference_location_mutation() -> None:
     print("pass reference-location", flush=True)
 
 
+def byte_call_mutations() -> None:
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print("pass canonical byte-call and exact empty-revert mutations", flush=True)
+
+
+def interface_static_call_rejections() -> None:
+    module_campaign_output("check_interface_static_call_rejections",
+                           "interface-static-call-rejections", MUTANT_TIMEOUT)
+    print("pass interface staticcall located rejections", flush=True)
+
+
+def interface_static_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_interface_static_call_mutations", mutant,
+                             MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"interface staticcall mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -735,12 +761,15 @@ def tasks(update_golden: bool) -> list:
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
              ("reference-location", 1, reference_location_mutation),
+             ("byte-call", 1, byte_call_mutations),
              ("deployment-world", 1, deployment_world_mutations),
              ("create2-opcode", 1, create2_opcode_mutations),
-             ("account-storage", 1, account_storage_mutations)]
+             ("account-storage", 1, account_storage_mutations),
+             ("interface-static-call-rejections", 1, interface_static_call_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
+    items += [(m, 1, (lambda m=m: interface_static_call_mutant(m))) for m in INTERFACE_MUTANTS]
     return items
 
 

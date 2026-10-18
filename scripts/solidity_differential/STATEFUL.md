@@ -98,6 +98,23 @@ ambiguous/missing declarations, arity mismatches, unsupported types and excess
 topics; `check_event_mutations` tests omission, indexing and argument ordering
 through executable mutated models. These are instrument fixtures, not Solidity
 importer acceptance claims.
+
+## Pinned multi-entry-point sequences
+
+`pinned_sequence.py` runs the same A/B/C replay against a complete contract in
+a clean Git checkout at an exact revision, selected by a JSON configuration
+(entry, contract, imported signatures, solc settings, labelled initial storage,
+a deterministic transaction prefix and per-argument pools for seeded random
+calls). Tracked-file edits, untracked sources, symlinks escaping the checkout
+and revision drift are rejected before and after execution. Constructor
+equivalence is outside the instrument: all routes start from the same explicit
+storage world. The `drop-events` mutant filters every model `emit`; it must
+diverge and shrink to a replayed deletion-minimal witness.
+`check_pinned_sequence_fixture` commits the generic `fixtures/pinned-sequence`
+role-registry fixture with a fixed identity, so its revision is reproducible,
+and runs both the positive campaign and the mutant. Benchmark-specific
+configurations belong in downstream verification repositories.
+
 # Deployment account observations
 
 `python3 -m solidity_differential.check_deployment --output .lake/deployment-probe`

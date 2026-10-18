@@ -19,6 +19,11 @@ def main():
     root = Path.cwd()
     output = Path(tempfile.mkdtemp(prefix='storage-rejections-', dir=root / '.lake'))
     cases = [
+        ('empty-revert-positive', 'uint256 value;', 'value = x; revert();', 'uint256', None),
+        ('empty-revert-dynamic-message', 'string private reason;', 'revert(reason);', 'uint256',
+         'revert currently needs a literal string message'),
+        ('empty-revert-computed-message', '', 'revert(string(abi.encodePacked(x)));', 'uint256',
+         'revert currently needs a literal string message'),
         ('yul-result-shadowed-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
         ('yul-result-shadowed-else-target', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { result = 1; } else { uint256 result = n; assembly { result := xor(n,n) } } return result; }', 'return h(x);', 'uint256', 'not the return declaration result'),
         ('yul-result-shadowed-branch-solidity', 'function h(uint256 n) internal pure returns(uint256 result) { result = 7; if(n == 0) { uint256 result = n; result = result + 1; } assembly { result := add(result, 1) } }', 'return h(x);', 'uint256', None),
@@ -150,6 +155,14 @@ def main():
         ('if-helper-effect', 'uint256 value; function h(uint256 y) internal returns (uint256) { if (y > 1) { value = y; } return y; }', 'return h(x);', 'uint256', None),
         ('if-helper-effect-compound', 'uint256 value; function h(uint256 y) internal returns (uint256) { if (y > 1) { value += y; } return y; }', 'return h(x);', 'uint256', None),
         ('if-unchecked-branch', '', 'if (x > 1) { unchecked { return x - 2; } } return x;', 'uint256', None),
+        ('unchecked-narrow', 'uint8 small;', 'uint8 v = uint8(x % 256); unchecked { v += 255; small -= 1; v *= 3; } return v + small;', 'uint256', None),
+        ('unchecked-helper', 'function h(uint256 y) internal pure returns (uint256) { unchecked { require(y - 1 < 9, "h"); } unchecked { return y - 2; } }', 'return h(x);', 'uint256', None),
+        ('unchecked-helper-if', 'function h(uint256 y) internal pure returns (uint256) { unchecked { if (y > 1) { return y - 2; } require(y + 1 > 0, "h"); } return y * 2; }', 'return h(x);', 'uint256', None),
+        ('unchecked-division', '', 'unchecked { return x / (x - x); }', 'uint256', None),
+        ('unchecked-signed', '', 'unchecked { return uint256(int256(x) - 1); }', 'uint256', None),
+        ('unchecked-bitwise', 'uint256 value;', 'unchecked { value |= x; } return value;', 'uint256', None),
+        ('unchecked-helper-if-declaration', 'function h(uint256 y) internal pure returns (uint256) { unchecked { uint256 z = y - 1; if (y > 1) { return z; } } return y * 2; }', 'return h(x);', 'uint256', 'declarations in a partially returning unchecked helper block are outside this slice'),
+        ('helper-block-partial-return', 'function h(uint256 y) internal pure returns (uint256) { { if (y > 1) { return y - 2; } } return y * 2; }', 'return h(x);', 'uint256', 'partial return inside a helper block is outside this slice'),
         ('logical-or', '', 'return x == 0 || 100 / x > 1;', 'bool', None),
         ('logical-and', '', 'return x != 0 && 100 / x > 1;', 'bool', None),
         ('logical-dead-effect', 'uint256 value; function bump() internal returns (bool) { value = 1; return true; }', 'return true || bump();', 'bool', None),
@@ -396,11 +409,21 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
-        ('tuple-destructure-non-call-rejected',
-         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    (uint256 a, uint256 b) = (x, x + 1);\n    return a + b;\n  }\n}\n",
+        ('tuple-destructure-literal-positive',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    (uint256 a, , uint128 c) = (x, x / (x - x), uint128(x % 7));\n    return a + c;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         None),
+        ('tuple-assignment-literal-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 a;\n    uint256 b;\n    (a, b) = (x, x + 1);\n    return a + b;\n  }\n}\n",
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'TupleExpression: [solidity-import:unsupported] tuple destructuring requires a multi-return helper call'),
+        ('tuple-destructure-literal-stateful-rejected',
+         "pragma solidity 0.8.34;\ncontract C {\n  uint256 private v;\n  function bump() internal returns (uint256) { v += 1; return v; }\n  function checked(uint256 x) external returns (uint256) {\n    (uint256 a, uint256 b) = (x, bump());\n    return a + b;\n  }\n}\n",
+         None,
+         '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
+         'stateful or assignment expression in multi-return tuple requires explicit evaluation-order support'),
         ('tuple-assignment-duplicate-target-rejected',
          "pragma solidity 0.8.34;\ncontract C {\n  function _pair(uint256 y) internal pure returns (uint256, uint256) { return (y, y + 1); }\n  function checked(uint256 x) external pure returns (uint256) {\n    uint256 a = 0;\n    (a, a) = _pair(x);\n    return a;\n  }\n}\n",
          None,
@@ -1211,8 +1234,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          'MemberAccess: [solidity-import:unsupported] unsupported struct member compound assignment type bytes4'),
-        ('midnight-position-and-fee-positive',
-         (root / 'Contracts/SolidityImportSmoke/MidnightPositionAndFeeSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
+        ('packed-struct-mapping-ternary-tuple-positive',
+         (root / 'Contracts/SolidityImportSmoke/PackedStructMappingAndTernaryTupleSequence.sol').read_text().replace('contract SequenceFixture', 'contract C').replace('function change(', 'function checked('),
          None,
          '{ evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }',
          None),
@@ -1435,7 +1458,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             else 'm(uint256,uint256,uint256)' if name == 'public-three-key-mapping-struct-getter-dynamic-array-rejected'
             else 'checked(uint256)\n  function verifyAndRecord(Authorization,Signature)\n  function batchCheckAndSum(«address[]»,«uint256[]»)' if name == 'ecrecover-authorizer-arrays-map-positive'
             else 'checked(uint256)\n  function feeRecipient()\n  function lastMarketId()\n  function market(Id)\n  function position(Id,address)\n  function computeId(MarketParams)\n  function expectedMarketBalances(MarketParams,uint256)\n  function expectedTotalSupplyAssets(MarketParams,uint256)\n  function expectedSupplyAssets(MarketParams,address,uint256)\n  function expectedBorrowAssets(MarketParams,address,uint256)' if name == 'market-params-balances-positive'
-            else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function position(bytes32,address)\n  function collateral(bytes32,address,uint256)\n  function settlementFee(bytes32,uint256)\n  function updatePositionView(bytes32,address,uint256)' if name == 'midnight-position-and-fee-positive'
+            else 'checked(uint256)\n  function summaryCard()\n  function bucketView(bytes32)\n  function entries(bytes32,address)\n  function slotOf(bytes32,address,uint256)\n  function interpolatedRate(bytes32,uint256)\n  function previewEntry(bytes32,address,uint256)' if name == 'packed-struct-mapping-ternary-tuple-positive'
             else 'checked(uint256)\n  function supportsInterface(bytes4)\n  function hashOperation(address,uint256,bytes,bytes32,bytes32)\n  function getTimestamp(bytes32)\n  function getOperationState(bytes32)\n  function isOperation(bytes32)\n  function isOperationPending(bytes32)\n  function isOperationReady(bytes32)\n  function isOperationDone(bytes32)\n  function getMinDelay()' if name == 'timelock-and-bytes4-cast-positive'
             else 'checked(uint256)\n  function tokenURI(uint256)\n  function publicTokenURIs(uint256)\n  function scopedPayloads(address,uint256)\n  function formatDecimal(uint256)\n  function formatHex(uint256)\n  function formatAddress(address)\n  function readFallbackTag()\n  function readFallbackTagLength()' if name == 'string-bytes-mappings-uri-storage-strings-positive'
             else 'checked(uint256)\n  function formatHex(uint256)\n  function formatHexFixed(uint256,uint256)\n  function formatAddressHex(address)\n  function formatSignedDecimal(int256)\n  function checkStringEqual(string,string)\n  function upperBound(uint256)\n  function bitmapBit(uint256)' if name == 'strings-hex-arrays-bitmaps-positive'

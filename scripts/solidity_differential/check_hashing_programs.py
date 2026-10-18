@@ -28,7 +28,7 @@ def main():
         project.mkdir(parents=True)
         (project / 'AbiHashing.sol').write_text(source)
         (project / 'AbiHashingModel.lean').write_bytes((fixture / 'AbiHashingModel.lean').read_bytes())
-        shutil.copytree(fixture / 'pinned-midnight', project / 'pinned-midnight')
+        shutil.copytree(fixture / 'imported-types', project / 'imported-types')
         campaign = output / name / 'abc'
         subprocess.run([sys.executable, '-m', 'solidity_differential.check_abi_hashing',
             '--repo', str(repo), '--fixture-dir', str(project), '--output', str(campaign)],

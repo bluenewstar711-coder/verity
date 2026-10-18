@@ -4,6 +4,7 @@ import copy
 import json
 from pathlib import Path
 import random
+import re
 
 from .engine import campaign, write_json
 
@@ -258,6 +259,64 @@ def stateful_environment_source(original, variant):
     raise ValueError('unknown environment variant: ' + variant)
 
 
+def stateful_empty_revert_source(original, variant):
+    """Equivalent bare-revert programs, including persisted/rolled-back writes."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        return original.replace('next', 'replacement').replace('saved', 'stored')
+    if variant == 'expression':
+        old = 'if (next % 2 != 0) revert();'
+        if original.count(old) != 1:
+            raise ValueError('nonunique empty-revert variant anchor')
+        return original.replace(old, 'if ((next & 1) == 1) revert();')
+    raise ValueError('unknown empty-revert program variant')
+
+
+def stateful_interface_static_call_source(original, variant):
+    """Equivalent typed-interface staticcall programs over the same call sequence."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('IPriceOracle', 'IQuoteSource'), ('oracle', 'feed'), ('value', 'answer'),
+                         ('saved', 'stash'), ('observed', 'latest'), ('quote', 'fetch'),
+                         ('first', 'left'), ('second', 'right')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("""        uint256 value = IPriceOracle(oracle).price();
+        return value;
+    }
+
+    function record""", """        address target = oracle;
+        uint256 value;
+        value = IPriceOracle(target).price();
+        uint256 result = value;
+        return result;
+    }
+
+    function record"""),
+            ("""        saved = next;
+        uint256 value = IPriceOracle(oracle).price();
+        observed = value;""", """        saved = next;
+        uint256 value = IPriceOracle(oracle).price();
+        observed = value + 0;"""),
+            ("if (reject % 2 != 0) revert();", "if ((reject & 1) == 1) { revert(); }"),
+            ("return quote(first) + quote(second);", """uint256 head = quote(first);
+        uint256 tail = quote(second);
+        return head + tail;"""),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique interface staticcall variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown interface staticcall program variant')
+
+
 def stateful_storage_source(original, variant):
     """Equivalent packed scalar writes/deletes, imported independently per variant."""
     if variant == 'baseline':
@@ -456,33 +515,33 @@ def scalar_array_abi_source(source, variant):
     raise ValueError(f'unknown scalar-array ABI variant: {variant}')
 
 
-def market_abi_source(source, variant):
-    """Equivalent Market wrappers, retaining the pinned interface verbatim."""
+def nested_dynamic_struct_abi_source(source, variant):
+    """Equivalent nested dynamic struct wrappers, retaining imported types verbatim."""
     if variant == 'baseline':
         return source
     if variant == 'condition':
         anchor = 'require(flag != 0, "first");'
         if source.count(anchor) != 12:
-            raise ValueError('Market variant requires all twelve source guards')
+            raise ValueError('nested struct variant requires all twelve source guards')
         return source.replace(anchor, 'require(0 != flag, "first");')
     if variant == 'collision':
         anchor = 'require(flag != 0, "first");'
         if source.count(anchor) != 12:
-            raise ValueError('Market collision variant requires twelve source guards')
+            raise ValueError('nested struct collision variant requires twelve source guards')
         return source.replace(anchor,
             'uint256 _verity_slice_tmp_0_memory = flag; '
             'require(_verity_slice_tmp_0_memory != 0, "first");')
     if variant == 'bindings':
-        anchors = [('market.midnight', 'address'), ('market.maturity', 'uint256'),
-                   ('market.collateralParams[0].token', 'address'),
-                   ('market.collateralParams[1].token', 'address'), ('market.collateralParams.length', 'uint256')]
+        anchors = [('record.origin', 'address'), ('record.deadline', 'uint256'),
+                   ('record.items[0].token', 'address'),
+                   ('record.items[1].token', 'address'), ('record.items.length', 'uint256')]
         for expression, ty in anchors:
             anchor = 'return ' + expression + ';'
             if source.count(anchor) != 2:
-                raise ValueError('Market binding variant requires two roots per expression')
+                raise ValueError('nested struct binding variant requires two roots per expression')
             source = source.replace(anchor, ty + ' copied = ' + expression + '; return copied;')
         return source
-    raise ValueError(f'unknown Market ABI variant: {variant}')
+    raise ValueError(f'unknown nested dynamic struct ABI variant: {variant}')
 
 
 def multiple_dynamic_abi_source(source, variant):
@@ -541,17 +600,18 @@ def reference_argument_variants(original):
 
 
 def abi_hashing_variants(original):
-    """Equivalent ABI hashing sources; pinned IdLib remains unchanged."""
+    """Equivalent ABI hashing sources; imported library sources remain unchanged."""
     import re
     renamed = original
-    for old, new in [('market', 'inputMarket'), ('value', 'inputValue'),
+    for old, new in [('record', 'inputRecord'), ('value', 'inputValue'),
                      ('left', 'first'), ('right', 'second')]:
         renamed = re.sub(r'\b' + old + r'\b', new, renamed)
-    call = 'return IdLib.toId(market);'
+    call = 'return RecordHashLib.toKey(record);'
     if original.count(call) != 1:
-        raise ValueError('IdLib call anchor must be unique')
+        raise ValueError('library call anchor must be unique')
     receiver = original.replace('contract AbiHashing {',
-        'contract AbiHashing {\n    using IdLib for Market;').replace(call, 'return market.toId();')
+        'contract AbiHashing {\n    using RecordHashLib for NestedRecord;').replace(
+        call, 'return record.toKey();')
     bound, count = re.subn(r'return (keccak256\([^\n]+\));',
         r'bytes32 digest = \1; return digest;', original)
     if count < 10:
@@ -2162,40 +2222,40 @@ def stateful_market_params_balances_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown market-params-balances variant: {variant}')
 
 
-def stateful_midnight_position_and_fee_source(fixture: str, variant: str) -> str:
+def stateful_packed_struct_mapping_ternary_tuple_source(fixture: str, variant: str) -> str:
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
         import re
         names = {
             'totalScore', 'lastDigest',
-            'addedCredit', 'addedFee', 'slotIdx',
-            'prevRecipDebt', 'nextRecipBitmap', 'timeToMat', 'sFee', 'weightSum',
+            'addedBalance', 'addedReserve', 'slotIdx',
+            'prevTag', 'nextShareTotal', 'remainingTime', 'rateValue', 'weightSum',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-midnight-position-and-fee':
+    if variant == 'expanded-packed-struct-mapping-ternary-tuple':
         replacements = {
-            'position[id][feeRecipient].credit += accruedFee + 1;':
-            'position[id][feeRecipient].credit = position[id][feeRecipient].credit + accruedFee + 1;',
-            'delete position[id][feeRecipient].pendingFee;':
-            'position[id][feeRecipient].pendingFee = 0;',
-            'uint64 prevRecipDebt = bucketView[activeMarketId].tag++;':
-            'uint64 prevRecipDebt = bucketView[activeMarketId].tag; bucketView[activeMarketId].tag = prevRecipDebt + 1;',
-            'uint128 nextRecipBitmap = ++bucketView[activeMarketId].shareTotal;':
-            'uint128 nextRecipBitmap = bucketView[activeMarketId].shareTotal + 1; bucketView[activeMarketId].shareTotal = nextRecipBitmap;',
-            'summaryCard.totalCredited += newCredit;':
-            'summaryCard.totalCredited = summaryCard.totalCredited + newCredit;',
+            'entries[id][recipient].balance += accrued + 1;':
+            'entries[id][recipient].balance = entries[id][recipient].balance + accrued + 1;',
+            'delete entries[id][recipient].reserve;':
+            'entries[id][recipient].reserve = 0;',
+            'uint64 prevTag = bucketView[activeKey].tag++;':
+            'uint64 prevTag = bucketView[activeKey].tag; bucketView[activeKey].tag = prevTag + 1;',
+            'uint128 nextShareTotal = ++bucketView[activeKey].shareTotal;':
+            'uint128 nextShareTotal = bucketView[activeKey].shareTotal + 1; bucketView[activeKey].shareTotal = nextShareTotal;',
+            'summaryCard.totalAdded += newBalance;':
+            'summaryCard.totalAdded = summaryCard.totalAdded + newBalance;',
             'summaryCard.activeCount += 1;':
             'summaryCard.activeCount = summaryCard.activeCount + 1;',
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('midnight-position-and-fee variant anchor changed')
+                raise ValueError('packed-struct-mapping-ternary-tuple variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown midnight-position-and-fee variant: {variant}')
+    raise ValueError(f'unknown packed-struct-mapping-ternary-tuple variant: {variant}')
 
 
 def stateful_timelock_and_bytes4_cast_source(fixture: str, variant: str) -> str:
@@ -2449,3 +2509,79 @@ def stateful_access_manager_target_role_source(fixture: str, variant: str) -> st
             fixture = fixture.replace(before, after)
         return fixture
     raise ValueError(f'unknown access-manager-target-role variant: {variant}')
+
+
+def stateful_unchecked_blocks_source(original, variant):
+    """Wrapping arithmetic in split blocks or explicit assignments."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'split': {
+            '            total += value;\n': '            total += value;\n        }\n        unchecked {\n',
+            '            wrapped = value * 3 - 10;\n': '            wrapped = value * 3 - 10;\n        }\n        unchecked {\n',
+        },
+        'explicit': {
+            'total += value;': 'total = total + value;',
+            'small += uint8(value % 256) + 250;': 'small = small + (uint8(value % 256) + 250);',
+            'mid -= uint64(value % 5) + 1;': 'mid = mid - (uint64(value % 5) + 1);',
+            'credit[msg.sender]--;': 'credit[msg.sender] -= 1;',
+            'return x - 10 + 3;': 'uint256 y = x - 10;\n            return y + 3;',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(f'unknown unchecked-blocks variant: {variant}')
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing unchecked source anchor: {before}')
+        original = original.replace(before, after)
+    return original
+
+
+def stateful_tuple_destructuring_source(original, variant):
+    """Tuple declarations and returns spelled as scalar locals and branches."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'expanded': {
+            '(uint128 a, , uint128 c) = split(value);':
+                '(uint128 a, uint128 unused, uint128 c) = split(value);',
+            """        (uint256 start, uint256 end, uint256 lo, uint256 hi) =
+            t < 1 days ? (0 days, 1 days, uint256(a) * 3, uint256(c)) :
+            t < 7 days ? (1 days, 7 days, uint256(c), uint256(a) + (t - 1 days)) :
+                         (7 days, 8 days, a, c);
+""": """        uint256 start;
+        uint256 end;
+        uint256 lo;
+        uint256 hi;
+        if (t < 1 days) {
+            end = 1 days;
+            lo = uint256(a) * 3;
+            hi = c;
+        } else if (t < 7 days) {
+            start = 1 days;
+            end = 7 days;
+            lo = c;
+            hi = uint256(a) + (t - 1 days);
+        } else {
+            start = 7 days;
+            end = 8 days;
+            lo = a;
+            hi = c;
+        }
+""",
+        },
+        'inline': {
+            '(uint256 p, uint256 q) = pair(value % 1000);':
+                '(uint256 p, uint256 q) = (value % 1000, value % 1000 + 1);',
+            '        return triple(total);\n': """        if (total % 2 == 0) return (total, m[0], m[1]);
+        return (m[2], total + 1, m[3]);
+""",
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(f'unknown tuple-destructuring variant: {variant}')
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing tuple source anchor: {before}')
+        original = original.replace(before, after)
+    return original
