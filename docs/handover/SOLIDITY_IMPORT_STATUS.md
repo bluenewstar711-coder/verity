@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `e97cd68d5`
-- **Last Updated**: `2026-10-18T14:06:00Z`
+- **Current `main` HEAD**: `59d41b5ee`
+- **Last Updated**: `2026-10-18T14:42:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`e97cd68d5`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 24 PRs merged (`#2504`–`#2528`, `#2530`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S6` (`0` `maxHeartbeats` escalations, **−5,648 net lines** in `Compiler/Proofs/` + 53 allowlist entries pruned across S5–S6) landed on `main`! |
+| `main` (`59d41b5ee`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 25 PRs merged (`#2504`–`#2528`, `#2530`–`#2531`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S7` (`0` `maxHeartbeats` escalations, **−7,853 net lines** in `Compiler/Proofs/` + 65 allowlist entries pruned across S5–S7) landed on `main`! |
 | In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (target) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`24` Merged + `2` Folded/Closed = `26` Total Resolved)
+## 2. Merged PRs in This Campaign (`25` Merged + `2` Folded/Closed = `27` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -44,6 +44,7 @@
 | `#2528` | `refactor/proofs-calls-eventbridge-interface-decomposition` | `d03b088a0` | **Track S5**: Replaced the ~280-line macro `event_emit_semantic_bridge_tac` in `EventBridge.lean` with `<30`-line `private theorem` helpers (cutting elaboration from ~21s to ~2s), extracted `compiledStmtStepWithHelpersAndHelperIR_of_plainHead` in `InterfaceAssembly.lean`, fixed split-header proof detection in `scripts/check_proof_length.py`, and pruned 23 stale allowlist entries. |
 | `#2527` | `feat/denote-byte-call-word-and-adversary` | `084fa4f0b` | **Track C0**: Added `commitCalleeWorld`, `callAdversary`, `decodeCallWord`, `execute_rawReturndata`, and `executeBytes*` + `@[simp]` lemmas in `Verity/Core/Model/DenoteByteExternalCalls.lean` for Family C and Family E. |
 | `#2530` | `refactor/proofs-helpers-and-main-decomposition` | `e97cd68d5` | **Track S6**: Decomposed 9 major theorems in `Helpers.lean` (`250 → 46`, `192 → 49`, `179 → 42`, `164 → 15`, `163 → 39`, `156 → 36`, `111 → 19`, `94 → 41`, `81 → 31`) and all 19 allowlisted theorems in `Main.lean` (now all ≤ 47 lines), pruning 30 allowlist entries and cutting **net 1,417 lines** (`+1255 / -2672`). |
+| `#2531` | `refactor/proofs-functionbody-base-decomposition` | `59d41b5ee` | **Track S7**: Dissolved `mutual` block and decomposed all 12 allowlisted proofs in `FunctionBody/Base.lean` (`1175 → 1`, `658 → 21`, `533 → 1`, `472 → 21`, `306 → 24`, etc. — every proof now ≤ 30 lines), removing 2 `set_option maxRecDepth 1024` escalations, pruning 12 allowlist entries, and cutting **net 2,205 lines** (`+1345 / -3550`). |
 
 ---
 
@@ -59,8 +60,9 @@
 8. **Track S4 — Decompose `Scope.lean` & `ResultRelation.lean` Monolithic Proofs (`refactor/proofs-scope-and-result-relation-decomposition`)** — **MERGED (`#2525`, `8c5ed4626`)**.
 9. **Track S5 — Decompose `EventBridge.lean` & `InterfaceAssembly.lean` Monolithic Proofs (`refactor/proofs-calls-eventbridge-interface-decomposition`)** — **MERGED (`#2528`, `d03b088a0`)**.
 10. **Track S6 — Decompose `Helpers.lean` & `Main.lean` Remaining Allowlisted Proofs (`refactor/proofs-helpers-and-main-decomposition`)** — **MERGED (`#2530`, `e97cd68d5`)**.
-11. **Track S7 — Decompose `FunctionBody/Base.lean` Monolithic Proofs (`refactor/proofs-functionbody-base-decomposition`)** — **ACTIVE on `ashur` (`e35183c6-8234-4c64-baad-96a70af64469`)**.
+11. **Track S7 — Decompose `FunctionBody/Base.lean` Monolithic Proofs (`refactor/proofs-functionbody-base-decomposition`)** — **MERGED (`#2531`, `59d41b5ee`)**.
 12. **Track S8 — Decompose `Function.lean` Monolithic Proofs & Fix Default-Heartbeat Build (`refactor/proofs-function-decomposition`)** — **ACTIVE on `sepolia` (`00f41b8e-0a3b-417c-8694-db50b524f404`)**.
+13. **Track S9 — Decompose `FunctionBody/Stmt.lean` Remaining Allowlisted Proofs (`refactor/proofs-functionbody-stmt-decomposition`)** — **ACTIVE on `ashur` (`ae4af970-4575-4222-9866-d63055d058d3`)**.
 
 ---
 
@@ -73,9 +75,9 @@
    - **Family B ACTIVE on `old-agent` (`b223122a-c286-48c5-a4f0-44ff1ec84dfb`)**: Wiring `DenoteExternalCode.extCodeSize` (`<addr>.code.length`) and `DenoteByteExternalCalls.decodeOptionalBoolCall` (`SafeTransferLib` low-level `.call(abi.encodeCall(...))`) into `ECM.lean`, `Denote.lean`, and `Import.lean` to unlock `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, and `withdrawCollateral` (**40 / 45 = 88.89%**).
 3. **Track C0 + Family C — Typed-Interface View Staticcalls with Arguments & `bool`/`bytes32` Returns (`I(addr).f(args...)`)**:
    - **Track C0 MERGED (`#2527`, `084fa4f0b`)**: `commitCalleeWorld`, `callAdversary`, `decodeCallWord`, `execute_rawReturndata`, and `executeBytes*` + `@[simp]` lemmas in `Verity/Core/Model/DenoteByteExternalCalls.lean` landed on `main`.
-   - **Family C (next on `Import.lean` after Family B)**: Unlocks `computeInterest` and `computeFees` (**42 / 45 = 93.33%**) and unblocks gate/oracle/ratifier staticcalls.
+   - **Family C (next on `Import.lean` after Family B)**: Unblocks gate (`ILiquidatorGate.canLiquidate`, `IEnterGate.canIncreaseCredit`/`canIncreaseDebt`) and ratifier (`IRatifier.isRatified`) staticcalls.
 4. **Family D — External Code Slice `abi.decode(<addr>.code, (Struct))` & Dynamic Struct Array `abi.decode`**:
-   - Unlocks `toMarket` (**43 / 45 = 95.56%**).
+   - Unlocks `toMarket` (**41 / 45 = 91.11%**).
 5. **Family E — Typed-Interface State-Changing External Callbacks (`onRepay`, `onLiquidate`, `onBuy`, `onSell`, `onFlashLoan`) & Dynamic Array Event/Root Parameters (`address[]` event, `bytes[]` param)**:
    - Unlocks `repay`, `liquidate`, `take`, and `flashLoan` (**45 / 45 = 100.00%** coverage of `src/Midnight.sol` @ `96d31343`, excluding `multicall`).
 
@@ -87,4 +89,4 @@
 | --- | --- | --- | --- | --- | --- |
 | `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
 | `track-s8-proofs-function-decomposition` | `sepolia` | `00f41b8e-0a3b-417c-8694-db50b524f404` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-function-decomposition` | Active |
-| `track-s7-proofs-functionbody-base-decomposition` | `ashur` | `e35183c6-8234-4c64-baad-96a70af64469` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-functionbody-base-decomposition` | Active |
+| `track-s9-proofs-functionbody-stmt-decomposition` | `ashur` | `ae4af970-4575-4222-9866-d63055d058d3` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-functionbody-stmt-decomposition` | Active |
