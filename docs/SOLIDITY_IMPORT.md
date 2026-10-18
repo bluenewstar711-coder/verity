@@ -970,3 +970,5 @@ equivalence. Those account inputs, complete gas/memory integration and the
 remaining source-admission obligations still have to be implemented.
 
 Stateful differential implementation snapshots bind the recorded Git HEAD to the campaign workspace and recheck it during replay. A commit switch with byte-identical sources still invalidates the campaign; an unavailable Git revision is an instrumentation error. This supplements source/artifact identity checks and does not certify unexecuted test phases.
+
+Whole-contract frame proofs can use `Transactions.AdversarialEntryPointSequence` and `invariant_of_adversarial_entry_points` to vary both the transaction context and permitted oracle at each public call. Every permitted oracle must satisfy the actual per-entry-point execution obligation. The rule includes observed reverting frames through rollback; ABI decoding, dispatch and value transfers remain separate obligations. `adversarial_sequence_append` composes observed prefixes.

@@ -1980,3 +1980,5 @@ seeds storage only: it does not fabricate creator nonce, balance or code, model
 external account effects, admit CREATE2, or establish full deployment A/B/C
 equivalence. Those account inputs, complete gas/memory integration and the
 remaining source-admission obligations still have to be implemented.
+
+`Compiler.SolidityImport.AdversarialEntryPointInvariants` lifts explicit per-entry-point invariants to finite sequences with a separately selected permitted Denote oracle at each call. Permission and context preservation are hypotheses, not trusted axioms or claims that arbitrary external behavior preserves an invariant. The execution relation is the real `Transactions.executeBody`; unobserved instrumentation failures cannot form steps. This is a frame-level rule, with ABI/dispatch/value-transfer obligations left explicit.
