@@ -1196,6 +1196,60 @@ After the first iteration of a compiled Yul `for`, the interpreter recurs on
 repeated step: callers provide the per-index condition/body/post preservation
 facts for states `states k`, and the theorem threads them until the terminal
 condition at `states remaining`. -/
+private theorem execIRStmt_for_empty_init_recurrence_tail_step
+    (fuel remaining : Nat) (states : Nat → IRState)
+    (cond : YulExpr) (post body : List YulStmt)
+    (hstep :
+      ∀ k, k < remaining + 1 →
+        ∃ condValue bodyState postState,
+          evalIRExpr (states k) cond = some condValue ∧
+          condValue ≠ 0 ∧
+          execIRStmts (fuel - k - 1) (states k) body = .continue bodyState ∧
+          execIRStmts (fuel - k - 1) bodyState post = .continue postState ∧
+          postState = states (k + 1)) :
+    ∀ k, k < remaining →
+      ∃ condValue bodyState postState,
+        evalIRExpr (states (k + 1)) cond = some condValue ∧
+        condValue ≠ 0 ∧
+        execIRStmts (fuel - 1 - k - 1) (states (k + 1)) body = .continue bodyState ∧
+        execIRStmts (fuel - 1 - k - 1) bodyState post = .continue postState ∧
+        postState = states (k + 1 + 1) := by
+  intro k hk
+  have hfuelEq : fuel - (k + 1) - 1 = fuel - 1 - k - 1 := by omega
+  rcases hstep (k + 1) (by omega) with ⟨cv, bs, ps, hc, hcv, hb, hp, hps⟩
+  exact ⟨cv, bs, ps, hc, hcv, hfuelEq ▸ hb, hfuelEq ▸ hp, hps⟩
+
+private theorem execIRStmt_for_empty_init_recurrence_head_step
+    (fuel : Nat) (states : Nat → IRState)
+    (cond : YulExpr) (post body : List YulStmt) (r : IRExecResult)
+    (hfuel : 0 < fuel)
+    (hstep :
+      ∃ condValue bodyState postState,
+        evalIRExpr (states 0) cond = some condValue ∧
+        condValue ≠ 0 ∧
+        execIRStmts (fuel - 0 - 1) (states 0) body = .continue bodyState ∧
+        execIRStmts (fuel - 0 - 1) bodyState post = .continue postState ∧
+        postState = states (0 + 1))
+    (htail : execIRStmt (fuel - 1) (states 1) (.for_ [] cond post body) = r) :
+    execIRStmt fuel (states 0) (.for_ [] cond post body) = r := by
+  obtain ⟨fuel, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+  rcases hstep with
+    ⟨condValue, bodyState, postState, hcond, hcondNZ, hbody, hpost, hpostState⟩
+  subst hpostState
+  rw [execIRStmt_for_one_continue fuel (states 0) (states 0) bodyState _ [] post body
+    cond condValue (by simp [execIRStmts]) hcond hcondNZ hbody hpost]
+  exact htail
+
+private theorem execIRStmt_for_empty_init_recurrence_zero
+    (fuel : Nat) (states : Nat → IRState)
+    (cond : YulExpr) (post body : List YulStmt)
+    (hterminal : evalIRExpr (states 0) cond = some 0)
+    (hfuel : 0 < fuel) :
+    execIRStmt fuel (states 0) (.for_ [] cond post body) = .continue (states 0) := by
+  obtain ⟨fuel, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by omega⟩
+  exact execIRStmt_for_init_cond_zero fuel (states 0) (states 0) []
+    post body cond (by simp [execIRStmts]) hterminal
+
 theorem execIRStmt_for_empty_init_recurrence
     (fuel remaining : Nat)
     (states : Nat → IRState)
@@ -1215,61 +1269,11 @@ theorem execIRStmt_for_empty_init_recurrence
       .continue (states remaining) := by
   induction remaining generalizing fuel states with
   | zero =>
-      cases fuel with
-      | zero => omega
-      | succ fuel =>
-          exact execIRStmt_for_init_cond_zero fuel (states 0) (states 0) []
-            post body cond (by simp [execIRStmts]) hterminal
+      exact execIRStmt_for_empty_init_recurrence_zero fuel states cond post body hterminal hfuel
   | succ remaining ih =>
-      cases fuel with
-      | zero => omega
-      | succ fuel =>
-          rcases hstep 0 (by omega) with
-            ⟨condValue, bodyState, postState, hcond, hcondNZ, hbody, hpost, hpostState⟩
-          have htail :
-              execIRStmt fuel (states 1) (.for_ [] cond post body) =
-                .continue (states (remaining + 1)) := by
-            let tailStates : Nat → IRState := fun k => states (k + 1)
-            have hterminalTail :
-                evalIRExpr (tailStates remaining) cond = some 0 := by
-              simpa [tailStates, Nat.add_assoc] using hterminal
-            have hstepTail :
-                ∀ k, k < remaining →
-                  ∃ condValue bodyState postState,
-                    evalIRExpr (tailStates k) cond = some condValue ∧
-                    condValue ≠ 0 ∧
-                    execIRStmts (fuel - k - 1) (tailStates k) body =
-                      .continue bodyState ∧
-                    execIRStmts (fuel - k - 1) bodyState post =
-                      .continue postState ∧
-                    postState = tailStates (k + 1) := by
-              intro k hk
-              rcases hstep (k + 1) (by omega) with
-                ⟨cv, bs, ps, hc, hcv, hb, hp, hps⟩
-              refine ⟨cv, bs, ps, ?_, hcv, ?_, ?_, ?_⟩
-              · simpa [tailStates, Nat.add_assoc] using hc
-              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
-                  omega
-                simpa [tailStates, hfuelEq, Nat.add_assoc] using hb
-              · have hfuelEq : Nat.succ fuel - (k + 1) - 1 = fuel - k - 1 := by
-                  omega
-                simpa [hfuelEq] using hp
-              · simpa [tailStates, Nat.add_assoc] using hps
-            have hfuelTail : remaining < fuel := by omega
-            simpa [tailStates] using
-              ih (fuel := fuel) (states := tailStates)
-                hterminalTail hstepTail hfuelTail
-          have hbody' : execIRStmts fuel (states 0) body = .continue bodyState := by
-            simpa using hbody
-          have hpost' : execIRStmts fuel bodyState post = .continue postState := by
-            simpa using hpost
-          rw [execIRStmt_for_one_continue
-            (fuel := fuel) (state := states 0) (sInit := states 0)
-            (sBody := bodyState) (sPost := postState)
-            (init := []) (post := post) (body := body) (cond := cond)
-            (condValue := condValue)
-            (by simp [execIRStmts]) hcond hcondNZ hbody' hpost']
-          simpa [hpostState] using htail
+      exact execIRStmt_for_empty_init_recurrence_head_step fuel states cond post body _
+        (by omega) (hstep 0 (by omega)) (ih (fuel - 1) (fun k => states (k + 1)) hterminal
+          (execIRStmt_for_empty_init_recurrence_tail_step _ _ _ _ _ _ hstep) (by omega))
 
 /-- Singleton-list form of `execIRStmt_for_init_cond_zero`.
 
@@ -2496,6 +2500,37 @@ structure InterpretIRWithInternalsZeroConservativeExtensionInterfaces
           execIRFunctionWithInternals contract 0 fn args initialState =
             execIRFunction fn args initialState
 
+/-- Shared call-case step for the helper-aware conservative-extension lemmas:
+once the argument evaluators agree and `func` is not an internal helper, the
+helper-aware call collapses to the legacy `evalIRCall` result. -/
+private theorem evalIRExprWithInternals_eq_evalIRExpr_call_core
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String)
+    (args : List YulExpr) (hfunc : findInternalFunction? contract func = none)
+    (hargs : evalIRExprsWithInternals contract fuel state args =
+      match evalIRExprs state args with
+      | some values => .values values state
+      | none => .revert state) :
+    evalIRCallWithInternals contract fuel state func args =
+      match evalIRCall state func args with
+      | some value => .values [value] state
+      | none => .revert state := by
+  rw [evalIRCall, evalIRCallWithInternals, hargs]
+  cases evalIRExprs state args with
+  | none => rfl
+  | some argVals =>
+      simp only [hfunc, Option.bind_eq_bind, Option.bind_some]
+      by_cases htload : func = "tload"
+      · subst htload; rcases argVals with _ | ⟨_, _ | _⟩ <;> rfl
+      by_cases hmload : func = "mload"
+      · subst hmload; rcases argVals with _ | ⟨_, _ | _⟩ <;> rfl
+      by_cases hext : func = "extcodesize"
+      · subst hext; rcases argVals with _ | ⟨_, _ | _⟩ <;> rfl
+      by_cases hrds : func = "returndatasize"
+      · subst hrds; rcases argVals with _ | _ <;> rfl
+      by_cases hkec : func = "keccak256"
+      · subst hkec; rcases argVals with _ | ⟨_, _ | ⟨_, _ | _⟩⟩ <;> rfl
+      simp only [htload, hmload, hext, hrds, hkec, ↓reduceIte]
+
 mutual
 
 theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
@@ -2516,58 +2551,12 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
       cases hget : state.getVar name <;>
         simp only [evalIRExprWithInternals, evalIRExpr, hget]
   | fuel, state, .call func args => by
-      rw [evalIRExprWithInternals, evalIRExpr, evalIRCall, evalIRCallWithInternals,
-        evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state args]
-      cases hargs : evalIRExprs state args with
-      | none =>
-          simp
-      | some argVals =>
-          simp only [findInternalFunction?_eq_none_of_internalFunctions_nil, hinternal]
-          by_cases htload : func = "tload"
-          · simp [htload]
-            cases argVals with
-            | nil => simp
-            | cons slot rest =>
-                cases rest with
-                | nil => simp
-                | cons _ _ => simp
-          · by_cases hmload : func = "mload"
-            · simp [hmload]
-              cases argVals with
-              | nil => simp
-              | cons offset rest =>
-                  cases rest with
-                  | nil => simp
-                  | cons _ _ => simp
-            · by_cases hextcodesize : func = "extcodesize"
-              · simp [hextcodesize]
-                cases argVals with
-                | nil => simp
-                | cons addr rest =>
-                    cases rest with
-                    | nil => simp
-                    | cons _ _ => simp
-              · by_cases hkeccak : func = "keccak256"
-                · subst hkeccak
-                  cases argVals with
-                  | nil => simp
-                  | cons offset rest =>
-                      cases rest with
-                      | nil => simp
-                      | cons size rest =>
-                          cases rest <;> simp
-                · by_cases hreturndatasize : func = "returndatasize"
-                  · simp [hreturndatasize]
-                    cases argVals with
-                    | nil => simp
-                    | cons _ _ => simp
-                  · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
-                    cases hbuiltin :
-                        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                          state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                          state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                    | none => simp [hbuiltin]
-                    | some value => simp [hbuiltin]
+      rw [evalIRExprWithInternals, evalIRExpr,
+        evalIRExprWithInternals_eq_evalIRExpr_call_core contract fuel state func args
+          (findInternalFunction?_eq_none_of_internalFunctions_nil contract func hinternal)
+          (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state
+            args)]
+      cases evalIRCall state func args <;> rfl
 
 theorem evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
     (contract : IRContract)
@@ -2689,61 +2678,12 @@ theorem evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
       cases hget : state.getVar name <;>
         simp only [evalIRExprWithInternals, evalIRExpr, hget]
   | fuel, state, .call func args, hdisjoint => by
-      have hfunc := yulExprCallsDisjointFromInternalTable_call_func hdisjoint
-      have hargs_disjoint := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
-      rw [evalIRExprWithInternals, evalIRExpr, evalIRCall, evalIRCallWithInternals,
-        evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state args
-          hargs_disjoint]
-      cases hargs : evalIRExprs state args with
-      | none =>
-          simp
-      | some argVals =>
-          simp only [hfunc]
-          by_cases htload : func = "tload"
-          · simp [htload]
-            cases argVals with
-            | nil => simp
-            | cons slot rest =>
-                cases rest with
-                | nil => simp
-                | cons _ _ => simp
-          · by_cases hmload : func = "mload"
-            · simp [hmload]
-              cases argVals with
-              | nil => simp
-              | cons offset rest =>
-                  cases rest with
-                  | nil => simp
-                  | cons _ _ => simp
-            · by_cases hextcodesize : func = "extcodesize"
-              · simp [hextcodesize]
-                cases argVals with
-                | nil => simp
-                | cons addr rest =>
-                    cases rest with
-                    | nil => simp
-                    | cons _ _ => simp
-              · by_cases hkeccak : func = "keccak256"
-                · subst hkeccak
-                  cases argVals with
-                  | nil => simp
-                  | cons offset rest =>
-                      cases rest with
-                      | nil => simp
-                      | cons size rest =>
-                          cases rest <;> simp
-                · by_cases hreturndatasize : func = "returndatasize"
-                  · simp [hreturndatasize]
-                    cases argVals with
-                    | nil => simp
-                    | cons _ _ => simp
-                  · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
-                    cases hbuiltin :
-                        Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                          state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                          state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                    | none => simp [hbuiltin]
-                    | some value => simp [hbuiltin]
+      rw [evalIRExprWithInternals, evalIRExpr,
+        evalIRExprWithInternals_eq_evalIRExpr_call_core contract fuel state func args
+          (yulExprCallsDisjointFromInternalTable_call_func hdisjoint)
+          (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state args
+            (yulExprCallsDisjointFromInternalTable_call_args hdisjoint))]
+      cases evalIRCall state func args <;> rfl
 
 /-- Expression-list conservative extension under per-expression disjointness.
 Generalizes `evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal`. -/
@@ -2872,59 +2812,11 @@ theorem evalIRCallWithInternals_stmt_eq_of_callsDisjoint
     (match evalIRExpr state (.call func args) with
     | some _ => IRExecResultWithInternals.continue state
     | none => IRExecResultWithInternals.revert state) := by
-  have hfunc := yulExprCallsDisjointFromInternalTable_call_func hdisjoint
-  have hargs_d := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
-  rw [evalIRExpr, evalIRCall, evalIRCallWithInternals,
-    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state args hargs_d]
-  cases hargs : evalIRExprs state args with
-  | none => simp
-  | some argVals =>
-      simp only [hfunc]
-      by_cases htload : func = "tload"
-      · simp [htload]
-        cases argVals with
-        | nil => simp
-        | cons slot rest =>
-            cases rest with
-            | nil => simp
-            | cons _ _ => simp
-      · by_cases hmload : func = "mload"
-        · simp [hmload]
-          cases argVals with
-          | nil => simp
-          | cons offset rest =>
-              cases rest with
-              | nil => simp
-              | cons _ _ => simp
-        · by_cases hextcodesize : func = "extcodesize"
-          · simp [hextcodesize]
-            cases argVals with
-            | nil => simp
-            | cons addr rest =>
-                cases rest with
-                | nil => simp
-                | cons _ _ => simp
-          · by_cases hkeccak : func = "keccak256"
-            · subst hkeccak
-              cases argVals with
-              | nil => simp
-              | cons offset rest =>
-                  cases rest with
-                  | nil => simp
-                  | cons size rest =>
-                      cases rest <;> simp
-            · by_cases hreturndatasize : func = "returndatasize"
-              · simp [hreturndatasize]
-                cases argVals with
-                | nil => simp
-                | cons _ _ => simp
-              · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
-                cases hbuiltin :
-                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                | none => simp [hbuiltin]
-                | some value => simp [hbuiltin]
+  rw [evalIRExpr, evalIRExprWithInternals_eq_evalIRExpr_call_core contract fuel state func args
+    (yulExprCallsDisjointFromInternalTable_call_func hdisjoint)
+    (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state args
+      (yulExprCallsDisjointFromInternalTable_call_args hdisjoint))]
+  cases evalIRCall state func args <;> rfl
 
 /-- Statement-level collapse for call expressions when `internalFunctions = []`. -/
 theorem evalIRCallWithInternals_stmt_eq_of_no_internal
@@ -2939,57 +2831,10 @@ theorem evalIRCallWithInternals_stmt_eq_of_no_internal
     (match evalIRExpr state (.call func args) with
     | some _ => IRExecResultWithInternals.continue state
     | none => IRExecResultWithInternals.revert state) := by
-  rw [evalIRExpr, evalIRCall, evalIRCallWithInternals,
-    evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state args]
-  cases hargs : evalIRExprs state args with
-  | none => simp
-  | some argVals =>
-      simp only [findInternalFunction?_eq_none_of_internalFunctions_nil, hinternal]
-      by_cases htload : func = "tload"
-      · simp [htload]
-        cases argVals with
-        | nil => simp
-        | cons slot rest =>
-            cases rest with
-            | nil => simp
-            | cons _ _ => simp
-      · by_cases hmload : func = "mload"
-        · simp [hmload]
-          cases argVals with
-          | nil => simp
-          | cons offset rest =>
-              cases rest with
-              | nil => simp
-              | cons _ _ => simp
-        · by_cases hextcodesize : func = "extcodesize"
-          · simp [hextcodesize]
-            cases argVals with
-            | nil => simp
-            | cons addr rest =>
-                cases rest with
-                | nil => simp
-                | cons _ _ => simp
-          · by_cases hkeccak : func = "keccak256"
-            · subst hkeccak
-              cases argVals with
-              | nil => simp
-              | cons offset rest =>
-                  cases rest with
-                  | nil => simp
-                  | cons size rest =>
-                      cases rest <;> simp
-            · by_cases hreturndatasize : func = "returndatasize"
-              · simp [hreturndatasize]
-                cases argVals with
-                | nil => simp
-                | cons _ _ => simp
-              · simp only [htload, hmload, hextcodesize, hreturndatasize, hkeccak, ↓reduceIte]
-                cases hbuiltin :
-                    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext
-                      state.storage state.sender state.msgValue state.thisAddress state.blockTimestamp
-                      state.blockNumber state.chainId state.blobBaseFee state.txOrigin state.selector state.calldata func argVals with
-                | none => simp [hbuiltin]
-                | some value => simp [hbuiltin]
+  rw [evalIRExpr, evalIRExprWithInternals_eq_evalIRExpr_call_core contract fuel state func args
+    (findInternalFunction?_eq_none_of_internalFunctions_nil contract func hinternal)
+    (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state args)]
+  cases evalIRCall state func args <;> rfl
 
 /-- Shared compatibility lemma for statement-position Yul logs: once the
 argument-list evaluators agree, helper-aware and helper-free log execution agree
@@ -3027,6 +2872,266 @@ private theorem yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
   | some values =>
       cases hlog : applyYulLogCall? state func values <;> simp [hlog]
 
+/-- Zero-argument call statements (`stop`, `invalid`, logs, generic calls) agree
+with and without internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_call_nil
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func [])) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hargs_d := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
+  by_cases hstop : func = "stop"
+  · subst hstop
+    simp only [execIRStmtWithInternals, execIRStmt]
+  by_cases hinv : func = "invalid"
+  · subst hinv
+    simp only [execIRStmtWithInternals, execIRStmt]
+  by_cases hlog : isYulLogName func = true
+  · simpa [execIRStmtWithInternals, execIRStmt, hstop, hinv, hlog] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state func []
+        (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state [] hargs_d)
+  · cases hcall : evalIRExpr state (.call func []) <;>
+      simp [execIRStmtWithInternals, execIRStmt,
+        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state func [] hdisjoint,
+        hstop, hinv, hlog, hcall]
+
+/-- One-argument call statements (`selfdestruct`, logs, generic calls) agree with
+and without internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_call_one
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String) (arg : YulExpr)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func [arg])) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [arg])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [arg])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hargs_d := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
+  have hexprs := evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+    contract fuel state [arg] hargs_d
+  by_cases hsd : func = "selfdestruct"
+  · subst hsd
+    simp only [execIRStmtWithInternals, hexprs]
+    cases harg : evalIRExpr state arg <;> simp [execIRStmt, evalIRExprs, harg]
+  by_cases hlog : isYulLogName func = true
+  · simpa [execIRStmtWithInternals, execIRStmt, hsd, hlog] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state func [arg] hexprs
+  · cases hcall : evalIRExpr state (.call func [arg]) <;>
+      simp [execIRStmtWithInternals, execIRStmt,
+        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state func [arg] hdisjoint,
+        hsd, hlog, hcall]
+
+/-- `sstore(mappingSlot(base, key), value)` agrees with and without internal
+helpers once all three subexpressions are call-disjoint. -/
+private theorem callsDisjoint_stmt_exprStmt_sstore_mappingSlot
+    (contract : IRContract) (fuel : Nat) (state : IRState) (base key val : YulExpr)
+    (hbase_d : yulExprCallsDisjointFromInternalTable contract base)
+    (hkey_d : yulExprCallsDisjointFromInternalTable contract key)
+    (hval_d : yulExprCallsDisjointFromInternalTable contract val) :
+    execIRStmtWithInternals contract (fuel + 1) state
+        (.exprStmt (.call "sstore" [.call "mappingSlot" [base, key], val])) =
+      match execIRStmt (fuel + 1) state
+          (.exprStmt (.call "sstore" [.call "mappingSlot" [base, key], val])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  rw [execIRStmtWithInternals, execIRStmt,
+    evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state base hbase_d]
+  cases evalIRExpr state base with
+  | none => simp
+  | some baseSlot =>
+      simp only []
+      rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state key hkey_d]
+      cases evalIRExpr state key with
+      | none => simp
+      | some key =>
+          simp only []
+          rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
+            contract fuel state val hval_d]
+          cases evalIRExpr state val <;> simp
+
+/-- `sstore(slot, value)` whose slot is not a two-argument `mappingSlot` call goes
+through the generic list-evaluation path in both interpreters. -/
+private theorem callsDisjoint_stmt_exprStmt_sstore_plain
+    (contract : IRContract) (fuel : Nat) (state : IRState) (slot val : YulExpr)
+    (hslot : ¬ ∃ base key, slot = .call "mappingSlot" [base, key])
+    (hpair_d : ∀ e, e ∈ [slot, val] → yulExprCallsDisjointFromInternalTable contract e) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call "sstore" [slot, val])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call "sstore" [slot, val])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hE := evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+    contract fuel state _ hpair_d
+  cases hs : evalIRExpr state slot <;> cases hv : evalIRExpr state val
+  all_goals
+    cases slot with
+    | call sfunc sargs =>
+        by_cases hmap : sfunc = "mappingSlot"
+        · subst hmap
+          rcases sargs with _ | ⟨b, _ | ⟨k, _ | ⟨c, r⟩⟩⟩
+          · simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hs, hv]
+          · simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hs, hv]
+          · exact absurd ⟨b, k, rfl⟩ hslot
+          · simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hs, hv]
+        · simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hs, hv, hmap]
+    | _ => simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hs, hv]
+
+/-- Two-argument `sstore` statements agree with and without internal helpers,
+whether or not the slot is a two-argument `mappingSlot` call. -/
+private theorem callsDisjoint_stmt_exprStmt_sstore
+    (contract : IRContract) (fuel : Nat) (state : IRState) (slot val : YulExpr)
+    (hpair_d : ∀ e, e ∈ [slot, val] → yulExprCallsDisjointFromInternalTable contract e) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call "sstore" [slot, val])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call "sstore" [slot, val])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  by_cases hmap : ∃ base key, slot = .call "mappingSlot" [base, key]
+  · obtain ⟨base, key, rfl⟩ := hmap
+    have hslot_d := yulExprCallsDisjointFromInternalTable_call_args
+      (hpair_d _ (List.mem_cons_self ..))
+    exact callsDisjoint_stmt_exprStmt_sstore_mappingSlot contract fuel state base key val
+      (hslot_d base (List.mem_cons_self ..))
+      (hslot_d key (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+      (hpair_d val (List.mem_cons_of_mem _ (List.mem_cons_self ..)))
+  · exact callsDisjoint_stmt_exprStmt_sstore_plain contract fuel state slot val hmap hpair_d
+
+/-- Two-argument `return(offset, size)` statements agree with and without
+internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_return
+    (contract : IRContract) (fuel : Nat) (state : IRState) (arg arg2 : YulExpr)
+    (hpair_d : ∀ e, e ∈ [arg, arg2] → yulExprCallsDisjointFromInternalTable contract e) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call "return" [arg, arg2])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call "return" [arg, arg2])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hE := evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+    contract fuel state [arg, arg2] hpair_d
+  cases hoffset : evalIRExpr state arg <;> cases hsize : evalIRExpr state arg2
+  case some.some size =>
+    by_cases h32 : size = 32 <;>
+      simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hoffset, hsize, h32]
+  all_goals simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hoffset, hsize]
+
+/-- Generic two-argument call statements (not `sstore`/`mstore`/`tstore`/`revert`/`return`)
+agree with and without internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_two_generic
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String) (arg arg2 : YulExpr)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func [arg, arg2]))
+    (hsstore : ¬func = "sstore") (hmstore : ¬func = "mstore") (htstore : ¬func = "tstore")
+    (hrevert : ¬func = "revert") (hreturn : ¬func = "return") :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [arg, arg2])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [arg, arg2])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  by_cases hlog : isYulLogName func = true
+  · simpa [execIRStmtWithInternals, execIRStmt,
+      hsstore, hmstore, htstore, hrevert, hreturn, hlog] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state func [arg, arg2]
+        (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state
+          [arg, arg2] (yulExprCallsDisjointFromInternalTable_call_args hdisjoint))
+  · cases hcall : evalIRExpr state (.call func [arg, arg2]) <;>
+      simpa [execIRStmtWithInternals, execIRStmt,
+        hsstore, hmstore, htstore, hrevert, hreturn, hlog, hcall] using
+        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state func [arg, arg2]
+          hdisjoint
+
+/-- Two-argument call statements agree with and without internal helpers under
+call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_call_two
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String) (arg arg2 : YulExpr)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func [arg, arg2])) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [arg, arg2])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [arg, arg2])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hpair_d := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
+  have hE := evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
+    contract fuel state [arg, arg2] hpair_d
+  by_cases hsstore : func = "sstore"
+  · subst hsstore
+    exact callsDisjoint_stmt_exprStmt_sstore contract fuel state arg arg2 hpair_d
+  by_cases hreturn : func = "return"
+  · subst hreturn
+    exact callsDisjoint_stmt_exprStmt_return contract fuel state arg arg2 hpair_d
+  by_cases hsimple : func = "mstore" ∨ func = "tstore" ∨ func = "revert"
+  · rcases hsimple with rfl | rfl | rfl <;>
+      cases hoffset : evalIRExpr state arg <;> cases hval : evalIRExpr state arg2 <;>
+        simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, hoffset, hval]
+  · simp only [not_or] at hsimple
+    exact callsDisjoint_stmt_exprStmt_two_generic contract fuel state func arg arg2 hdisjoint
+      hsstore hsimple.1 hsimple.2.1 hsimple.2.2 hreturn
+
+/-- Three-argument call statements (`calldatacopy`, `returndatacopy`, logs,
+generic calls) agree with and without internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_call_three
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String)
+    (arg arg2 arg3 : YulExpr)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func [arg, arg2, arg3])) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [arg, arg2, arg3])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [arg, arg2, arg3])) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  have hE := evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state
+    [arg, arg2, arg3] (yulExprCallsDisjointFromInternalTable_call_args hdisjoint)
+  by_cases hcopy : func = "calldatacopy" ∨ func = "returndatacopy"
+  · rcases hcopy with rfl | rfl <;>
+      cases h1 : evalIRExpr state arg <;> cases h2 : evalIRExpr state arg2 <;>
+        cases h3 : evalIRExpr state arg3 <;>
+          simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hE, h1, h2, h3]
+    all_goals split <;> rfl
+  simp only [not_or] at hcopy
+  by_cases hlog : isYulLogName func = true
+  · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcopy.1, hcopy.2] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state func
+        [arg, arg2, arg3] hE
+  · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
+      simp [execIRStmtWithInternals, execIRStmt,
+        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel
+          state func [arg, arg2, arg3] hdisjoint,
+        hlog, hcall, hcopy.1, hcopy.2]
+
+/-- Call statements with four or more arguments (logs or generic calls) agree
+with and without internal helpers under call disjointness. -/
+private theorem callsDisjoint_stmt_exprStmt_call_many
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String)
+    (args : List YulExpr) (hlen : 4 ≤ args.length)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func args)) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func args)) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func args)) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  rcases args with _ | ⟨arg, _ | ⟨arg2, _ | ⟨arg3, _ | ⟨arg4, rest⟩⟩⟩⟩ <;>
+    simp only [List.length_cons, List.length_nil] at hlen <;> try omega
+  by_cases hlog : isYulLogName func = true
+  · simpa [execIRStmtWithInternals, execIRStmt, hlog] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state func _
+        (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint contract fuel state _
+          (yulExprCallsDisjointFromInternalTable_call_args hdisjoint))
+  · cases hcall : evalIRExpr state (.call func (arg :: arg2 :: arg3 :: arg4 :: rest)) <;>
+      simp [execIRStmtWithInternals, execIRStmt,
+        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state func _ hdisjoint,
+        hlog, hcall]
+
+/-- Call statements agree with and without internal helpers under call
+disjointness, dispatching on the number of arguments. -/
+private theorem callsDisjoint_stmt_exprStmt_call
+    (contract : IRContract) (fuel : Nat) (state : IRState) (func : String)
+    (args : List YulExpr)
+    (hdisjoint : yulExprCallsDisjointFromInternalTable contract (.call func args)) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func args)) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func args)) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  match args, hdisjoint with
+  | [], h => exact callsDisjoint_stmt_exprStmt_call_nil contract fuel state func h
+  | [arg], h => exact callsDisjoint_stmt_exprStmt_call_one contract fuel state func arg h
+  | [arg, arg2], h =>
+      exact callsDisjoint_stmt_exprStmt_call_two contract fuel state func arg arg2 h
+  | [arg, arg2, arg3], h =>
+      exact callsDisjoint_stmt_exprStmt_call_three contract fuel state func arg arg2 arg3 h
+  | _ :: _ :: _ :: _ :: _, h =>
+      exact callsDisjoint_stmt_exprStmt_call_many contract fuel state func _
+        (by simp only [List.length_cons]; omega) h
+
 /-- Generalized expr-stmt conservative extension under per-expression disjointness.
 This does not require `contract.internalFunctions = []`: it suffices that the
 specific expression is disjoint from the contract's internal function table.
@@ -3048,295 +3153,206 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
     | zero =>
         simp only [execIRStmtWithInternals, execIRStmt]
     | succ fuel =>
-        -- The proof parallels `_of_no_internal` (which uses `hinternal` everywhere);
-        -- we thread `hdisjoint` to the expression-level `_of_callsDisjoint` instead.
+        have hE := evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
+          contract fuel state expr hdisjoint
         cases expr with
-        | lit n =>
-            cases hlit : evalIRExpr state (.lit n) <;>
-              simp only [execIRStmtWithInternals, execIRStmt,
-                evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                  (.lit n) hdisjoint,
-                hlit]
-        | hex n =>
-            cases hhex : evalIRExpr state (.hex n) <;>
-              simp only [execIRStmtWithInternals, execIRStmt,
-                evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                  (.hex n) hdisjoint,
-                hhex]
-        | str s =>
-            cases hstr : evalIRExpr state (.str s) <;>
-              simp only [execIRStmtWithInternals, execIRStmt,
-                evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                  (.str s) hdisjoint,
-                hstr]
-        | ident name =>
-            cases hident : state.getVar name <;>
-              simp only [execIRStmtWithInternals, execIRStmt, evalIRExpr,
-                evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                  (.ident name) hdisjoint,
-                hident]
         | call func args =>
-            have hargs_d := yulExprCallsDisjointFromInternalTable_call_args hdisjoint
-            -- Helper: list-level disjointness for the full args list
-            have hexprs_args_d : ∀ e, e ∈ args →
-                yulExprCallsDisjointFromInternalTable contract e := hargs_d
-            cases args with
-            | nil =>
-                by_cases hstop : func = "stop"
-                · subst hstop
-                  simp only [execIRStmtWithInternals, execIRStmt]
-                · by_cases hinv : func = "invalid"
-                  · subst hinv
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                  · by_cases hlog : isYulLogName func = true
-                    · simpa [execIRStmtWithInternals, execIRStmt, hstop, hinv, hlog] using
-                        yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel
-                          state func []
-                          (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                            contract fuel state [] hargs_d)
-                    · cases hcall : evalIRExpr state (.call func []) <;>
-                        simp [execIRStmtWithInternals, execIRStmt,
-                          evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state
-                            func [] hdisjoint,
-                          hstop, hinv, hlog, hcall]
-            | cons arg rest =>
-                cases rest with
-                | nil =>
-                    by_cases hsd : func = "selfdestruct"
-                    · subst hsd
-                      simp only [execIRStmtWithInternals,
-                        evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                          contract fuel state [arg] hargs_d]
-                      cases harg : evalIRExpr state arg <;>
-                        simp [execIRStmt, evalIRExprs, harg]
-                    · by_cases hlog : isYulLogName func = true
-                      · simpa [execIRStmtWithInternals, execIRStmt, hsd, hlog] using
-                          yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel
-                            state func [arg]
-                            (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                              contract fuel state [arg] hargs_d)
-                      · cases hcall : evalIRExpr state (.call func [arg]) <;>
-                          simp [execIRStmtWithInternals, execIRStmt,
-                            evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state
-                              func [arg] hdisjoint,
-                            hsd, hlog, hcall]
-                | cons arg2 rest =>
-                    cases rest with
-                    | nil =>
-                        have harg_d : yulExprCallsDisjointFromInternalTable contract arg :=
-                          hargs_d arg (List.mem_cons_self ..)
-                        have harg2_d : yulExprCallsDisjointFromInternalTable contract arg2 :=
-                          hargs_d arg2 (List.mem_cons_of_mem _ (List.mem_cons_self ..))
-                        -- Two-element list disjointness for evalIRExprs rewriting
-                        have hpair_d : ∀ e, e ∈ [arg, arg2] →
-                            yulExprCallsDisjointFromInternalTable contract e := by
-                          intro e hmem
-                          simp [List.mem_cons] at hmem
-                          rcases hmem with rfl | rfl <;> assumption
-                        by_cases hsstore : func = "sstore"
-                        · subst hsstore
-                          -- sstore has special mappingSlot handling
-                          cases arg with
-                          | call sfunc sargs =>
-                              by_cases hmap : sfunc = "mappingSlot"
-                              · subst hmap
-                                cases sargs with
-                                | nil =>
-                                    -- mappingSlot with 0 args — falls through to Exprs path
-                                    cases hslot : evalIRExpr state (.call "mappingSlot" []) <;>
-                                      cases hval : evalIRExpr state arg2 <;>
-                                        simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                          evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                            contract fuel state [.call "mappingSlot" [], arg2] hpair_d,
-                                          hslot, hval]
-                                | cons b1 srest =>
-                                    cases srest with
-                                    | nil =>
-                                        -- mappingSlot with 1 arg — falls through
-                                        cases hslot : evalIRExpr state (.call "mappingSlot" [b1]) <;>
-                                          cases hval : evalIRExpr state arg2 <;>
-                                            simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                              evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                                contract fuel state [.call "mappingSlot" [b1], arg2] hpair_d,
-                                              hslot, hval]
-                                    | cons b2 srest2 =>
-                                        cases srest2 with
-                                        | nil =>
-                                            -- mappingSlot with exactly 2 args — the special case
-                                            have hbase_d : yulExprCallsDisjointFromInternalTable contract b1 := by
-                                              exact yulExprCallsDisjointFromInternalTable_call_args harg_d
-                                                b1 (List.mem_cons_self ..)
-                                            have hkey_d : yulExprCallsDisjointFromInternalTable contract b2 := by
-                                              exact yulExprCallsDisjointFromInternalTable_call_args harg_d
-                                                b2 (List.mem_cons_of_mem _ (List.mem_cons_self ..))
-                                            rw [execIRStmtWithInternals, execIRStmt]
-                                            rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
-                                              contract fuel state b1 hbase_d]
-                                            cases hbase : evalIRExpr state b1 with
-                                            | none => simp
-                                            | some baseSlot =>
-                                                simp only []
-                                                rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
-                                                  contract fuel state b2 hkey_d]
-                                                cases hkey : evalIRExpr state b2 with
-                                                | none => simp
-                                                | some key =>
-                                                    simp only []
-                                                    rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
-                                                      contract fuel state arg2 harg2_d]
-                                                    cases hval : evalIRExpr state arg2 <;> simp
-                                        | cons b3 srest3 =>
-                                            -- mappingSlot with 3+ args — falls through to Exprs path
-                                            cases hslot : evalIRExpr state (.call "mappingSlot" (b1 :: b2 :: b3 :: srest3)) <;>
-                                              cases hval : evalIRExpr state arg2 <;>
-                                                simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                                  evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                                    contract fuel state
-                                                    [.call "mappingSlot" (b1 :: b2 :: b3 :: srest3), arg2] hpair_d,
-                                                  hslot, hval]
-                              · -- Non-mappingSlot call as slot expr — uses Exprs path
-                                cases hslot : evalIRExpr state (.call sfunc sargs) <;>
-                                  cases hval : evalIRExpr state arg2 <;>
-                                    simp [execIRStmtWithInternals, execIRStmt, evalIRExprs, hmap,
-                                      evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                        contract fuel state [.call sfunc sargs, arg2] hpair_d,
-                                      hslot, hval]
-                          | lit n =>
-                              cases hslot : evalIRExpr state (.lit n) <;>
-                                cases hval : evalIRExpr state arg2 <;>
-                                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [.lit n, arg2] hpair_d,
-                                    hslot, hval]
-                          | hex n =>
-                              cases hslot : evalIRExpr state (.hex n) <;>
-                                cases hval : evalIRExpr state arg2 <;>
-                                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [.hex n, arg2] hpair_d,
-                                    hslot, hval]
-                          | str s =>
-                              cases hslot : evalIRExpr state (.str s) <;>
-                                cases hval : evalIRExpr state arg2 <;>
-                                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [.str s, arg2] hpair_d,
-                                    hslot, hval]
-                          | ident name =>
-                              cases hslot : evalIRExpr state (.ident name) <;>
-                                cases hval : evalIRExpr state arg2 <;>
-                                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [.ident name, arg2] hpair_d,
-                                    hslot, hval]
-                        · by_cases hmstore : func = "mstore"
-                          · subst hmstore
-                            -- mstore uses evalIRExprsWithInternals
-                            cases hoffset : evalIRExpr state arg <;>
-                              cases hval : evalIRExpr state arg2 <;>
-                                simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                  evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                    contract fuel state [arg, arg2] hpair_d,
-                                  hoffset, hval]
-                          · by_cases htstore : func = "tstore"
-                            · subst htstore
-                              cases hoffset : evalIRExpr state arg <;>
-                                cases hval : evalIRExpr state arg2 <;>
-                                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                    evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                      contract fuel state [arg, arg2] hpair_d,
-                                    hoffset, hval]
-                            · by_cases hrevert : func = "revert"
-                              · subst hrevert
-                                -- revert uses evalIRExprsWithInternals
-                                cases hoffset : evalIRExpr state arg <;>
-                                  cases hsize : evalIRExpr state arg2 <;>
-                                    simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                      evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                        contract fuel state [arg, arg2] hpair_d,
-                                      hoffset, hsize]
-                              · by_cases hreturn : func = "return"
-                                · subst hreturn
-                                  -- return uses evalIRExprsWithInternals + size = 32 branch
-                                  cases hoffset : evalIRExpr state arg with
-                                  | none =>
-                                      cases hsize : evalIRExpr state arg2 <;>
-                                        simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                          evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                            contract fuel state [arg, arg2] hpair_d,
-                                          hoffset, hsize]
-                                  | some offset =>
-                                      cases hsize : evalIRExpr state arg2 with
-                                      | none =>
-                                          simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                            evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                              contract fuel state [arg, arg2] hpair_d,
-                                            hoffset, hsize]
-                                      | some size =>
-                                          by_cases h32 : size = 32 <;>
-                                            simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                              evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                                contract fuel state [arg, arg2] hpair_d,
-                                              hoffset, hsize, h32]
-                                · -- Generic two-arg call (not sstore/mstore/tstore/revert/return)
-                                  by_cases hlog : isYulLogName func = true
-                                  · simpa [execIRStmtWithInternals, execIRStmt,
-                                      hsstore, hmstore, htstore, hrevert, hreturn, hlog] using
-                                      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                        contract fuel state func [arg, arg2]
-                                        (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                          contract fuel state [arg, arg2] hpair_d)
-                                  · cases hcall : evalIRExpr state (.call func [arg, arg2]) <;>
-                                      simpa [execIRStmtWithInternals, execIRStmt,
-                                        hsstore, hmstore, htstore, hrevert, hreturn, hlog, hcall] using
-                                        evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract
-                                          fuel state func [arg, arg2] hdisjoint
-                    | cons arg3 rest =>
-                        cases rest with
-                        | nil =>
-                            by_cases hcdc : func = "calldatacopy"
-                            · subst hcdc
-                              cases h1 : evalIRExpr state arg <;>
-                                cases h2 : evalIRExpr state arg2 <;>
-                                  cases h3 : evalIRExpr state arg3 <;>
-                                    simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                      evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                        contract fuel state [arg, arg2, arg3] hargs_d,
-                                      h1, h2, h3]
-                            · by_cases hrdc : func = "returndatacopy"
-                              · subst hrdc
-                                cases h1 : evalIRExpr state arg <;>
-                                  cases h2 : evalIRExpr state arg2 <;>
-                                    cases h3 : evalIRExpr state arg3 <;>
-                                      simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                        evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                          contract fuel state [arg, arg2, arg3] hargs_d,
-                                        h1, h2, h3]; split <;> rfl
-                              · by_cases hlog : isYulLogName func = true
-                                · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
-                                    yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                      contract fuel state func [arg, arg2, arg3]
-                                      (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                        contract fuel state [arg, arg2, arg3] hargs_d)
-                                · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
-                                    simp [execIRStmtWithInternals, execIRStmt,
-                                      evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel
-                                        state func [arg, arg2, arg3] hdisjoint,
-                                      hlog, hcall, hcdc, hrdc]
-                        | cons arg4 rest' =>
-                            by_cases hlog : isYulLogName func = true
-                            · simpa [execIRStmtWithInternals, execIRStmt, hlog] using
-                                yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                  contract fuel state func (arg :: arg2 :: arg3 :: arg4 :: rest')
-                                  (evalIRExprsWithInternals_eq_evalIRExprs_of_callsDisjoint
-                                    contract fuel state (arg :: arg2 :: arg3 :: arg4 :: rest')
-                                    hargs_d)
-                            · cases hcall :
-                                  evalIRExpr state (.call func (arg :: arg2 :: arg3 :: arg4 :: rest')) <;>
-                                simp [execIRStmtWithInternals, execIRStmt,
-                                  evalIRCallWithInternals_stmt_eq_of_callsDisjoint contract fuel state
-                                    func (arg :: arg2 :: arg3 :: arg4 :: rest') hdisjoint,
-                                  hlog, hcall]
+            exact callsDisjoint_stmt_exprStmt_call contract fuel state func args hdisjoint
+        | _ =>
+            simp only [execIRStmtWithInternals, execIRStmt, hE]
+            generalize evalIRExpr state _ = r
+            cases r <;> rfl
+
+/-- Shared list step: if the head statement and the tail agree with and without
+internal helpers at every fuel, then so does the whole statement list. -/
+private theorem callsDisjoint_stmts_cons
+    (contract : IRContract) (stmt : YulStmt) (rest : List YulStmt)
+    (hhead : ∀ fuel state, execIRStmtWithInternals contract fuel state stmt =
+      match execIRStmt fuel state stmt with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (ih : ∀ fuel state, execIRStmtsWithInternals contract fuel state rest =
+      match execIRStmts fuel state rest with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (fuel : Nat) (state : IRState) :
+    execIRStmtsWithInternals contract fuel state (stmt :: rest) =
+      match execIRStmts fuel state (stmt :: rest) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  cases fuel with
+  | zero => simp only [execIRStmtsWithInternals, execIRStmts]
+  | succ fuel =>
+      rw [execIRStmtsWithInternals, execIRStmts, hhead]
+      cases execIRStmt fuel state stmt <;> simp only [ih]
+
+/-- `let_`/`assign` statements agree with and without internal helpers when the
+assigned expression is call-disjoint. -/
+private theorem callsDisjoint_stmts_assign_head
+    (contract : IRContract) (name : String) (value : YulExpr) (stmt : YulStmt)
+    (hval_d : yulExprCallsDisjointFromInternalTable contract value)
+    (hstmt : stmt = .let_ name value ∨ stmt = .assign name value)
+    (fuel : Nat) (state : IRState) :
+    execIRStmtWithInternals contract fuel state stmt =
+      match execIRStmt fuel state stmt with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  cases fuel with
+  | zero => rcases hstmt with rfl | rfl <;> simp only [execIRStmtWithInternals, execIRStmt]
+  | succ fuel =>
+      rcases hstmt with rfl | rfl <;> cases hval : evalIRExpr state value <;>
+        simp only [execIRStmtWithInternals, execIRStmt,
+          evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state value hval_d,
+          hval]
+
+/-- `if_` statements agree with and without internal helpers when the condition
+is call-disjoint and the body agrees at every fuel. -/
+private theorem callsDisjoint_stmts_if_head
+    (contract : IRContract) (cond : YulExpr) (body : List YulStmt)
+    (hcond_d : yulExprCallsDisjointFromInternalTable contract cond)
+    (ihBody : ∀ fuel state, execIRStmtsWithInternals contract fuel state body =
+      match execIRStmts fuel state body with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (fuel : Nat) (state : IRState) :
+    execIRStmtWithInternals contract fuel state (.if_ cond body) =
+      match execIRStmt fuel state (.if_ cond body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  cases fuel with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ fuel =>
+      rw [execIRStmtWithInternals, execIRStmt,
+        evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state cond hcond_d]
+      cases evalIRExpr state cond with
+      | none => simp
+      | some condValue =>
+          by_cases hnonzero : condValue ≠ 0
+          · simp [hnonzero, ihBody fuel state]
+          · simp [hnonzero]
+
+/-- `block` statements agree with and without internal helpers when the body
+agrees at every fuel. -/
+private theorem callsDisjoint_stmts_block_head
+    (contract : IRContract) (body : List YulStmt)
+    (ihBody : ∀ fuel state, execIRStmtsWithInternals contract fuel state body =
+      match execIRStmts fuel state body with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (fuel : Nat) (state : IRState) :
+    execIRStmtWithInternals contract fuel state (.block body) =
+      match execIRStmt fuel state (.block body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  cases fuel with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ fuel => simpa only [execIRStmtWithInternals, execIRStmt] using ihBody fuel state
+
+/-- `switch` statements agree with and without internal helpers. -/
+private theorem callsDisjoint_stmts_switch_head
+    (contract : IRContract) (expr : YulExpr) (cases : List (Nat × List YulStmt))
+    (defaultCase : Option (List YulStmt))
+    (hexpr_d : yulExprCallsDisjointFromInternalTable contract expr)
+    (ihCases : ∀ c ∈ cases, ∀ f s, execIRStmtsWithInternals contract f s c.2 =
+      match execIRStmts f s c.2 with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (ihDefault : ∀ b ∈ defaultCase, ∀ f s, execIRStmtsWithInternals contract f s b =
+      match execIRStmts f s b with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) :
+    ∀ fuel state, execIRStmtWithInternals contract fuel state (.switch expr cases defaultCase) =
+      match execIRStmt fuel state (.switch expr cases defaultCase) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  rintro (_ | fuel) state
+  · simp only [execIRStmtWithInternals, execIRStmt]
+  simp only [execIRStmtWithInternals, execIRStmt,
+    evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state expr hexpr_d]
+  cases evalIRExpr state expr with
+  | none => simp
+  | some v =>
+      cases hfind : cases.find? (·.1 == v)
+      · cases hdef : defaultCase
+        · simp [hfind]
+        · simpa only [hfind] using ihDefault _ hdef fuel state
+      · simpa only [hfind] using ihCases _ (List.mem_of_find?_eq_some hfind) fuel state
+
+/-- One fuel step of the re-entered loop `for_ [] cond post body`. -/
+private theorem callsDisjoint_stmts_for_nil_step
+    (contract : IRContract) (cond : YulExpr) (post body : List YulStmt) (f : Nat) (s : IRState)
+    (hcond_d : yulExprCallsDisjointFromInternalTable contract cond)
+    (hpb : ∀ L ∈ [post, body], ∀ f s, execIRStmtsWithInternals contract f s L =
+      match execIRStmts f s L with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (ihNil : ∀ s, execIRStmtWithInternals contract f s (.for_ [] cond post body) =
+      match execIRStmt f s (.for_ [] cond post body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) :
+    execIRStmtWithInternals contract (f + 1) s (.for_ [] cond post body) =
+      match execIRStmt (f + 1) s (.for_ [] cond post body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  simp only [execIRStmtWithInternals, execIRStmt, execIRStmtsWithInternals, execIRStmts,
+    evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract f s cond hcond_d]
+  cases evalIRExpr s cond with
+  | none => simp
+  | some condValue =>
+      by_cases hnonzero : condValue ≠ 0
+      · simp only [if_pos hnonzero, hpb body (by simp) f s]
+        cases execIRStmts f s body with
+        | «continue» s' =>
+            simp only [hpb post (by simp) f s']
+            cases execIRStmts f s' post <;> simp [ihNil]
+        | _ => simp
+      · simp only [if_neg hnonzero]
+
+/-- The re-entered loop `for_ [] cond post body` agrees at every fuel. -/
+private theorem callsDisjoint_stmts_for_nil
+    (contract : IRContract) (cond : YulExpr) (post body : List YulStmt)
+    (hcond_d : yulExprCallsDisjointFromInternalTable contract cond)
+    (hpb : ∀ L ∈ [post, body], ∀ f s, execIRStmtsWithInternals contract f s L =
+      match execIRStmts f s L with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (f : Nat) (s : IRState) :
+    execIRStmtWithInternals contract f s (.for_ [] cond post body) =
+      match execIRStmt f s (.for_ [] cond post body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  induction f generalizing s with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ f ihFuel =>
+      exact callsDisjoint_stmts_for_nil_step contract cond post body f s hcond_d hpb ihFuel
+
+/-- `for_` statements agree with and without internal helpers when `init`, `post`
+and `body` agree at every fuel and the condition is call-disjoint. -/
+private theorem callsDisjoint_stmts_for_head
+    (contract : IRContract) (init : List YulStmt) (cond : YulExpr) (post body : List YulStmt)
+    (hcond_d : yulExprCallsDisjointFromInternalTable contract cond)
+    (hlists : ∀ L ∈ [init, post, body], ∀ f s, execIRStmtsWithInternals contract f s L =
+      match execIRStmts f s L with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (fuel : Nat) (state : IRState) :
+    execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
+      match execIRStmt fuel state (.for_ init cond post body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  cases fuel with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ f =>
+      have hnil := callsDisjoint_stmts_for_nil contract cond post body
+        hcond_d (fun L hL => hlists L (List.mem_cons_of_mem _ hL)) (f + 1)
+      simp only [execIRStmtWithInternals, execIRStmt, hlists init (by simp) f state]
+      cases execIRStmts f state init with
+      | «continue» s' =>
+          have h := hnil s'
+          simp only [execIRStmtWithInternals, execIRStmt, execIRStmtsWithInternals,
+            execIRStmts] at h
+          exact h
+      | _ => simp
 
 /-- Statement-list conservative extension under per-statement disjointness.
 This is the generalization of `execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility`
@@ -3353,275 +3369,20 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
         | .stop next => .stop next
         | .revert next => .revert next
   | fuel, state, stmts, hdisjoint => by
-    induction hdisjoint generalizing fuel state with
-    | nil =>
-        cases fuel <;> simp only [execIRStmtsWithInternals, execIRStmts]
-    | comment msg rest hrest ih =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.comment msg) =
-                  match execIRStmt fuel state (.comment msg) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel <;> simp only [execIRStmtWithInternals, execIRStmt]
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.comment msg) <;>
-              simp only [ih]
-    | let_ name value rest hval_d hrest ih =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.let_ name value) =
-                  match execIRStmt fuel state (.let_ name value) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel with
-              | zero =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ fuel =>
-                  cases hval : evalIRExpr state value <;>
-                    simp only [execIRStmtWithInternals, execIRStmt,
-                      evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                        value hval_d, hval]
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.let_ name value) <;>
-              simp only [ih]
-    | assign name value rest hval_d hrest ih =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.assign name value) =
-                  match execIRStmt fuel state (.assign name value) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel with
-              | zero =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ fuel =>
-                  cases hval : evalIRExpr state value <;>
-                    simp only [execIRStmtWithInternals, execIRStmt,
-                      evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                        value hval_d, hval]
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.assign name value) <;>
-              simp only [ih]
-    | exprStmt value rest hval_d hrest ih =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead := execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
-              contract fuel state value hval_d
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.exprStmt value) <;>
-              simp only [ih]
-    | if_ cond body rest hcond_d hbody hrest ihBody ihRest =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.if_ cond body) =
-                  match execIRStmt fuel state (.if_ cond body) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel with
-              | zero =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ fuel =>
-                  rw [execIRStmtWithInternals, execIRStmt]
-                  rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                    cond hcond_d]
-                  cases hcond : evalIRExpr state cond with
-                  | none =>
-                      simp
-                  | some condValue =>
-                      by_cases hnonzero : condValue ≠ 0
-                      · simp [hnonzero, ihBody fuel state]
-                      · simp [hnonzero]
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.if_ cond body) <;>
-              simp only [ihRest]
-    | block body rest hbody hrest ihBody ihRest =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.block body) =
-                  match execIRStmt fuel state (.block body) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel with
-              | zero =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ fuel =>
-                  simpa only [execIRStmtWithInternals, execIRStmt] using ihBody fuel state
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.block body) <;>
-              simp only [ihRest]
-    | funcDef name params rets body rest hbody hrest ihBody ihRest =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.funcDef name params rets body) =
-                  match execIRStmt fuel state (.funcDef name params rets body) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              simp only [execIRStmtWithInternals, execIRStmt]
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.funcDef name params rets body) <;>
-              simp only [ihRest]
-    | switch_ expr cases defaultCase rest hexpr_d hcases_d hdefault_d hrest
-        ihCases ihDefault ihRest =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.switch expr cases defaultCase) =
-                  match execIRStmt fuel state (.switch expr cases defaultCase) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              cases fuel with
-              | zero =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ fuel =>
-                  simp only [execIRStmtWithInternals, execIRStmt]
-                  rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint contract fuel state
-                    expr hexpr_d]
-                  cases hval : evalIRExpr state expr with
-                  | none =>
-                      simp
-                  | some switchValue =>
-                      cases hfind : cases.find? (·.1 == switchValue) with
-                      | some match_ =>
-                          obtain ⟨matchVal, matchBody⟩ := match_
-                          simp only [hfind]
-                          have hmem : (matchVal, matchBody) ∈ cases :=
-                            List.mem_of_find?_eq_some hfind
-                          exact ihCases (matchVal, matchBody) hmem fuel state
-                      | none =>
-                          simp only [hfind]
-                          cases hdef : defaultCase with
-                          | none =>
-                              simp
-                          | some defBody =>
-                              exact ihDefault defBody hdef fuel state
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.switch expr cases defaultCase) <;>
-              simp only [ihRest]
-    | for_ init cond post body rest hinit_d hcond_d hpost_d hbody_d hrest
-        ihInit ihPost ihBody ihRest =>
-        cases fuel with
-        | zero =>
-            simp only [execIRStmtsWithInternals, execIRStmts]
-        | succ fuel =>
-            -- The for_ single-statement equivalence needs inner induction on fuel
-            -- because the loop recurses: execIRStmtWithInternals ... (.for_ [] cond post body).
-            -- Under disjointness, init/body/post all satisfy the stmt-list conservative
-            -- extension, and the recursive call uses [] for init (trivially disjoint).
-            have hhead :
-                execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
-                  match execIRStmt fuel state (.for_ init cond post body) with
-                  | .continue next => .continue next
-                  | .return value next => .return value next
-                  | .stop next => .stop next
-                  | .revert next => .revert next := by
-              -- We prove this by strong induction on fuel, using the stmt-list IHs.
-              -- First, prove the general for_ equivalence for arbitrary init under
-              -- the assumption that init/cond/post/body are all disjoint.
-              suffices hgen : ∀ (f : Nat) (s : IRState) (initStmts : List YulStmt),
-                  (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
-                    match execIRStmts f' s' initStmts with
-                    | .continue n => .continue n | .return v n => .return v n
-                    | .stop n => .stop n | .revert n => .revert n) →
-                  execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
-                    match execIRStmt f s (.for_ initStmts cond post body) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next by
-                exact hgen fuel state init (ihInit · ·)
-              intro f
-              induction f with
-              | zero =>
-                  intro s initStmts _
-                  simp only [execIRStmtWithInternals, execIRStmt]
-              | succ f ihFuel =>
-                  intro s initStmts hInitEq
-                  simp only [execIRStmtWithInternals, execIRStmt]
-                  -- Rewrite init execution
-                  rw [hInitEq]
-                  cases hInitStep : execIRStmts f s initStmts with
-                  | «continue» s' =>
-                      simp only []
-                      -- Rewrite cond evaluation
-                      rw [evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint
-                        contract f s' cond hcond_d]
-                      cases hCondVal : evalIRExpr s' cond with
-                      | none =>
-                          simp
-                      | some condValue =>
-                          by_cases hnonzero : condValue ≠ 0
-                          · simp only [if_pos hnonzero]
-                            -- Rewrite body execution
-                            rw [ihBody f s']
-                            cases hBodyStep : execIRStmts f s' body with
-                            | «continue» s'' =>
-                                simp only []
-                                -- Rewrite post execution
-                                rw [ihPost f s'']
-                                cases hPostStep : execIRStmts f s'' post with
-                                | «continue» s''' =>
-                                    simp only []
-                                    -- Recursive call with [] init
-                                    have hNilEq : ∀ f' s',
-                                        execIRStmtsWithInternals contract f' s' [] =
-                                          match execIRStmts f' s' [] with
-                                          | .continue n => .continue n
-                                          | .return v n => .return v n
-                                          | .stop n => .stop n
-                                          | .revert n => .revert n := by
-                                      intro f' s'
-                                      simp only [execIRStmtsWithInternals, execIRStmts]
-                                    exact ihFuel s''' [] hNilEq
-                                | «return» v s''' => simp
-                                | stop s''' => simp
-                                | revert s''' => simp
-                            | «return» v s'' => simp
-                            | stop s'' => simp
-                            | revert s'' => simp
-                          · simp only [if_neg hnonzero]
-                  | «return» v s' => simp
-                  | stop s' => simp
-                  | revert s' => simp
-            rw [execIRStmtsWithInternals, execIRStmts, hhead]
-            cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
-              simp only [ihRest]
+    induction hdisjoint generalizing fuel state
+    case nil => cases fuel <;> simp only [execIRStmtsWithInternals, execIRStmts]
+    all_goals refine callsDisjoint_stmts_cons _ _ _ ?_ (by assumption) fuel state
+    case comment | funcDef => rintro (_ | _) _ <;> simp only [execIRStmtWithInternals, execIRStmt]
+    case let_ n v _ h _ _ | assign n v _ h _ _ =>
+      exact callsDisjoint_stmts_assign_head _ n v _ h (by simp)
+    case exprStmt v _ h _ _ =>
+      exact fun f s => execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint _ f s v h
+    case if_ _ _ _ h _ _ ihBody _ => exact callsDisjoint_stmts_if_head _ _ _ h ihBody
+    case block _ _ _ _ ihBody _ => exact callsDisjoint_stmts_block_head _ _ ihBody
+    case switch_ _ _ _ _ h _ _ _ ihC ihD _ =>
+      exact callsDisjoint_stmts_switch_head _ _ _ _ h ihC ihD
+    case for_ _ _ _ _ _ _ h _ _ _ ihI ihP ihB _ =>
+      exact callsDisjoint_stmts_for_head _ _ _ _ _ h (by simp [ihI, ihP, ihB])
 
 /-- Backward-compatible bridge: `YulStmtListCallsDisjointFromInternalTable` holds
 whenever `contract.internalFunctions = []` and the stmt list is legacy-compatible.
@@ -3853,73 +3614,171 @@ theorem execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal
         | .return value next => .return value next
         | .stop next => .stop next
         | .revert next => .revert next := by
-  cases fuel with
-  | zero =>
-      simp only [execIRStmtWithInternals, execIRStmt]
-  | succ fuel =>
-      cases slotExpr with
-      | lit n =>
-          cases hslot : evalIRExpr state (.lit n) <;>
-            cases hval : evalIRExpr state valExpr <;>
-              simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                hslot, hval]
-      | hex n =>
-          cases hslot : evalIRExpr state (.hex n) <;>
-            cases hval : evalIRExpr state valExpr <;>
-              simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                hslot, hval]
-      | str s =>
-          cases hslot : evalIRExpr state (.str s) <;>
-            cases hval : evalIRExpr state valExpr <;>
-              simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                hslot, hval]
-      | ident name =>
-          cases hslot : evalIRExpr state (.ident name) <;>
-            cases hval : evalIRExpr state valExpr <;>
-              simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                hslot, hval]
-      | call func args =>
-          cases args with
-          | nil =>
-              cases hslot : evalIRExpr state (.call func []) <;>
-                cases hval : evalIRExpr state valExpr <;>
-                  simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                    evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                    hslot, hval]
-          | cons arg rest =>
-              cases rest with
-              | nil =>
-                  cases hslot : evalIRExpr state (.call func [arg]) <;>
-                    cases hval : evalIRExpr state valExpr <;>
-                      simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                        evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                        hslot, hval]
-              | cons arg2 rest =>
-                  cases rest with
-                  | nil =>
-                      by_cases hfunc : func = "mappingSlot"
-                      · subst hfunc
-                        cases hbase : evalIRExpr state arg <;>
-                          cases hkey : evalIRExpr state arg2 <;>
-                            cases hval : evalIRExpr state valExpr <;>
-                              simp only [execIRStmtWithInternals, execIRStmt,
-                                evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal,
-                                hbase, hkey, hval]
-                      · cases hslot : evalIRExpr state (.call func [arg, arg2]) <;>
-                          cases hval : evalIRExpr state valExpr <;>
-                            simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                              evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                              hslot, hval, hfunc]
-                  | cons arg3 rest =>
-                      cases hslot : evalIRExpr state (.call func (arg :: arg2 :: arg3 :: rest)) <;>
-                        cases hval : evalIRExpr state valExpr <;>
-                          simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                            evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal,
-                            hslot, hval]
+  rcases fuel with _ | fuel
+  · simp only [execIRStmtWithInternals, execIRStmt]
+  by_cases hmap : ∃ base key, slotExpr = .call "mappingSlot" [base, key]
+  · obtain ⟨base, key, rfl⟩ := hmap
+    cases hbase : evalIRExpr state base <;> cases hkey : evalIRExpr state key <;>
+      cases hval : evalIRExpr state valExpr <;>
+      simp only [execIRStmtWithInternals, execIRStmt, hbase, hkey, hval,
+        evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal]
+  cases hslot : evalIRExpr state slotExpr <;> cases hval : evalIRExpr state valExpr <;>
+    rcases slotExpr with _ | _ | _ | _ | ⟨func, _ | ⟨_, _ | ⟨_, _ | ⟨_, _⟩⟩⟩⟩ <;>
+    (try simp only [not_exists, YulExpr.call.injEq, List.cons.injEq, and_true,
+      exists_eq, exists_const] at hmap) <;>
+    simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
+      evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal, *]
+
+/-- Non-call expression statements: helper-free evaluation agrees directly. -/
+private theorem no_internal_expr_atom
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (expr : YulExpr)
+    (hcall : ∀ func args, expr ≠ .call func args) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt expr) =
+      match execIRStmt (fuel + 1) state (.exprStmt expr) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  cases h : evalIRExpr state expr <;> cases expr <;>
+    first
+    | exact absurd rfl (hcall _ _)
+    | simp only [execIRStmtWithInternals, execIRStmt,
+        evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal, h]
+
+/-- Log expression statements (any arity): both sides run the shared log step. -/
+private theorem no_internal_expr_log
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String) (args : List YulExpr)
+    (hlog : isYulLogName func = true) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func args)) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func args)) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  simp only [isYulLogName, Bool.or_eq_true, beq_iff_eq] at hlog
+  rcases hlog with ((((rfl | rfl) | rfl) | rfl) | rfl) <;>
+    simpa [execIRStmtWithInternals, execIRStmt, isYulLogName] using
+      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel state _ args
+        (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state args)
+
+/-- Nullary non-log calls: `stop`, `invalid`, or a generic call. -/
+private theorem no_internal_expr_call0
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String)
+    (hlog : ¬isYulLogName func = true) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [])) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  by_cases hstop : func = "stop"
+  · subst hstop
+    simpa using execIRStmtWithInternals_eq_execIRStmt_stop_of_no_internal
+      contract hinternal (fuel + 1) state
+  by_cases hinv : func = "invalid"
+  · subst hinv
+    simp only [execIRStmtWithInternals, execIRStmt]
+  cases hcall : evalIRExpr state (.call func []) <;>
+    simp [execIRStmtWithInternals, execIRStmt,
+      evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal fuel state func [],
+      hstop, hinv, hlog, hcall]
+
+/-- Unary non-log calls: `selfdestruct` or a generic call. -/
+private theorem no_internal_expr_call1
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String) (arg : YulExpr)
+    (hlog : ¬isYulLogName func = true) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [arg])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [arg])) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  by_cases hsd : func = "selfdestruct"
+  · subst hsd
+    simp only [execIRStmtWithInternals,
+      evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal contract hinternal fuel state [arg]]
+    cases harg : evalIRExpr state arg <;> simp [execIRStmt, evalIRExprs, harg]
+  cases hcall : evalIRExpr state (.call func [arg]) <;>
+    simp [execIRStmtWithInternals, execIRStmt,
+      evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal fuel state func [arg],
+      hsd, hlog, hcall]
+
+/-- Binary non-log calls: the dedicated builtins or a generic call. -/
+private theorem no_internal_expr_call2
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String) (a b : YulExpr)
+    (hlog : ¬isYulLogName func = true) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [a, b])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [a, b])) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  obtain rfl | hsstore := eq_or_ne func "sstore"
+  · exact execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal _ hinternal _ _ _ _
+  obtain rfl | hmstore := eq_or_ne func "mstore"
+  · exact execIRStmtWithInternals_eq_execIRStmt_mstore_of_no_internal _ hinternal _ _ _ _
+  obtain rfl | htstore := eq_or_ne func "tstore"
+  · exact execIRStmtWithInternals_eq_execIRStmt_tstore_of_no_internal _ hinternal _ _ _ _
+  obtain rfl | hrevert := eq_or_ne func "revert"
+  · exact execIRStmtWithInternals_eq_execIRStmt_revert_of_no_internal _ hinternal _ _ _ _
+  obtain rfl | hreturn := eq_or_ne func "return"
+  · exact execIRStmtWithInternals_eq_execIRStmt_return_of_no_internal _ hinternal _ _ _ _
+  cases hcall : evalIRExpr state (.call func [a, b]) <;>
+    simpa [execIRStmtWithInternals, execIRStmt,
+      hsstore, hmstore, htstore, hrevert, hreturn, hlog, hcall] using
+      evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal fuel state func [a, b]
+
+/-- Ternary non-log calls: the two memory-copy builtins or a generic call. -/
+private theorem no_internal_expr_call3
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String) (a b c : YulExpr)
+    (hlog : ¬isYulLogName func = true) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func [a, b, c])) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func [a, b, c])) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  by_cases hcopy : func = "calldatacopy" ∨ func = "returndatacopy"
+  · rcases hcopy with rfl | rfl <;>
+      cases h1 : evalIRExpr state a <;> cases h2 : evalIRExpr state b <;>
+        cases h3 : evalIRExpr state c <;>
+          simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
+            evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
+              contract hinternal fuel state [a, b, c], h1, h2, h3]
+    split <;> rfl
+  obtain ⟨hcdc, hrdc⟩ := not_or.mp hcopy
+  cases hcall : evalIRExpr state (.call func [a, b, c]) <;>
+    simp [execIRStmtWithInternals, execIRStmt,
+      evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal fuel state func [a, b, c],
+      hlog, hcall, hcdc, hrdc]
+
+/-- Call expression statements: dispatch on log names and on the argument arity. -/
+private theorem no_internal_expr_call
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (fuel : Nat) (state : IRState) (func : String) (args : List YulExpr) :
+    execIRStmtWithInternals contract (fuel + 1) state (.exprStmt (.call func args)) =
+      match execIRStmt (fuel + 1) state (.exprStmt (.call func args)) with
+      | .continue next => .continue next
+      | .return value next => .return value next
+      | .stop next => .stop next
+      | .revert next => .revert next := by
+  by_cases hlog : isYulLogName func = true
+  · exact no_internal_expr_log contract hinternal fuel state func args hlog
+  rcases args with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, rest⟩⟩⟩⟩
+  · exact no_internal_expr_call0 contract hinternal fuel state func hlog
+  · exact no_internal_expr_call1 contract hinternal fuel state func a hlog
+  · exact no_internal_expr_call2 contract hinternal fuel state func a b hlog
+  · exact no_internal_expr_call3 contract hinternal fuel state func a b c hlog
+  cases hcall : evalIRExpr state (.call func (a :: b :: c :: d :: rest)) <;>
+    simp [execIRStmtWithInternals, execIRStmt, hlog, hcall,
+      evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal fuel state func
+        (a :: b :: c :: d :: rest)]
 
 /-- The remaining expr-statement helper-free conservative-extension seam is now
 closed: dedicated builtin statement forms are handled by direct lemmas, and all
@@ -3940,151 +3799,181 @@ theorem execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
       | zero =>
           simp only [execIRStmtWithInternals, execIRStmt]
       | succ fuel =>
-          cases expr with
-          | lit n =>
-              cases hlit : evalIRExpr state (.lit n) <;>
-                simp only [execIRStmtWithInternals, execIRStmt,
-                  evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal,
-                  hlit]
-          | hex n =>
-              cases hhex : evalIRExpr state (.hex n) <;>
-                simp only [execIRStmtWithInternals, execIRStmt,
-                  evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal,
-                  hhex]
-          | str s =>
-              cases hstr : evalIRExpr state (.str s) <;>
-                simp only [execIRStmtWithInternals, execIRStmt,
-                  evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal,
-                  hstr]
-          | ident name =>
-              cases hident : state.getVar name <;>
-                simp only [execIRStmtWithInternals, execIRStmt, evalIRExpr,
-                  evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal,
-                  hident]
-          | call func args =>
-              cases args with
-              | nil =>
-                  by_cases hstop : func = "stop"
-                  · subst hstop
-                    simpa using execIRStmtWithInternals_eq_execIRStmt_stop_of_no_internal
-                      contract hinternal (Nat.succ fuel) state
-                  · by_cases hinv : func = "invalid"
-                    · subst hinv
-                      simp only [execIRStmtWithInternals, execIRStmt]
-                    · by_cases hlog : isYulLogName func = true
-                      · simpa [execIRStmtWithInternals, execIRStmt, hstop, hinv, hlog] using
-                          yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel
-                            state func []
-                            (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                              contract hinternal fuel state [])
-                      · cases hcall : evalIRExpr state (.call func []) <;>
-                          simp [execIRStmtWithInternals, execIRStmt,
-                            evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal
-                              fuel state func [],
-                            hstop, hinv, hlog, hcall]
-              | cons arg rest =>
-                  cases rest with
-                  | nil =>
-                      by_cases hsd : func = "selfdestruct"
-                      · subst hsd
-                        simp only [execIRStmtWithInternals,
-                          evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                            contract hinternal fuel state [arg]]
-                        cases harg : evalIRExpr state arg <;>
-                          simp [execIRStmt, evalIRExprs, harg]
-                      · by_cases hlog : isYulLogName func = true
-                        · simpa [execIRStmtWithInternals, execIRStmt, hsd, hlog] using
-                            yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq contract fuel
-                              state func [arg]
-                              (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                contract hinternal fuel state [arg])
-                        · cases hcall : evalIRExpr state (.call func [arg]) <;>
-                            simp [execIRStmtWithInternals, execIRStmt,
-                              evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal
-                                fuel state func [arg],
-                              hsd, hlog, hcall]
-                  | cons arg2 rest =>
-                      cases rest with
-                      | nil =>
-                          by_cases hsstore : func = "sstore"
-                          · subst hsstore
-                            simpa using execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal
-                              contract hinternal (Nat.succ fuel) state arg arg2
-                          · by_cases hmstore : func = "mstore"
-                            · subst hmstore
-                              simpa using execIRStmtWithInternals_eq_execIRStmt_mstore_of_no_internal
-                                contract hinternal (Nat.succ fuel) state arg arg2
-                            · by_cases htstore : func = "tstore"
-                              · subst htstore
-                                simpa using execIRStmtWithInternals_eq_execIRStmt_tstore_of_no_internal
-                                  contract hinternal (Nat.succ fuel) state arg arg2
-                              · by_cases hrevert : func = "revert"
-                                · subst hrevert
-                                  simpa using execIRStmtWithInternals_eq_execIRStmt_revert_of_no_internal
-                                    contract hinternal (Nat.succ fuel) state arg arg2
-                                · by_cases hreturn : func = "return"
-                                  · subst hreturn
-                                    simpa using execIRStmtWithInternals_eq_execIRStmt_return_of_no_internal
-                                      contract hinternal (Nat.succ fuel) state arg arg2
-                                  · by_cases hlog : isYulLogName func = true
-                                    · simpa [execIRStmtWithInternals, execIRStmt,
-                                        hsstore, hmstore, htstore, hrevert, hreturn, hlog] using
-                                        yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                          contract fuel state func [arg, arg2]
-                                          (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                            contract hinternal fuel state [arg, arg2])
-                                    · cases hcall : evalIRExpr state (.call func [arg, arg2]) <;>
-                                        simpa [execIRStmtWithInternals, execIRStmt,
-                                          hsstore, hmstore, htstore, hrevert, hreturn, hlog, hcall] using
-                                          evalIRCallWithInternals_stmt_eq_of_no_internal contract
-                                            hinternal fuel state func [arg, arg2]
-                      | cons arg3 rest =>
-                          cases rest with
-                          | nil =>
-                              by_cases hcdc : func = "calldatacopy"
-                              · subst hcdc
-                                cases h1 : evalIRExpr state arg <;>
-                                  cases h2 : evalIRExpr state arg2 <;>
-                                    cases h3 : evalIRExpr state arg3 <;>
-                                      simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                        evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                          contract hinternal fuel state [arg, arg2, arg3],
-                                        h1, h2, h3]
-                              · by_cases hrdc : func = "returndatacopy"
-                                · subst hrdc
-                                  cases h1 : evalIRExpr state arg <;>
-                                    cases h2 : evalIRExpr state arg2 <;>
-                                      cases h3 : evalIRExpr state arg3 <;>
-                                        simp [execIRStmtWithInternals, execIRStmt, evalIRExprs,
-                                          evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                            contract hinternal fuel state [arg, arg2, arg3],
-                                          h1, h2, h3]; split <;> rfl
-                                · by_cases hlog : isYulLogName func = true
-                                  · simpa [execIRStmtWithInternals, execIRStmt, hlog, hcdc, hrdc] using
-                                      yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                        contract fuel state func [arg, arg2, arg3]
-                                        (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                          contract hinternal fuel state [arg, arg2, arg3])
-                                  · cases hcall : evalIRExpr state (.call func [arg, arg2, arg3]) <;>
-                                      simp [execIRStmtWithInternals, execIRStmt,
-                                        evalIRCallWithInternals_stmt_eq_of_no_internal contract
-                                          hinternal fuel state func [arg, arg2, arg3],
-                                        hlog, hcall, hcdc, hrdc]
-                          | cons arg4 rest' =>
-                              by_cases hlog : isYulLogName func = true
-                              · simpa [execIRStmtWithInternals, execIRStmt, hlog] using
-                                  yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq
-                                    contract fuel state func (arg :: arg2 :: arg3 :: arg4 :: rest')
-                                    (evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
-                                      contract hinternal fuel state
-                                      (arg :: arg2 :: arg3 :: arg4 :: rest'))
-                              · cases hcall :
-                                    evalIRExpr state
-                                      (.call func (arg :: arg2 :: arg3 :: arg4 :: rest')) <;>
-                                  simp [execIRStmtWithInternals, execIRStmt,
-                                    evalIRCallWithInternals_stmt_eq_of_no_internal contract hinternal
-                                      fuel state func (arg :: arg2 :: arg3 :: arg4 :: rest'),
-                                    hlog, hcall]
+          cases expr
+          case call func args =>
+            exact no_internal_expr_call contract hinternal fuel state func args
+          all_goals
+            exact no_internal_expr_atom contract hinternal fuel state _ (by intro _ _ h; cases h)
+
+/-- Shared stmt-list base case: the empty list continues on both sides. -/
+private theorem stmtCompatibility_nil (contract : IRContract) :
+    ∀ fuel state, execIRStmtsWithInternals contract fuel state [] =
+      match execIRStmts fuel state [] with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  intro _ _
+  simp only [execIRStmtsWithInternals, execIRStmts]
+
+/-- Shared stmt-list step: head compatibility plus tail compatibility give
+compatibility of the cons list at every fuel. -/
+private theorem stmtCompatibility_cons_step
+    {contract : IRContract} {stmt : YulStmt} {rest : List YulStmt}
+    (hhead : ∀ fuel state, execIRStmtWithInternals contract fuel state stmt =
+      match execIRStmt fuel state stmt with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (hrest : ∀ fuel state, execIRStmtsWithInternals contract fuel state rest =
+      match execIRStmts fuel state rest with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) :
+    ∀ fuel state, execIRStmtsWithInternals contract fuel state (stmt :: rest) =
+      match execIRStmts fuel state (stmt :: rest) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  intro fuel state
+  cases fuel with
+  | zero => simp only [execIRStmtsWithInternals, execIRStmts]
+  | succ fuel =>
+      rw [execIRStmtsWithInternals, execIRStmts, hhead]
+      cases execIRStmt fuel state stmt <;> simp only [hrest]
+
+/-- A legacy-compatible cons list splits into a compatible head and tail. -/
+private theorem stmtCompatibility_head_tail {stmt : YulStmt} {rest : List YulStmt}
+    (h : LegacyCompatibleExternalStmtList (stmt :: rest)) :
+    LegacyCompatibleExternalStmt stmt ∧ LegacyCompatibleExternalStmtList rest := by
+  cases h <;> refine ⟨?_, ‹_›⟩ <;> constructor <;> first | assumption | exact .nil
+
+/-- List compatibility from single-statement compatibility, by list induction. -/
+private theorem stmtCompatibility_list {contract : IRContract}
+    (hstmt : ∀ fuel state stmt, LegacyCompatibleExternalStmt stmt →
+      execIRStmtWithInternals contract fuel state stmt = match execIRStmt fuel state stmt with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    {stmts : List YulStmt} (hlegacy : LegacyCompatibleExternalStmtList stmts) :
+    ∀ fuel state, execIRStmtsWithInternals contract fuel state stmts =
+      match execIRStmts fuel state stmts with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  induction stmts with
+  | nil => exact stmtCompatibility_nil contract
+  | cons stmt rest ih =>
+      obtain ⟨hs, hr⟩ := stmtCompatibility_head_tail hlegacy
+      exact stmtCompatibility_cons_step (hstmt · · stmt hs) (ih hr)
+
+/-- `comment`, `let_`, `assign` and `funcDef` heads need no IH. -/
+private theorem exprCompatibility_simple_head
+    (contract : IRContract) (hinternal : contract.internalFunctions = []) (stmt : YulStmt)
+    (hstmt : (∃ msg, stmt = .comment msg) ∨ (∃ name value, stmt = .let_ name value) ∨
+      (∃ name value, stmt = .assign name value) ∨
+      ∃ name params rets body, stmt = .funcDef name params rets body) :
+    ∀ fuel state, execIRStmtWithInternals contract fuel state stmt =
+      match execIRStmt fuel state stmt with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  intro fuel state
+  rcases hstmt with ⟨_, rfl⟩ | ⟨_, value, rfl⟩ | ⟨_, value, rfl⟩ | ⟨_, _, _, _, rfl⟩ <;>
+    cases fuel <;>
+    first
+    | (simp only [execIRStmtWithInternals, execIRStmt]; done)
+    | cases hval : evalIRExpr state value <;>
+        simp only [execIRStmtWithInternals, execIRStmt,
+          evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal, hval]
+
+/-- `if_` heads: the condition agrees and the body follows from its IH. -/
+private theorem exprCompatibility_if_head
+    {contract : IRContract} (hinternal : contract.internalFunctions = [])
+    {cond : YulExpr} {body : List YulStmt}
+    (ihBody : ∀ fuel state, execIRStmtsWithInternals contract fuel state body =
+      match execIRStmts fuel state body with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) :
+    ∀ fuel state, execIRStmtWithInternals contract fuel state (.if_ cond body) =
+      match execIRStmt fuel state (.if_ cond body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  intro fuel state
+  cases fuel with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ fuel =>
+      rw [execIRStmtWithInternals, execIRStmt,
+        evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal fuel state cond]
+      cases evalIRExpr state cond with
+      | none => simp
+      | some condValue =>
+          by_cases hnonzero : condValue ≠ 0 <;> simp [hnonzero, ihBody fuel state]
+
+/-- `block` heads reduce to the body IH. -/
+private theorem exprCompatibility_block_head {contract : IRContract} {body : List YulStmt}
+    (ihBody : ∀ fuel state, execIRStmtsWithInternals contract fuel state body =
+      match execIRStmts fuel state body with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) :
+    ∀ fuel state, execIRStmtWithInternals contract fuel state (.block body) =
+      match execIRStmt fuel state (.block body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  intro fuel state
+  cases fuel with
+  | zero => simp only [execIRStmtWithInternals, execIRStmt]
+  | succ fuel => simpa only [execIRStmtWithInternals, execIRStmt] using ihBody fuel state
+
+/-- `for_` heads: induction on the loop fuel, with the init list abstracted so
+the recursive iteration (empty init) reuses the same IH. -/
+private theorem exprCompatibility_for_loop
+    (contract : IRContract) (hinternal : contract.internalFunctions = []) (cond : YulExpr)
+    (post body : List YulStmt) (ih : ∀ l, l = post ∨ l = body → ∀ f s,
+      execIRStmtsWithInternals contract f s l = match execIRStmts f s l with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    (fuel : Nat) : ∀ (state : IRState) (init : List YulStmt),
+    (∀ f s, execIRStmtsWithInternals contract f s init = match execIRStmts f s init with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n) →
+    execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
+      match execIRStmt fuel state (.for_ init cond post body) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  induction fuel with
+  | zero => intro _ _ _; simp only [execIRStmtWithInternals, execIRStmt]
+  | succ f ihFuel =>
+      intro s init hInit
+      simp only [execIRStmtWithInternals, execIRStmt, hInit]
+      rcases execIRStmts f s init with s' | _ | _ | _ <;> try rfl
+      simp only [evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal]
+      rcases evalIRExpr s' cond with _ | c; · rfl
+      obtain rfl | hc := eq_or_ne c 0; · rfl
+      simp only [if_pos hc, ih body (.inr rfl) f s']
+      rcases execIRStmts f s' body with s'' | _ | _ | _ <;> try rfl
+      simp only [ih post (.inl rfl) f s'']
+      rcases execIRStmts f s'' post with s''' | _ | _ | _ <;> try rfl
+      exact ihFuel s''' [] (stmtCompatibility_nil contract)
+
+/-- Induction over the legacy-compatible list, closing each head with its helper. -/
+private theorem exprCompatibility_list
+    (contract : IRContract) (hinternal : contract.internalFunctions = [])
+    (hexpr : ∀ fuel state expr, execIRStmtWithInternals contract fuel state (.exprStmt expr) =
+      match execIRStmt fuel state (.exprStmt expr) with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n)
+    {stmts : List YulStmt} (hlegacy : LegacyCompatibleExternalStmtList stmts) :
+    ∀ fuel state, execIRStmtsWithInternals contract fuel state stmts =
+      match execIRStmts fuel state stmts with
+      | .continue n => .continue n | .return v n => .return v n
+      | .stop n => .stop n | .revert n => .revert n := by
+  induction hlegacy
+  case nil => exact stmtCompatibility_nil contract
+  case exprStmt value _ _ ih => exact stmtCompatibility_cons_step (hexpr · · value) ih
+  case if_ _ _ _ _ _ ihBody ihRest =>
+    exact stmtCompatibility_cons_step (exprCompatibility_if_head hinternal ihBody) ihRest
+  case block _ _ _ _ ihBody ihRest =>
+    exact stmtCompatibility_cons_step (exprCompatibility_block_head ihBody) ihRest
+  case for_ init cond post body _ _ _ _ _ ihInit ihPost ihBody ihRest =>
+    refine stmtCompatibility_cons_step (fun f s => exprCompatibility_for_loop contract
+      hinternal cond post body ?_ f s init ihInit) ihRest
+    rintro l (rfl | rfl) <;> assumption
+  all_goals
+    exact stmtCompatibility_cons_step
+      (exprCompatibility_simple_head contract hinternal _ (by simp)) ‹_›
 
 /-- Statement-list compatibility is also derivable from expression-statement
 compatibility alone on the legacy-compatible external subset. This collapses the
@@ -4110,218 +3999,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
             | .return value next => .return value next
             | .stop next => .stop next
             | .revert next => .revert next
-  | hinternal, fuel, state, stmts, hlegacy => by
-      induction hlegacy generalizing fuel state with
-      | nil =>
-          cases fuel <;> simp only [execIRStmtsWithInternals, execIRStmts]
-      | comment msg rest hrest ih =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.comment msg) =
-                    match execIRStmt fuel state (.comment msg) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                cases fuel <;> simp only [execIRStmtWithInternals, execIRStmt]
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.comment msg) <;>
-                simp only [ih]
-      | let_ name value rest hrest ih =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.let_ name value) =
-                    match execIRStmt fuel state (.let_ name value) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                cases fuel with
-                | zero =>
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                | succ fuel =>
-                    cases hval : evalIRExpr state value <;>
-                      simp only [execIRStmtWithInternals, execIRStmt,
-                        evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal, hval]
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.let_ name value) <;>
-                simp only [ih]
-      | assign name value rest hrest ih =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.assign name value) =
-                    match execIRStmt fuel state (.assign name value) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                cases fuel with
-                | zero =>
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                | succ fuel =>
-                    cases hval : evalIRExpr state value <;>
-                      simp only [execIRStmtWithInternals, execIRStmt,
-                        evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal, hval]
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.assign name value) <;>
-                simp only [ih]
-      | exprStmt value rest hrest ih =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead := hexpr hinternal fuel state value
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.exprStmt value) <;>
-                simp only [ih]
-      | if_ cond body rest hbody hrest ihBody ihRest =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.if_ cond body) =
-                    match execIRStmt fuel state (.if_ cond body) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                cases fuel with
-                | zero =>
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                | succ fuel =>
-                    rw [execIRStmtWithInternals, execIRStmt]
-                    rw [evalIRExprWithInternals_eq_evalIRExpr_of_no_internal contract hinternal fuel state cond]
-                    cases hcond : evalIRExpr state cond with
-                    | none =>
-                        simp
-                    | some condValue =>
-                        by_cases hnonzero : condValue ≠ 0
-                        · simp [hnonzero, ihBody fuel state]
-                        · simp [hnonzero]
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.if_ cond body) <;>
-                simp only [ihRest]
-      | block body rest hbody hrest ihBody ihRest =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.block body) =
-                    match execIRStmt fuel state (.block body) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                cases fuel with
-                | zero =>
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                | succ fuel =>
-                    simpa only [execIRStmtWithInternals, execIRStmt] using ihBody fuel state
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.block body) <;>
-                simp only [ihRest]
-      | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.for_ init cond post body) =
-                    match execIRStmt fuel state (.for_ init cond post body) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                suffices hgen : ∀ (f : Nat) (s : IRState) (initStmts : List YulStmt),
-                    (∀ f' s', execIRStmtsWithInternals contract f' s' initStmts =
-                      match execIRStmts f' s' initStmts with
-                      | .continue n => .continue n | .return v n => .return v n
-                      | .stop n => .stop n | .revert n => .revert n) →
-                    execIRStmtWithInternals contract f s (.for_ initStmts cond post body) =
-                      match execIRStmt f s (.for_ initStmts cond post body) with
-                      | .continue next => .continue next
-                      | .return value next => .return value next
-                      | .stop next => .stop next
-                      | .revert next => .revert next by
-                  exact hgen fuel state init (ihInit · ·)
-                intro f
-                induction f with
-                | zero =>
-                    intro s initStmts _
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                | succ f ihFuel =>
-                    intro s initStmts hInitEq
-                    simp only [execIRStmtWithInternals, execIRStmt]
-                    rw [hInitEq]
-                    cases hInitStep : execIRStmts f s initStmts with
-                    | «continue» s' =>
-                        simp only []
-                        rw [evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
-                          contract hinternal f s' cond]
-                        cases hCondVal : evalIRExpr s' cond with
-                        | none =>
-                            simp
-                        | some condValue =>
-                            by_cases hnonzero : condValue ≠ 0
-                            · simp only [if_pos hnonzero]
-                              rw [ihBody f s']
-                              cases hBodyStep : execIRStmts f s' body with
-                              | «continue» s'' =>
-                                  simp only []
-                                  rw [ihPost f s'']
-                                  cases hPostStep : execIRStmts f s'' post with
-                                  | «continue» s''' =>
-                                      simp only []
-                                      have hNilEq : ∀ f' s',
-                                          execIRStmtsWithInternals contract f' s' [] =
-                                            match execIRStmts f' s' [] with
-                                            | .continue n => .continue n
-                                            | .return v n => .return v n
-                                            | .stop n => .stop n
-                                            | .revert n => .revert n := by
-                                        intro f' s'
-                                        simp only [execIRStmtsWithInternals, execIRStmts]
-                                      exact ihFuel s''' [] hNilEq
-                                  | «return» v s''' => simp
-                                  | stop s''' => simp
-                                  | revert s''' => simp
-                              | «return» v s'' => simp
-                              | stop s'' => simp
-                              | revert s'' => simp
-                            · simp only [if_neg hnonzero]
-                    | «return» v s' => simp
-                    | stop s' => simp
-                    | revert s' => simp
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
-                simp only [ihRest]
-      | funcDef name params rets body rest hbody hrest ihBody ihRest =>
-          cases fuel with
-          | zero =>
-              simp only [execIRStmtsWithInternals, execIRStmts]
-          | succ fuel =>
-              have hhead :
-                  execIRStmtWithInternals contract fuel state (.funcDef name params rets body) =
-                    match execIRStmt fuel state (.funcDef name params rets body) with
-                    | .continue next => .continue next
-                    | .return value next => .return value next
-                    | .stop next => .stop next
-                    | .revert next => .revert next := by
-                simp only [execIRStmtWithInternals, execIRStmt]
-              rw [execIRStmtsWithInternals, execIRStmts, hhead]
-              cases hstep : execIRStmt fuel state (.funcDef name params rets body) <;>
-                simp only [ihRest]
+  | hinternal, fuel, state, _, hlegacy =>
+      exprCompatibility_list contract hinternal (hexpr hinternal) hlegacy fuel state
 
 section
 set_option linter.unnecessarySimpa false
@@ -4419,100 +4098,8 @@ theorem execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility
             | .return value next => .return value next
             | .stop next => .stop next
             | .revert next => .revert next := by
-  intro hinternal fuel state stmts hlegacy
-  induction hlegacy generalizing fuel state with
-  | nil =>
-      cases fuel <;> simp only [execIRStmtsWithInternals, execIRStmts]
-  | comment msg rest hrest ih =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.comment msg)
-              (LegacyCompatibleExternalStmtList.comment msg [] LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.comment msg) <;>
-            simp only [ih]
-  | let_ name value rest hrest ih =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.let_ name value)
-              (LegacyCompatibleExternalStmtList.let_ name value [] LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.let_ name value) <;>
-            simp only [ih]
-  | assign name value rest hrest ih =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.assign name value)
-              (LegacyCompatibleExternalStmtList.assign name value [] LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.assign name value) <;>
-            simp only [ih]
-  | exprStmt value rest hrest ih =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.exprStmt value)
-              (LegacyCompatibleExternalStmtList.exprStmt value [] LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.exprStmt value) <;>
-            simp only [ih]
-  | if_ cond body rest hbody hrest ihBody ihRest =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.if_ cond body)
-              (LegacyCompatibleExternalStmtList.if_ cond body [] hbody LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.if_ cond body) <;>
-            simp only [ihRest]
-  | block body rest hbody hrest ihBody ihRest =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.block body)
-              (LegacyCompatibleExternalStmtList.block body [] hbody LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.block body) <;>
-            simp only [ihRest]
-  | for_ init cond post body rest hinit hpost hbody hrest ihInit ihPost ihBody ihRest =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.for_ init cond post body)
-              (LegacyCompatibleExternalStmtList.for_ init cond post body []
-                hinit hpost hbody LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.for_ init cond post body) <;>
-            simp only [ihRest]
-  | funcDef name params rets body rest hbody hrest ihBody ihRest =>
-      cases fuel with
-      | zero =>
-          simp only [execIRStmtsWithInternals, execIRStmts]
-      | succ fuel =>
-          have hhead :=
-            hstmt hinternal fuel state (.funcDef name params rets body)
-              (LegacyCompatibleExternalStmtList.funcDef
-                name params rets body [] hbody LegacyCompatibleExternalStmtList.nil)
-          rw [execIRStmtsWithInternals, execIRStmts, hhead]
-          cases hstep : execIRStmt fuel state (.funcDef name params rets body) <;>
-            simp only [ihRest]
+  intro hinternal fuel state _ hlegacy
+  exact stmtCompatibility_list (hstmt hinternal) hlegacy fuel state
 
 /-- Once statement-list compatibility is proved, the function-level compatibility
 field in `InterpretIRWithInternalsZeroConservativeExtensionInterfaces` is just
@@ -5583,6 +5170,44 @@ private theorem yulStmtList_length_le_sizeOf : (stmts : List YulStmt) → stmts.
       simp
       omega
 
+private theorem mstore0_calldataload_aligned_body (idx n : Nat) (s : IRState)
+    (hn : 2 ≤ n) :
+    execIRStmts (n + 1) s
+        [YulStmt.exprStmt (YulExpr.call "mstore"
+          [YulExpr.lit 0,
+           YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
+        YulStmt.exprStmt (YulExpr.call "return"
+          [YulExpr.lit 0, YulExpr.lit 32])] =
+      .return (Compiler.Proofs.YulGeneration.calldataloadWord
+          s.selector s.calldata (4 + 32 * idx))
+        (s.writePhysicalMemoryValue 0
+          (Compiler.Proofs.YulGeneration.calldataloadWord
+            s.selector s.calldata (4 + 32 * idx))) := by
+  obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
+  have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata
+      (4 + 32 * idx) < Verity.Core.Uint256.modulus :=
+    Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus
+      s.selector s.calldata (4 + 32 * idx)
+  simp only [execIRStmts, execIRStmt, evalIRExpr,
+    evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
+    Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
+    Nat.mod_eq_of_lt bounded]
+
+private theorem mstore0_calldataload_aligned_size (idx : Nat) :
+    2 ≤ sizeOf
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
+          [YulExpr.lit 0,
+           YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
+        YulStmt.exprStmt (YulExpr.call "return"
+          [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
+  have hlen := yulStmtList_length_le_sizeOf
+      ([YulStmt.exprStmt (YulExpr.call "mstore"
+          [YulExpr.lit 0,
+           YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
+        YulStmt.exprStmt (YulExpr.call "return"
+          [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt)
+  simpa using hlen
+
 theorem execIRFunction_mstore0_calldataload_aligned_return32
     (fn : IRFunction) (tx : IRTransaction) (initialState : IRState)
     (idx : Nat)
@@ -5597,42 +5222,9 @@ theorem execIRFunction_mstore0_calldataload_aligned_return32
         finalStorage := initialState.storage
         finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
         events := initialState.events } := by
-  have hbody : ∀ (n : Nat) (s : IRState), 2 ≤ n →
-      execIRStmts (n + 1) s
-        [YulStmt.exprStmt (YulExpr.call "mstore"
-            [YulExpr.lit 0,
-             YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-         YulStmt.exprStmt (YulExpr.call "return"
-            [YulExpr.lit 0, YulExpr.lit 32])] =
-          .return (Compiler.Proofs.YulGeneration.calldataloadWord
-              s.selector s.calldata (4 + 32 * idx))
-            (s.writePhysicalMemoryValue 0
-              (Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx))) := by
-    intro n s hn
-    obtain ⟨k, rfl⟩ : ∃ k, n = k + 2 := ⟨n - 2, by omega⟩
-    have bounded : Compiler.Proofs.YulGeneration.calldataloadWord s.selector s.calldata (4 + 32 * idx) <
-        Verity.Core.Uint256.modulus :=
-      Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus s.selector s.calldata (4 + 32 * idx)
-    simp only [execIRStmts, execIRStmt, evalIRExpr,
-      evalIRCall_calldataload_singleton, Option.bind_some, ↓reduceIte,
-      Verity.Core.Uint256.val_ofNat, Nat.zero_mod, IRState.writePhysicalMemoryValue_at,
-      Nat.mod_eq_of_lt bounded]
-  have hsize : 2 ≤ sizeOf
-      ([YulStmt.exprStmt (YulExpr.call "mstore"
-          [YulExpr.lit 0,
-           YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-        YulStmt.exprStmt (YulExpr.call "return"
-          [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt) := by
-    have hlen := yulStmtList_length_le_sizeOf
-      ([YulStmt.exprStmt (YulExpr.call "mstore"
-          [YulExpr.lit 0,
-           YulExpr.call "calldataload" [YulExpr.lit (4 + 32 * idx)]]),
-        YulStmt.exprStmt (YulExpr.call "return"
-          [YulExpr.lit 0, YulExpr.lit 32])] : List YulStmt)
-    simpa using hlen
   unfold execIRFunction
   simp only [hBody]
-  rw [hbody _ _ hsize]
+  rw [mstore0_calldataload_aligned_body idx _ _ (mstore0_calldataload_aligned_size idx)]
   simp only [IRState.foldl_setParamVars_storage,
     IRState.foldl_setParamVars_calldata, IRState.foldl_setParamVars_events]
   simp [Compiler.Proofs.YulGeneration.calldataloadWord, Compiler.Constants.evmModulus,
@@ -6209,6 +5801,60 @@ theorem execIRStmtsWithInternals_of_internalCallAssign_compile
       (CompilationModel.internalFunctionYulName functionName)
       argExprs' helper argVals state' hargs hfind⟩
 
+private theorem internalCall_compile_ne_of_head (functionName name : String) (c : Char)
+    (hc : name.toList.head? = some c) (hne : c ≠ 'i') :
+    CompilationModel.internalFunctionYulName functionName ≠ name := by
+  intro hEq
+  have hHead := congrArg (fun s => s.toList.head?) hEq
+  change (CompilationModel.internalFunctionYulName functionName).toList.head? =
+    name.toList.head? at hHead
+  rw [internalFunctionYulName_head functionName, hc] at hHead
+  exact hne (Option.some.inj hHead).symm
+
+private theorem internalCall_compile_ne_invalid (functionName : String) :
+    CompilationModel.internalFunctionYulName functionName ≠ "invalid" := by
+  intro hEq
+  have hLen := congrArg String.length hEq
+  have hMe : (CompilationModel.internalFunctionYulName functionName).length =
+      9 + functionName.length := by
+    show (toString "internal_" ++ toString functionName).length =
+      9 + functionName.length
+    rw [String.length_append]
+    simp [toString]
+    decide
+  rw [hMe] at hLen
+  have h7 : ("invalid" : String).length = 7 := by decide
+  omega
+
+private theorem internalCall_compile_exec
+    (contract : IRContract) (fuel : Nat) (state : IRState) (functionName : String)
+    (argExprs : List YulExpr) (helper : IRInternalFunctionDef) (argVals : List Nat)
+    (state' : IRState)
+    (hargs : evalIRExprsWithInternals contract (fuel + 1) state argExprs = .values argVals state')
+    (hfind : findInternalFunction? contract
+      (CompilationModel.internalFunctionYulName functionName) = some helper)
+    (hstop : CompilationModel.internalFunctionYulName functionName ≠ "stop")
+    (hsstore : CompilationModel.internalFunctionYulName functionName ≠ "sstore")
+    (hmstore : CompilationModel.internalFunctionYulName functionName ≠ "mstore")
+    (hrevert : CompilationModel.internalFunctionYulName functionName ≠ "revert")
+    (hreturn : CompilationModel.internalFunctionYulName functionName ≠ "return") :
+    execIRStmtsWithInternals contract (fuel + 3) state [YulStmt.exprStmt
+      (YulExpr.call (CompilationModel.internalFunctionYulName functionName) argExprs)] =
+      match execIRInternalFunctionWithInternals contract fuel state' helper argVals with
+      | .values _ state'' => .continue state''
+      | .stop state'' => .stop state''
+      | .return value' state'' => .return value' state''
+      | .revert state'' => .revert state'' :=
+  execIRStmtsWithInternals_singleton_expr_call_internal contract fuel state
+    (CompilationModel.internalFunctionYulName functionName)
+    argExprs helper argVals state' hargs hfind hstop hsstore hmstore
+    (internalCall_compile_ne_of_head functionName "tstore" 't' (by decide) (by decide))
+    (internalCall_compile_ne_of_head functionName "calldatacopy" 'c' (by decide) (by decide))
+    (internalCall_compile_ne_of_head functionName "returndatacopy" 'r' (by decide) (by decide))
+    hrevert hreturn (internalCall_compile_ne_invalid functionName)
+    (internalCall_compile_ne_of_head functionName "selfdestruct" 's' (by decide) (by decide))
+    (internalFunctionYulName_isYulLogName_false functionName)
+
 /-- For `Stmt.internalCall` (void calls), when compilation succeeds and the
 helper function is found in the runtime contract, the compiled IR's list-level
 execution reduces to `execIRInternalFunctionWithInternals` applied to the
@@ -6246,60 +5892,10 @@ theorem execIRStmtsWithInternals_of_internalCall_compile
   have hArgEq : argExprs' = argExprs := by
     simp [hargCompile] at hargOk; exact hargOk.symm
   subst hArgEq
-  exact ⟨hshape, by
-    rw [hshape]
-    exact execIRStmtsWithInternals_singleton_expr_call_internal
-      contract fuel state
-      (CompilationModel.internalFunctionYulName functionName)
-      argExprs' helper argVals state' hargs hfind
-      hstop hsstore hmstore
-      (by
-        intro hEq
-        have hHead := congrArg (fun s => s.toList.head?) hEq
-        have hT : ("tstore" : String).toList.head? = some 't' := by decide
-        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
-          ("tstore" : String).toList.head? at hHead
-        rw [internalFunctionYulName_head functionName, hT] at hHead
-        exact nomatch hHead)
-      (by
-        intro hEq
-        have hHead := congrArg (fun s => s.toList.head?) hEq
-        have hT : ("calldatacopy" : String).toList.head? = some 'c' := by decide
-        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
-          ("calldatacopy" : String).toList.head? at hHead
-        rw [internalFunctionYulName_head functionName, hT] at hHead
-        exact nomatch hHead)
-      (by
-        intro hEq
-        have hHead := congrArg (fun s => s.toList.head?) hEq
-        have hT : ("returndatacopy" : String).toList.head? = some 'r' := by decide
-        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
-          ("returndatacopy" : String).toList.head? at hHead
-        rw [internalFunctionYulName_head functionName, hT] at hHead
-        exact nomatch hHead)
-      hrevert hreturn
-      (by
-        intro hEq
-        have hLen := congrArg String.length hEq
-        have hMe : (CompilationModel.internalFunctionYulName functionName).length =
-            9 + functionName.length := by
-          show (toString "internal_" ++ toString functionName).length =
-            9 + functionName.length
-          rw [String.length_append]
-          simp [toString]
-          decide
-        rw [hMe] at hLen
-        have h7 : ("invalid" : String).length = 7 := by decide
-        omega)
-      (by
-        intro hEq
-        have hHead := congrArg (fun s => s.toList.head?) hEq
-        have hT : ("selfdestruct" : String).toList.head? = some 's' := by decide
-        change (CompilationModel.internalFunctionYulName functionName).toList.head? =
-          ("selfdestruct" : String).toList.head? at hHead
-        rw [internalFunctionYulName_head functionName, hT] at hHead
-        exact nomatch hHead)
-      (internalFunctionYulName_isYulLogName_false functionName)⟩
+  refine ⟨hshape, ?_⟩
+  rw [hshape]
+  exact internalCall_compile_exec contract fuel state functionName argExprs' helper
+    argVals state' hargs hfind hstop hsstore hmstore hrevert hreturn
 
 @[simp] theorem applyIRTransactionContext_sender
     (tx : IRTransaction) (initialState : IRState) :

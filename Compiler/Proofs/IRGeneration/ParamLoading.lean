@@ -449,6 +449,47 @@ private theorem exec_minInputSizeCheck_supported_noop
     Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
     Nat.mod_eq_of_lt hcalldataSizeFits, Nat.mod_eq_of_lt hrhs_lt_modulus, hnotlt]
 
+private theorem exec_genParamLoadBodyFrom_supported_then_bind_cons
+    {param : Param} {restParams : List Param} {calldata : List Nat} {idx : Nat}
+    {bindings : List (String × Nat)}
+    (hbind : SourceSemantics.bindSupportedParams (param :: restParams) (calldata.drop idx) =
+      some bindings) :
+    ∃ value restBindings, bindings = (param.name, value) :: restBindings ∧
+      SourceSemantics.decodeSupportedParamWord param.ty (calldata.getD idx 0) = some value ∧
+      SourceSemantics.bindSupportedParams restParams (calldata.drop (idx + 1)) =
+        some restBindings := by
+  cases hdrop : calldata.drop idx with
+  | nil => simp [SourceSemantics.bindSupportedParams, hdrop] at hbind
+  | cons arg restArgs =>
+      cases hdecode : SourceSemantics.decodeSupportedParamWord param.ty arg <;>
+          simp [SourceSemantics.bindSupportedParams, hdrop, hdecode] at hbind
+      case some value =>
+        cases hrest : SourceSemantics.bindSupportedParams restParams restArgs <;>
+            simp [hrest] at hbind
+        case some restBindings =>
+          subst hbind
+          refine ⟨value, restBindings, rfl, ?_, ?_⟩
+          · rw [getD_eq_of_drop_eq_cons hdrop]
+            exact hdecode
+          · rw [drop_succ_eq_of_drop_eq_cons hdrop]
+            exact hrest
+
+private theorem exec_genParamLoadBodyFrom_supported_then_cons_eq
+    (headSize baseOffset idx : Nat) (param : Param) (restParams : List Param)
+    (hparam : SupportedExternalScalarParamType param.ty) :
+    genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset (param :: restParams) (4 + 32 * idx) =
+      genScalarLoad (fun pos => YulExpr.call "calldataload" [pos]) param.name param.ty
+          (4 + 32 * idx) ++
+        genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) headSize baseOffset restParams
+          (4 + 32 * (idx + 1)) := by
+  have hoff : 4 + 32 * idx + 32 = 4 + 32 * (idx + 1) := by omega
+  rcases supportedExternalParamType_cases hparam with
+    hty | hty | hty | hty | ⟨_, hty⟩ | ⟨_, hty⟩ | ⟨_, hty⟩ | hty | hty | hty <;>
+  simp [Compiler.CompilationModel.genParamLoadBodyFrom,
+    Compiler.CompilationModel.genSingleParamLoad, paramHeadSize, hty, hoff]
+
 theorem exec_genParamLoadBodyFrom_supported_then
     (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
     (params : List Param) (idx : Nat)
@@ -464,277 +505,20 @@ theorem exec_genParamLoadBodyFrom_supported_then
       execIRStmts (rest.length + extraFuel + 1) (applyBindingsToIRState state bindings) rest := by
   induction params generalizing state idx bindings rest headSize baseOffset with
   | nil =>
-      simp [SourceSemantics.bindSupportedParams] at hbind
-      cases hbind
+      cases (by simpa [SourceSemantics.bindSupportedParams] using hbind : [] = bindings)
       simp [Compiler.CompilationModel.genParamLoadBodyFrom, applyBindingsToIRState]
   | cons param restParams ih =>
-      cases hdrop : state.calldata.drop idx with
-      | nil =>
-          simp [SourceSemantics.bindSupportedParams, hdrop] at hbind
-      | cons arg restArgs =>
-          have hparam : SupportedExternalScalarParamType param.ty := hsupported param (by simp)
-          have hrestSupported : ∀ next ∈ restParams, SupportedExternalScalarParamType next.ty := by
-            intro next hnext
-            exact hsupported next (by simp [hnext])
-          cases hdecode : SourceSemantics.decodeSupportedParamWord param.ty arg <;>
-              simp [SourceSemantics.bindSupportedParams, hdrop, hdecode] at hbind
-          case some value =>
-            cases hrest : SourceSemantics.bindSupportedParams restParams restArgs <;>
-                simp [hrest] at hbind
-            case some restBindings =>
-              cases hbind
-              have hdecode' :
-                  SourceSemantics.decodeSupportedParamWord param.ty (state.calldata.getD idx 0) =
-                    some value := by
-                have hget : state.calldata.getD idx 0 = arg := getD_eq_of_drop_eq_cons hdrop
-                rw [hget]
-                exact hdecode
-              have htail :
-                  (state.setVar param.name value).calldata.drop (idx + 1) = restArgs := by
-                simpa [IRState.setVar] using drop_succ_eq_of_drop_eq_cons hdrop
-              rcases supportedExternalParamType_cases hparam with
-                hty | hty | hty | hty | ⟨uintBits, hty⟩ | ⟨intBits, hty⟩ |
-                ⟨byteCount, hty⟩ | hty | hty | hty
-              ·
-                have hdecode_uint256 :
-                    SourceSemantics.decodeSupportedParamWord .uint256 (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .uint256) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_uint256)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_int256 :
-                    SourceSemantics.decodeSupportedParamWord .int256 (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .int256) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_int256)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_uint8 :
-                    SourceSemantics.decodeSupportedParamWord .uint8 (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .uint8) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_uint8)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_uint16 :
-                    SourceSemantics.decodeSupportedParamWord .uint16 (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .uint16) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_uint16)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_uintN :
-                    SourceSemantics.decodeSupportedParamWord (.uintN uintBits) (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .uintN uintBits) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_uintN)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_intN :
-                    SourceSemantics.decodeSupportedParamWord (.intN intBits) (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .intN intBits) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_intN)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_bytesN :
-                    SourceSemantics.decodeSupportedParamWord (.bytesN byteCount) (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .bytesN byteCount) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_bytesN)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_address :
-                    SourceSemantics.decodeSupportedParamWord .address (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .address) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_address)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_bytes32 :
-                    SourceSemantics.decodeSupportedParamWord .bytes32 (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .bytes32) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_bytes32)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
-              ·
-                have hdecode_bool :
-                    SourceSemantics.decodeSupportedParamWord .bool (state.calldata.getD idx 0) =
-                      some value := by
-                  simpa [hty] using hdecode'
-                have hoff : 4 + 32 * (idx + 1) = 4 + (32 + 32 * idx) := by omega
-                simpa [Compiler.CompilationModel.genParamLoadBodyFrom,
-                  Compiler.CompilationModel.genSingleParamLoad, genScalarLoad, paramHeadSize, IRState.setVar,
-                  Nat.add_assoc, Nat.add_comm, Nat.add_left_comm, applyBindingsToIRState, hty, hoff] using
-                  (exec_genScalarLoad_supported_then (state := state)
-                    (rest := genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-                      (YulExpr.call "calldatasize" []) headSize baseOffset restParams
-                      (4 + 32 * (idx + 1)) ++ rest)
-                    (name := param.name) (ty := .bool) (idx := idx) (value := value)
-                    (extraFuel := extraFuel)
-                    (hsupported := trivial) (hdecode := hdecode_bool)).trans
-                    (by
-                      simpa [IRState.setVar, htail, applyBindingsToIRState, paramHeadSize,
-                        Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-                        ih (state := state.setVar param.name value) (headSize := headSize)
-                          (baseOffset := baseOffset) (idx := idx + 1)
-                          (bindings := restBindings) (rest := rest)
-                          hrestSupported
-                          (by simpa [htail] using hrest))
+      obtain ⟨value, restBindings, rfl, hdecode, hrest⟩ :=
+        exec_genParamLoadBodyFrom_supported_then_bind_cons hbind
+      have hparam := hsupported param (by simp)
+      have hih := ih (state.setVar param.name value) rest headSize baseOffset (idx + 1)
+        restBindings (fun next hnext => hsupported next (by simp [hnext]))
+        (by simpa [IRState.setVar] using hrest)
+      rw [← List.length_append] at hih
+      rw [exec_genParamLoadBodyFrom_supported_then_cons_eq _ _ _ _ _ hparam]
+      simpa only [List.length_append, List.append_assoc, Nat.add_assoc, applyBindingsToIRState]
+        using (exec_genScalarLoad_supported_then state _ param.name param.ty idx value
+          extraFuel hparam hdecode).trans hih
 
 theorem exec_genParamLoads_supported
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
@@ -772,6 +556,35 @@ theorem exec_genParamLoads_supported
   simpa [Compiler.CompilationModel.genParamLoads, Compiler.CompilationModel.genParamLoadsFrom,
     body, supportedScalarHeadSize_eq params hsupported] using hstep.trans hbody'
 
+private theorem exec_genParamLoads_supported_then_extraFuel_guard
+    (state : IRState) (params : List Param) (rest : List YulStmt) (extraFuel : Nat)
+    (hsupported : ∀ param ∈ params, SupportedExternalScalarParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hlen : params.length ≤ state.calldata.length) :
+    execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
+      (genParamLoads params ++ rest) =
+      execIRStmts ((genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4 ++ rest).length +
+          extraFuel + 1) state
+        (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4 ++ rest) := by
+  let body :=
+    genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+      (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4
+  have hguard := exec_minInputSizeCheck_supported_noop
+    (fuel := body.length + rest.length + extraFuel) state params hsupported hcalldataSizeFits hlen
+  have hstep :=
+    execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state
+      (YulStmt.if_ (YulExpr.call "lt"
+        [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
+        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
+      (body ++ rest) (by simpa [body] using hguard)
+  have hfuel' : extraFuel + (rest.length + (2 + body.length)) =
+      extraFuel + (rest.length + (1 + (1 + body.length))) := by omega
+  simpa [Compiler.CompilationModel.genParamLoads, Compiler.CompilationModel.genParamLoadsFrom,
+    body, List.length_append, supportedScalarHeadSize_eq params hsupported,
+    hfuel', Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hstep
+
 theorem exec_genParamLoads_supported_then_extraFuel
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
     (rest : List YulStmt) (extraFuel : Nat)
@@ -781,53 +594,13 @@ theorem exec_genParamLoads_supported_then_extraFuel
     execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
       (genParamLoads params ++ rest) =
       execIRStmts (rest.length + extraFuel + 1) (applyBindingsToIRState state bindings) rest := by
-  let body :=
-    genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-      (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4
-  have hlen : params.length ≤ state.calldata.length := bindSupportedParams_some_length hbind
-  have hguard :
-      execIRStmt (body.length + rest.length + extraFuel + 1) state
-        (YulStmt.if_ (YulExpr.call "lt"
-          [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-        .continue state :=
-    exec_minInputSizeCheck_supported_noop (fuel := body.length + rest.length + extraFuel) state params hsupported
-      hcalldataSizeFits hlen
   have hbody :=
-    exec_genParamLoadBodyFrom_supported_then (state := state) (rest := rest) (headSize := 32 * params.length)
-      (baseOffset := 4) (params := params) (idx := 0) (bindings := bindings)
-      (extraFuel := extraFuel) hsupported
-      (by simpa using hbind)
-  have hstep :=
-    execIRStmts_cons_of_execIRStmt_continue_extraFuel extraFuel state state
-      (YulStmt.if_ (YulExpr.call "lt"
-        [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])])
-      (body ++ rest) (by simpa [body] using hguard)
-  have hbody' :
-      execIRStmts ((body ++ rest).length + extraFuel + 1) state (body ++ rest) =
-        execIRStmts (rest.length + extraFuel + 1) (applyBindingsToIRState state bindings) rest := by
-    simpa [body] using hbody
-  have hfuel :
-      rest.length + extraFuel + (2 + body.length) =
-        rest.length + extraFuel + (1 + (1 + body.length)) := by
-    omega
-  have hstep' :
-      execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
-        (genParamLoads params ++ rest) =
-        execIRStmts ((body ++ rest).length + extraFuel + 1) state (body ++ rest) := by
-    have hfuel' :
-        extraFuel + (rest.length + (2 + body.length)) =
-          extraFuel + (rest.length + (1 + (1 + body.length))) := by
-      omega
-    simpa [Compiler.CompilationModel.genParamLoads, Compiler.CompilationModel.genParamLoadsFrom,
-      body, List.length_append, supportedScalarHeadSize_eq params hsupported, hfuel,
-      hfuel', Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using hstep
-  calc
-    execIRStmts ((genParamLoads params).length + rest.length + extraFuel + 1) state
-        (genParamLoads params ++ rest)
-        = execIRStmts ((body ++ rest).length + extraFuel + 1) state (body ++ rest) := hstep'
-    _ = execIRStmts (rest.length + extraFuel + 1) (applyBindingsToIRState state bindings) rest := hbody'
+    exec_genParamLoadBodyFrom_supported_then (state := state) (rest := rest)
+      (headSize := 32 * params.length) (baseOffset := 4) (params := params) (idx := 0)
+      (bindings := bindings) (extraFuel := extraFuel) hsupported (by simpa using hbind)
+  rw [← List.length_append] at hbody
+  exact (exec_genParamLoads_supported_then_extraFuel_guard state params rest extraFuel hsupported
+    hcalldataSizeFits (bindSupportedParams_some_length hbind)).trans (by simpa using hbody)
 
 theorem exec_genParamLoads_supported_then
     (state : IRState) (params : List Param) (bindings : List (String × Nat))
