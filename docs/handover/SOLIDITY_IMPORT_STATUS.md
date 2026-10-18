@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `026637521`
-- **Last Updated**: `2026-10-18T17:29:00Z`
+- **Current `main` HEAD**: `58e435dec`
+- **Last Updated**: `2026-10-18T18:13:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`026637521`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 34 PRs merged (`#2504`–`#2528`, `#2530`–`#2540`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S15` (`0` `maxHeartbeats` escalations, **−13,778 net lines** in `Compiler/` + 240 allowlist entries pruned across S5–S15, leaving 405; 7,057 proofs `<30` lines = 80%) landed on `main`! |
-| In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (verified) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
+| `main` (`58e435dec`) | **40 / 45** | **88.89%** | +8 (`isHealthy`, `touchMarket`, `updatePosition`, `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | 35 PRs merged (`#2504`–`#2528`, `#2530`–`#2541`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), Family B (`#2541`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S15` (`0` `maxHeartbeats` escalations, **−13,778 net lines** in `Compiler/` + 240 allowlist entries pruned across S5–S15, leaving 405; 7,069 proofs `<30` lines = 80%) landed on `main`! |
+| In-flight Family D (`4c9eaf02` on `old-agent`) | **41 / 45** (target) | **91.11%** | +9 (+1: `toMarket`) | External code copy (`<addr>.code`, `EXTCODESIZE` + `EXTCODECOPY`) and dynamic struct `abi.decode(<bytes>, (Struct))` + `returns (Struct memory)` lowering onto closed `ByteTransport` modules. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`34` Merged + `2` Folded/Closed = `36` Total Resolved)
+## 2. Merged PRs in This Campaign (`35` Merged + `2` Folded/Closed = `37` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -54,6 +54,7 @@
 | `#2538` | `refactor/proofs-irgeneration-dynamicparam-splicesim-dispatch` | `942c68648` | **Track S13**: Decomposed all 19 allowlisted proofs > 50 lines across `DynamicParamLoading.lean` (6 proofs), `SpliceSimulation.lean` (6 proofs), `Dispatch.lean` (5 proofs), and `DispatchGeneric.lean` (2 proofs) into `≤30`-line `private theorem` helpers, pruned 19 allowlist entries (`485 → 466`; `7,006` proofs `<30` lines), and cut **net 42 lines** in `Compiler/` (`+1342 / -1318` total incl. `PrintAxioms.lean`). |
 | `#2539` | `refactor/proofs-irgeneration-contract-and-guards` | `aeae4c086` | **Track S15**: Decomposed all 24 allowlisted proofs > 50 lines across `Contract.lean` (18 proofs), `ContractShape.lean` (1), `ContractFeatureTest.lean` (1), `GuardedFunction.lean` (2), `GuardedSpec.lean` (1), and `HelperBodyShape.lean` (1) into `≤30`-line `private theorem` helpers, pruned 24 allowlist entries (`466 → 442`; `7,024` proofs `<30` lines), and cut **net 728 lines** (`+508 / -1236`). |
 | `#2540` | `refactor/proofs-irgeneration-storage-remaining-decomposition` | `026637521` | **Track S14**: Decomposed all 37 remaining allowlisted proofs > 50 lines in `Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean` into `≤30`-line `private theorem` helpers (bringing `Storage.lean` to 0 proofs > 50 lines!), pruned 37 allowlist entries (`442 → 405`; `7,057` proofs `<30` lines = `80%`), and cut **net 865 lines** (`+921 / -1786`). |
+| `#2541` | `feat/solidity-import-external-code-and-low-level-call` | `58e435dec` | **Family B**: Lowered `<address>.code.length` (`SolidityExtCodeSize.module` / `DenoteExternalCode.extCodeSize`) and Solady/OZ `SafeTransferLib` value-free `.call(abi.encodeCall(...))` with returndata forwarding and optional-bool decode (`SolidityLowLevelCall.optionalBoolModule` / `DenoteLowLevelCall.lean`), with 3-variant stateful A/B/C campaign, 19 located rejections, and 15/15 mutants. Unlocked `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, and `withdrawCollateral` (**40/45 = 88.89%**). |
 
 ---
 
@@ -84,18 +85,17 @@
 
 ---
 
-## 4. Ordered Remaining Construct Families (All Implemented Generically, 35/45 -> 45/45)
+## 4. Ordered Remaining Construct Families (All Implemented Generically, 40/45 -> 45/45)
 
 1. **Family A — Generic Yul `create2(0, ptr, len, salt)` Byte-Payload Deployment & Struct Event Emission (`emit Event(Struct, bytes32 indexed)`)** — **MERGED (`#2526`, `334106da1`)**:
    - Unlocks `touchMarket` and `updatePosition` (**35 / 45 = 77.78%**).
-2. **Track B0 + Family B — External Code Reads (`<addr>.code.length`, `EXTCODESIZE`) & Low-Level `.call(bytes)` with Optional-Bool Returndata Decode**:
-   - **Track B0 MERGED (`#2522`, `f701a9ca7`)**: `Verity/Core/Model/DenoteExternalCode.lean`, `decodeStaticBool`, `decodeOptionalBoolCall`, `staticBytesRequest`, `callBytesRequest`, and `inheritance-external-contract-call-rejected` landed on `main`.
-   - **Family B ACTIVE on `old-agent` (`b223122a-c286-48c5-a4f0-44ff1ec84dfb`)**: Wiring `DenoteExternalCode.extCodeSize` (`<addr>.code.length`) and `DenoteByteExternalCalls.decodeOptionalBoolCall` (`SafeTransferLib` low-level `.call(abi.encodeCall(...))`) into `ECM.lean`, `Denote.lean`, and `Import.lean` to unlock `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, and `withdrawCollateral` (**40 / 45 = 88.89%** verified; finishing touched mutation tasks).
-3. **Track C0 + Family C — Typed-Interface View Staticcalls with Arguments & `bool`/`bytes32` Returns (`I(addr).f(args...)`)**:
-   - **Track C0 MERGED (`#2527`, `084fa4f0b`)**: `commitCalleeWorld`, `callAdversary`, `decodeCallWord`, `execute_rawReturndata`, and `executeBytes*` + `@[simp]` lemmas in `Verity/Core/Model/DenoteByteExternalCalls.lean` landed on `main`.
-   - **Family C (next on `Import.lean` after Family B)**: Unblocks gate (`ILiquidatorGate.canLiquidate`, `IEnterGate.canIncreaseCredit`/`canIncreaseDebt`) and ratifier (`IRatifier.isRatified`) staticcalls.
-4. **Family D — External Code Slice `abi.decode(<addr>.code, (Struct))` & Dynamic Struct Array `abi.decode`**:
+2. **Track B0 + Family B — External Code Reads (`<addr>.code.length`, `EXTCODESIZE`) & Low-Level `.call(bytes)` with Optional-Bool Returndata Decode** — **MERGED (`#2522` + `#2541`, `58e435dec`)**:
+   - Unlocks `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, and `withdrawCollateral` (**40 / 45 = 88.89%**).
+3. **Family D — External Code Slice `abi.decode(<addr>.code, (Struct))` & Dynamic Struct Return (`returns (Struct memory)`)** — **ACTIVE on `old-agent` (`4c9eaf02-0346-4662-af15-ecbe0e7d07e1`)**:
    - Unlocks `toMarket` (**41 / 45 = 91.11%**).
+4. **Track C0 + Family C — Typed-Interface View Staticcalls with Arguments & `bool`/`bytes32` Returns (`I(addr).f(args...)`)**:
+   - **Track C0 MERGED (`#2527`, `084fa4f0b`)**: `commitCalleeWorld`, `callAdversary`, `decodeCallWord`, `execute_rawReturndata`, and `executeBytes*` + `@[simp]` lemmas in `Verity/Core/Model/DenoteByteExternalCalls.lean` landed on `main`.
+   - **Family C (next after Family D)**: Unblocks gate (`ILiquidatorGate.canLiquidate`, `IEnterGate.canIncreaseCredit`/`canIncreaseDebt`) and ratifier (`IRatifier.isRatified`) staticcalls.
 5. **Family E — Typed-Interface State-Changing External Callbacks (`onRepay`, `onLiquidate`, `onBuy`, `onSell`, `onFlashLoan`) & Dynamic Array Event/Root Parameters (`address[]` event, `bytes[]` param)**:
    - Unlocks `repay`, `liquidate`, `take`, and `flashLoan` (**45 / 45 = 100.00%** coverage of `src/Midnight.sol` @ `96d31343`, excluding `multicall`).
 
@@ -105,6 +105,6 @@
 
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
-| `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
+| `family-d-extcodecopy-abi-decode` | `old-agent` | `4c9eaf02-0346-4662-af15-ecbe0e7d07e1` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-extcodecopy-abi-decode` | Active |
 | `track-s16-proofs-irgeneration-final` | `ashur` | `89ca8586-3ab3-48d5-baa1-fe686c26147d` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irgeneration-final-zero-allowlist` | Active |
 | `track-s17-proofs-helperstep-abi-storage-stdlib` | `sepolia` | `13fbf72c-0092-4726-baf5-17ce200ba2e9` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-helperstep-abi-storage-stdlib` | Active |
