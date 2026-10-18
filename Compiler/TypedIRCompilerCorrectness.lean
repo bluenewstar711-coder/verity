@@ -4706,54 +4706,107 @@ def execCompiledRequireFamilyClausesThenTail
           fields mappingField senderVar currentVar authParam boolParam msg1 msg2 st
       | .revert reason => .revert reason
 
-/-- Closes one unfolded supported `require`-family tail case by applying its
-per-tail semantic-preservation lemma, discharging side conditions from the case
-hypotheses. -/
-macro "require_family_tail_by_lemma" : tactic =>
-  `(tactic| solve_by_elim (maxDepth := 10) only [*,
-      compile_require_family_clauses_then_noop_semantics,
-      compile_require_family_clauses_then_rawLog_literals_semantics,
-      compile_require_family_clauses_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_setStorage_literals_semantics,
-      compile_require_family_clauses_then_ite_eq_setStorage_then_return_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_return_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_return_literals_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_return_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_then_return_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_return_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_return_literal_semantics,
-      compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_setStorage_literal_semantics,
-      compile_require_family_clauses_then_return_literal_semantics,
-      compile_require_family_clauses_then_let_return_local_literal_semantics,
-      compile_require_family_clauses_then_let_setStorage_local_literal_semantics,
-      compile_require_family_clauses_then_let_assign_setStorage_local_literal_semantics,
-      compile_require_family_clauses_then_let_assign_add_setStorage_local_literal_semantics,
-      compile_require_family_clauses_then_let_assign_sub_setStorage_local_literal_semantics,
-      compile_require_family_clauses_then_let_assign_mul_setStorage_local_literal_semantics,
-      compile_require_family_clauses_then_let_storage_setStorage_add_local_stop_semantics,
-      compile_require_family_clauses_then_let_storage_setStorage_sub_local_stop_semantics,
-      compile_require_family_clauses_then_let_blockTimestamp_setStorage_local_stop_semantics,
-      compile_require_family_clauses_then_let_storage_return_local_semantics,
-      compile_require_family_clauses_then_return_storage_semantics,
-      compile_require_family_clauses_then_return_storage_addr_semantics,
-      compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_add_stop_semantics,
-      compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_sub_stop_semantics,
-      compile_require_family_clauses_then_return_mapping_caller_semantics,
-      compile_require_family_clauses_then_let_storage_addr_return_local_semantics,
-      compile_require_family_clauses_then_let_mapping_param_return_local_semantics,
-      compile_require_family_clauses_then_let_mapping2_params_return_local_semantics,
-      compile_require_family_clauses_then_let_caller_setMapping2_stop_semantics,
-      compile_require_family_clauses_then_let_mappingUint_param_return_local_semantics,
-      compile_require_family_clauses_then_setMappingUint_params_stop_semantics,
-      compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_semantics,
-      compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageAddr_param_stop_semantics,
-      compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_stop_semantics,
-      compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics,
-      compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics])
+/-- `require`-family tail semantics for the literal and single `ite` tails
+(constructor indices `0` to `10`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_lt_11
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hHi : tail.ctorIdx < 11) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_noop_semantics,
+    compile_require_family_clauses_then_rawLog_literals_semantics,
+    compile_require_family_clauses_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_setStorage_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_setStorage_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_return_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_return_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_literals_then_setStorage_literal_then_return_literal_semantics]
+
+/-- `require`-family tail semantics for the nested `ite` and local-literal tails
+(constructor indices `11` to `21`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_Ico_11_22
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 11 ≤ tail.ctorIdx) (hHi : tail.ctorIdx < 22) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_literals_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_setStorage_then_return_literal_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_return_literal_semantics,
+    compile_require_family_clauses_then_ite_eq_then_ite_eq_return_then_setStorage_literal_then_setStorage_literal_semantics,
+    compile_require_family_clauses_then_return_literal_semantics,
+    compile_require_family_clauses_then_let_return_local_literal_semantics,
+    compile_require_family_clauses_then_let_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_add_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_assign_sub_setStorage_local_literal_semantics]
+
+/-- `require`-family tail semantics for the local-arithmetic and storage-read tails
+(constructor indices `22` to `32`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_Ico_22_33
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 22 ≤ tail.ctorIdx) (hHi : tail.ctorIdx < 33) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hHi; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail]
+      solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_let_assign_mul_setStorage_local_literal_semantics,
+    compile_require_family_clauses_then_let_storage_setStorage_add_local_stop_semantics,
+    compile_require_family_clauses_then_let_storage_setStorage_sub_local_stop_semantics,
+    compile_require_family_clauses_then_let_blockTimestamp_setStorage_local_stop_semantics,
+    compile_require_family_clauses_then_let_storage_return_local_semantics,
+    compile_require_family_clauses_then_return_storage_semantics,
+    compile_require_family_clauses_then_return_storage_addr_semantics,
+    compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_add_stop_semantics,
+    compile_require_family_clauses_then_require_caller_eq_storage_addr_setStorage_sub_stop_semantics,
+    compile_require_family_clauses_then_return_mapping_caller_semantics,
+    compile_require_family_clauses_then_let_storage_addr_return_local_semantics]
+
+/-- `require`-family tail semantics for the mapping and owner-guarded admin fragment tails
+(constructor indices `33` to `42`), each closed by its per-tail lemma. -/
+private theorem require_family_tail_semantics_ctorIdx_ge_33
+    (fields : List Field) (init : TExecState)
+    (clauses : List RequireLiteralGuardFamilyClause) (tail : RequireFamilyClausesTail fields)
+    (hLo : 33 ≤ tail.ctorIdx) :
+    execCompiledRequireFamilyClausesThenTail fields init clauses tail =
+      execSourceRequireFamilyClausesThenTail fields init clauses tail := by
+  cases tail <;> first
+    | (simp [RequireFamilyClausesTail.ctorIdx] at hLo; done)
+    | simp only [execCompiledRequireFamilyClausesThenTail,
+        execSourceRequireFamilyClausesThenTail,
+        compile_require_literal_guard_family_clauses_semantics]
+      (try split) <;> first | rfl | solve_by_elim (maxDepth := 10) only [*,
+    compile_require_family_clauses_then_let_mapping_param_return_local_semantics,
+    compile_require_family_clauses_then_let_mapping2_params_return_local_semantics,
+    compile_require_family_clauses_then_let_caller_setMapping2_stop_semantics,
+    compile_require_family_clauses_then_let_mappingUint_param_return_local_semantics,
+    compile_require_family_clauses_then_setMappingUint_params_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_reqNeq_setStorageAddr_param_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letStorageAddr_reqNeq_setStorageAddr_param_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letMapping_reqEqLit_setMapping_stop_semantics,
+    compile_letCaller_letStorageAddr_reqEq_letMappingUint_reqEqLit_reqLt_setMappingUint_stop_semantics,
+    compile_letCaller_letMapping2_ite_param_req_setMapping2_stop_semantics]
 
 /-- Generic sequencing semantic-preservation theorem over the supported tail
 family after unified `require` guard-family clause lists. -/
@@ -4763,13 +4816,15 @@ theorem compile_require_family_clauses_then_tail_semantics
     (tail : RequireFamilyClausesTail fields) :
     execCompiledRequireFamilyClausesThenTail fields init clauses tail =
       execSourceRequireFamilyClausesThenTail fields init clauses tail := by
-  cases tail <;>
-    simp only [execCompiledRequireFamilyClausesThenTail, execSourceRequireFamilyClausesThenTail,
-      compile_require_literal_guard_family_clauses_semantics] <;>
-    (try split) <;>
-    first
-    | rfl
-    | require_family_tail_by_lemma
+  by_cases h11 : tail.ctorIdx < 11
+  · exact require_family_tail_semantics_ctorIdx_lt_11 fields init clauses tail h11
+  by_cases h22 : tail.ctorIdx < 22
+  · exact require_family_tail_semantics_ctorIdx_Ico_11_22 fields init clauses tail
+      (by omega) h22
+  by_cases h33 : tail.ctorIdx < 33
+  · exact require_family_tail_semantics_ctorIdx_Ico_22_33 fields init clauses tail
+      (by omega) h33
+  · exact require_family_tail_semantics_ctorIdx_ge_33 fields init clauses tail (by omega)
 
 /-- Program fragment in the currently supported 2.2 generic family:
 one unified require-clause list followed by one supported tail. -/
