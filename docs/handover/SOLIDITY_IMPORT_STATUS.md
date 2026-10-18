@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `084fa4f0b`
-- **Last Updated**: `2026-10-18T13:41:00Z`
+- **Current `main` HEAD**: `e97cd68d5`
+- **Last Updated**: `2026-10-18T14:06:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`084fa4f0b`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 23 PRs merged (`#2504`–`#2528`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S5` (`0` `maxHeartbeats` escalations, **−4,231 net lines** in `Compiler/Proofs/` + 23 stale allowlist entries pruned) landed on `main`! |
+| `main` (`e97cd68d5`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 24 PRs merged (`#2504`–`#2528`, `#2530`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S6` (`0` `maxHeartbeats` escalations, **−5,648 net lines** in `Compiler/Proofs/` + 53 allowlist entries pruned across S5–S6) landed on `main`! |
 | In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (target) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`23` Merged + `2` Folded/Closed = `25` Total Resolved)
+## 2. Merged PRs in This Campaign (`24` Merged + `2` Folded/Closed = `26` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -43,6 +43,7 @@
 | `#2526` | `feat/solidity-import-create2-and-struct-emit` | `334106da1` | **Family A**: Lowered SSTORE2-style `create2(0, add(buf, 0x20), mload(buf), salt)` bytecode deployment (`SolidityCreate2.module`) and struct event parameters (`SolidityLog.module`) onto `#2504`'s `Create2Opcode`/`DenoteCreate2` and `#2508`'s physical byte memory, with 3-variant stateful A/B/C campaign, 17 located rejections, and 14/14 mutants. Unlocked `touchMarket` and `updatePosition` (**35/45 = 77.78%**). |
 | `#2528` | `refactor/proofs-calls-eventbridge-interface-decomposition` | `d03b088a0` | **Track S5**: Replaced the ~280-line macro `event_emit_semantic_bridge_tac` in `EventBridge.lean` with `<30`-line `private theorem` helpers (cutting elaboration from ~21s to ~2s), extracted `compiledStmtStepWithHelpersAndHelperIR_of_plainHead` in `InterfaceAssembly.lean`, fixed split-header proof detection in `scripts/check_proof_length.py`, and pruned 23 stale allowlist entries. |
 | `#2527` | `feat/denote-byte-call-word-and-adversary` | `084fa4f0b` | **Track C0**: Added `commitCalleeWorld`, `callAdversary`, `decodeCallWord`, `execute_rawReturndata`, and `executeBytes*` + `@[simp]` lemmas in `Verity/Core/Model/DenoteByteExternalCalls.lean` for Family C and Family E. |
+| `#2530` | `refactor/proofs-helpers-and-main-decomposition` | `e97cd68d5` | **Track S6**: Decomposed 9 major theorems in `Helpers.lean` (`250 → 46`, `192 → 49`, `179 → 42`, `164 → 15`, `163 → 39`, `156 → 36`, `111 → 19`, `94 → 41`, `81 → 31`) and all 19 allowlisted theorems in `Main.lean` (now all ≤ 47 lines), pruning 30 allowlist entries and cutting **net 1,417 lines** (`+1255 / -2672`). |
 
 ---
 
@@ -57,8 +58,9 @@
 7. **Track S3 — Decompose `Stmt.lean` List Inductions & `Storage.lean` `ite`/`aliasSlots` Proofs (`refactor/proofs-stmt-list-and-ite-decomposition`)** — **MERGED (`#2523`, `366eaa50f`)**.
 8. **Track S4 — Decompose `Scope.lean` & `ResultRelation.lean` Monolithic Proofs (`refactor/proofs-scope-and-result-relation-decomposition`)** — **MERGED (`#2525`, `8c5ed4626`)**.
 9. **Track S5 — Decompose `EventBridge.lean` & `InterfaceAssembly.lean` Monolithic Proofs (`refactor/proofs-calls-eventbridge-interface-decomposition`)** — **MERGED (`#2528`, `d03b088a0`)**.
-10. **Track S6 — Decompose `Helpers.lean` & `Main.lean` Remaining Allowlisted Proofs (`refactor/proofs-helpers-and-main-decomposition`)** — **ACTIVE on `sepolia` (`035e172f-f429-4dd4-bcd5-8e27684c8463`)**.
+10. **Track S6 — Decompose `Helpers.lean` & `Main.lean` Remaining Allowlisted Proofs (`refactor/proofs-helpers-and-main-decomposition`)** — **MERGED (`#2530`, `e97cd68d5`)**.
 11. **Track S7 — Decompose `FunctionBody/Base.lean` Monolithic Proofs (`refactor/proofs-functionbody-base-decomposition`)** — **ACTIVE on `ashur` (`e35183c6-8234-4c64-baad-96a70af64469`)**.
+12. **Track S8 — Decompose `Function.lean` Monolithic Proofs & Fix Default-Heartbeat Build (`refactor/proofs-function-decomposition`)** — **ACTIVE on `sepolia` (`00f41b8e-0a3b-417c-8694-db50b524f404`)**.
 
 ---
 
@@ -84,5 +86,5 @@
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
 | `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
-| `track-s6-proofs-helpers-main-decomposition` | `sepolia` | `035e172f-f429-4dd4-bcd5-8e27684c8463` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-helpers-and-main-decomposition` | Active |
+| `track-s8-proofs-function-decomposition` | `sepolia` | `00f41b8e-0a3b-417c-8694-db50b524f404` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-function-decomposition` | Active |
 | `track-s7-proofs-functionbody-base-decomposition` | `ashur` | `e35183c6-8234-4c64-baad-96a70af64469` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-functionbody-base-decomposition` | Active |
