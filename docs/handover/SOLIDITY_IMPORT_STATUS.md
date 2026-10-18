@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `6816051ac`
-- **Last Updated**: `2026-10-18T15:15:00Z`
+- **Current `main` HEAD**: `bca186ed9`
+- **Last Updated**: `2026-10-18T15:35:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`6816051ac`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 27 PRs merged (`#2504`–`#2528`, `#2530`–`#2533`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S9` (`0` `maxHeartbeats` escalations, **−9,279 net lines** in `Compiler/Proofs/` + 107 allowlist entries pruned across S5–S9) landed on `main`! |
+| `main` (`bca186ed9`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 28 PRs merged (`#2504`–`#2528`, `#2530`–`#2534`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 4 Midnight decoupling slices (`M1`–`M4`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S10` (`0` `maxHeartbeats` escalations, **−10,853 net lines** in `Compiler/Proofs/` + 125 allowlist entries pruned across S5–S10) landed on `main`! |
 | In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (verified) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`27` Merged + `2` Folded/Closed = `29` Total Resolved)
+## 2. Merged PRs in This Campaign (`28` Merged + `2` Folded/Closed = `30` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -47,6 +47,7 @@
 | `#2531` | `refactor/proofs-functionbody-base-decomposition` | `59d41b5ee` | **Track S7**: Dissolved `mutual` block and decomposed all 12 allowlisted proofs in `FunctionBody/Base.lean` (`1175 → 1`, `658 → 21`, `533 → 1`, `472 → 21`, `306 → 24`, etc. — every proof now ≤ 30 lines), removing 2 `set_option maxRecDepth 1024` escalations, pruning 12 allowlist entries, and cutting **net 2,205 lines** (`+1345 / -3550`). |
 | `#2532` | `refactor/proofs-function-decomposition` | `b107a5185` | **Track S8**: Fixed the default-heartbeat timeout in `stmtListCompileCore_compiledLegacyCompatible` and `stmtListTerminalCore_compiledLegacyCompatible`, decomposed all 27 allowlisted proofs in `Function.lean` (`358 → 28`, `282 → 46`, `270 → 45`, `212 → 50`, `193 → 44`, `149 → 13`, `139 → 24`, etc. — 0 proofs in `Function.lean` exceed 50 lines), rewrote `commitCalleeWorld` in `DenoteByteExternalCalls.lean` to satisfy `check_storage_lens_freeze.py`, pruned 27 allowlist entries, and cut **net 1,085 lines** (`+1602 / -2687`). |
 | `#2533` | `refactor/proofs-functionbody-stmt-decomposition` | `6816051ac` | **Track S9**: Decomposed all 15 allowlisted proofs in `FunctionBody/Stmt.lean` (`171 → <30`, `144 → <30`, `143 → 17`, `133 → <30`, `126 → 1`, `110 → <30`, `74 → 20`, etc. — every rewritten proof ≤ 30 lines), pruned 15 allowlist entries, and cut **net 341 lines** (`+995 / -1336`). |
+| `#2534` | `refactor/proofs-supportedspec-decomposition` | `bca186ed9` | **Track S10**: Added `SupportedLeafStmt`, `SupportedStmtList.induction_of_leaf`, and `SupportedStmtList.boolFold_eq_false`, decomposed all 18 allowlisted proofs in `SupportedSpec.lean` so every proof is `<30` lines, pruned 18 allowlist entries, and cut **net 1,574 lines** (`+634 / -2208`). |
 
 ---
 
@@ -56,7 +57,7 @@
 2. **Track M2 — Replace `pinned-midnight`, `MarketAbi`, `MidnightPositionAndFeeSequence` & PR `#2514` with Construct-Generic Fixtures (`refactor/decouple-midnight-fixtures`)** — **MERGED (`#2518`, `824b60a23`)**.
 3. **Track M3 — Rename Remaining 6 Protocol-Named Smoke Fixtures (`refactor/decouple-midnight-smoke-remaining`)** — **MERGED (`#2519`, `0bf5d8487`)**.
 4. **Track M4 — Decouple Protocol Comments & Oracle Summary Smoke (`refactor/decouple-protocol-comments-and-oracle-smoke`)** — **MERGED (`#2524`, `177f4b6d7`)**.
-5. **Track M5 — Decouple Remaining Protocol Identifiers & Decompose `TypedIRCompilerCorrectness.lean` Proofs (`refactor/decouple-remaining-protocol-identifiers`)** — **ACTIVE on `ashur` (`69d70050-2e3c-40ed-a099-eef3b4b45812`)**.
+5. **Track M5 — Decouple Remaining Protocol Identifiers & Decompose `TypedIRCompilerCorrectness.lean` Proofs (`refactor/decouple-remaining-protocol-identifiers`)** — **ACTIVE on `ashur` (`bb6643f8-546d-4ad7-a0a8-31b9fb820a5c`)**.
 6. **Track S1 — Mathlib4 Code Style, Naming & Compositional State/Frame Lenses (`refactor/mathlib-style-and-frame-lenses`)** — **MERGED (`#2520`, `7adb5e6f9`)**.
 7. **Track S2 — Decompose Monolithic `IRGeneration` Storage & Terminal-Ite Proofs (`refactor/modular-split-and-proof-decomposition`)** — **MERGED (`#2521`, `262a9f6a3`)**.
 8. **Track S3 — Decompose `Stmt.lean` List Inductions & `Storage.lean` `ite`/`aliasSlots` Proofs (`refactor/proofs-stmt-list-and-ite-decomposition`)** — **MERGED (`#2523`, `366eaa50f`)**.
@@ -66,7 +67,8 @@
 12. **Track S7 — Decompose `FunctionBody/Base.lean` Monolithic Proofs (`refactor/proofs-functionbody-base-decomposition`)** — **MERGED (`#2531`, `59d41b5ee`)**.
 13. **Track S8 — Decompose `Function.lean` Monolithic Proofs & Fix Default-Heartbeat Build (`refactor/proofs-function-decomposition`)** — **MERGED (`#2532`, `b107a5185`)**.
 14. **Track S9 — Decompose `FunctionBody/Stmt.lean` Remaining Allowlisted Proofs (`refactor/proofs-functionbody-stmt-decomposition`)** — **MERGED (`#2533`, `6816051ac`)**.
-15. **Track S10 — Decompose `SupportedSpec.lean` Allowlisted Proofs (`refactor/proofs-supportedspec-decomposition`)** — **ACTIVE on `sepolia` (`34e3d453-3efd-4eb3-a322-0d6ecbc41362`)**.
+15. **Track S10 — Decompose `SupportedSpec.lean` Allowlisted Proofs (`refactor/proofs-supportedspec-decomposition`)** — **MERGED (`#2534`, `bca186ed9`)**.
+16. **Track S11 — Decompose `IRInterpreter.lean`, `ParamLoading.lean` & `SourceSemantics.lean` Allowlisted Proofs (`refactor/proofs-irinterpreter-paramloading-sourcesemantics`)** — **ACTIVE on `sepolia` (`73fabed3-27ee-40de-b943-d439d9620cdf`)**.
 
 ---
 
@@ -92,5 +94,5 @@
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
 | `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
-| `track-s10-proofs-supportedspec-decomposition` | `sepolia` | `34e3d453-3efd-4eb3-a322-0d6ecbc41362` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-supportedspec-decomposition` | Active |
-| `track-m5-decouple-remaining-protocol-identifiers` | `ashur` | `69d70050-2e3c-40ed-a099-eef3b4b45812` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/decouple-remaining-protocol-identifiers` | Active |
+| `track-m5-decouple-remaining-protocol-identifiers` | `ashur` | `bb6643f8-546d-4ad7-a0a8-31b9fb820a5c` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/decouple-remaining-protocol-identifiers` | Active |
+| `track-s11-proofs-irinterpreter-paramloading-sourcesemantics` | `sepolia` | `73fabed3-27ee-40de-b943-d439d9620cdf` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irinterpreter-paramloading-sourcesemantics` | Active |
