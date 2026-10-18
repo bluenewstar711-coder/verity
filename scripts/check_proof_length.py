@@ -135,7 +135,6 @@ ALLOWLIST: set[str] = {
     # longer witnesses below are recurrence/state-relation proofs where
     # splitting would duplicate the same loop-index, binder, and fuel facts.
     "execIRStmt_forEach_empty_loop_from_idx",
-    "execIRStmt_for_empty_init_recurrence",
     "forEach_empty_final_rel",
     "execIRStmts_forEach_literal_empty_compiled",
     "stmtStepMatches_forEach_literal_empty_final",
@@ -303,8 +302,6 @@ ALLOWLIST: set[str] = {
     "scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes",
     # --- Function-level compilation proofs ---
     "compileFunctionSpec_correct_generic",
-    "exec_genParamLoadBodyFrom_supported_then",
-    "exec_genParamLoads_supported_then_extraFuel",
     "bindSupportedParams_lookupBinding",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
     # generic keystones above; the line count is the inherited hypothesis
@@ -362,30 +359,13 @@ ALLOWLIST: set[str] = {
     "interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_goal",
     "compile_preserves_semantics_with_helper_proofs",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
-    # --- IR interpreter dispatch (mload pre-dispatch adds extra branches) ---
-    "evalIRExprWithInternals_eq_evalIRExpr_of_callsDisjoint",
-    "evalIRExprWithInternals_eq_evalIRExpr_of_no_internal",
     # --- Return statement compilation (memory sync adds steps) ---
     "exec_compileStmt_return_core_extraFuel",
     # --- Helper-aware IR compatibility proofs ---
-    "execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal",
-    # Event-log interpreter compatibility has to mirror the builtin-call
-    # case split for both disjoint and helper-free conservative-extension
-    # theorems.
-    "evalIRCallWithInternals_stmt_eq_of_callsDisjoint",
-    "evalIRCallWithInternals_stmt_eq_of_no_internal",
-    "execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal",
-    "execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint",
-    "execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility",
-    "execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint",
-    "execIRStmtsWithInternals_eq_execIRStmts_of_stmtCompatibility",
     "execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness",
     "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness",
-    "execIRStmtsWithInternals_of_internalCall_compile",
     "compiledStmtStepWithHelpersAndHelperIR_internalCallAssign",
     "compiledStmtStepWithHelpersAndHelperIR_internalCall",
-    "evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed",
-    "execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux",
     # --- Contract feature fixtures ---
     "literalMappingWrite_calldataFits",
     # Constructor-body fixture for issue #1723.
@@ -808,7 +788,6 @@ ALLOWLIST: set[str] = {
     # forward, so splitting would just duplicate the dispatch skeleton.
     "BridgedSafeStmts.toBridgedSource",
     # --- Misc ---
-    "findUniqueInternalFunction",
     # Native generated-switch block append/error lemmas mirror the existing
     # ok-append proof and keep the fuel arithmetic visible in one place for
     # the halt-before-default dispatcher cases.
@@ -946,7 +925,7 @@ ALLOWLIST_REGEXES: tuple[re.Pattern[str], ...] = tuple(
         r"^nativeGeneratedSelectorHit_success_of_user_body_exec_bridge_atFuel_revived.*$",
         r"^nativeResultsMatchOn_execIRFunction_.*_markedPrefix$",
         r"^nativeMappingSlotFunctionDefinition_exec_revivable$",
-        r"^execIRFunction_(?:zeroParam|oneParam|mstore0)_.*$",
+        r"^execIRFunction_(?:zeroParam|oneParam)_.*$",
         r"^projectResult_literalReturnHit_eq$",
         r"^exec_block_(?:store0_calldataload4_stop|simpleStorageLoweredStoreCaseBodyTail2)"
         r"_markedPrefix_halt$",

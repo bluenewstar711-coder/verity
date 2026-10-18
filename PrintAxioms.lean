@@ -5081,6 +5081,9 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_for_body_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_post_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_one_continue
+  -- Compiler.Proofs.IRGeneration.execIRStmt_for_empty_init_recurrence_tail_step  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_for_empty_init_recurrence_head_step  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmt_for_empty_init_recurrence_zero  -- private
   Compiler.Proofs.IRGeneration.execIRStmt_for_empty_init_recurrence
   Compiler.Proofs.IRGeneration.execIRStmts_single_for_init_cond_zero
   Compiler.Proofs.IRGeneration.execIRStmts_single_for_init_continue
@@ -5145,6 +5148,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.findInternalFunction?_eq_none_of_not_reserved
   Compiler.Proofs.IRGeneration.InternalTableNamesReserved_of_internalPrefixed
   Compiler.Proofs.IRGeneration.legacyCompatibleExternalBodies_of_legacyCompatibleRuntimeContract
+  -- Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_call_core  -- private
   Compiler.Proofs.IRGeneration.evalIRExprWithInternals_eq_evalIRExpr_of_no_internal
   Compiler.Proofs.IRGeneration.evalIRExprsWithInternals_eq_evalIRExprs_of_no_internal
   Compiler.Proofs.IRGeneration.yulExprCallsDisjointFromInternalTable_call_func
@@ -5160,7 +5164,26 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.evalIRCallWithInternals_stmt_eq_of_callsDisjoint
   Compiler.Proofs.IRGeneration.evalIRCallWithInternals_stmt_eq_of_no_internal
   -- Compiler.Proofs.IRGeneration.yulLogStmtResult_eq_of_evalIRExprsWithInternals_eq  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call_nil  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call_one  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_sstore_mappingSlot  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_sstore_plain  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_sstore  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_return  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_two_generic  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call_two  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call_three  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call_many  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmt_exprStmt_call  -- private
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_expr_of_callsDisjoint
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_cons  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_assign_head  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_if_head  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_block_head  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_switch_head  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_for_nil_step  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_for_nil  -- private
+  -- Compiler.Proofs.IRGeneration.callsDisjoint_stmts_for_head  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_eq_execIRStmts_of_callsDisjoint
   Compiler.Proofs.IRGeneration.YulStmtListCallsDisjointFromInternalTable_of_internalFunctions_nil
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_sstore_mappingSlot_succ_of_no_internal
@@ -5171,7 +5194,23 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_stop_of_no_internal
   Compiler.Proofs.IRGeneration.interpretIRWithInternalsZeroConservativeExtensionExprInterfaces
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_sstore_of_no_internal
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_atom  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_log  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_call0  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_call1  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_call2  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_call3  -- private
+  -- Compiler.Proofs.IRGeneration.no_internal_expr_call  -- private
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_expr_of_no_internal
+  -- Compiler.Proofs.IRGeneration.stmtCompatibility_nil  -- private
+  -- Compiler.Proofs.IRGeneration.stmtCompatibility_cons_step  -- private
+  -- Compiler.Proofs.IRGeneration.stmtCompatibility_head_tail  -- private
+  -- Compiler.Proofs.IRGeneration.stmtCompatibility_list  -- private
+  -- Compiler.Proofs.IRGeneration.exprCompatibility_simple_head  -- private
+  -- Compiler.Proofs.IRGeneration.exprCompatibility_if_head  -- private
+  -- Compiler.Proofs.IRGeneration.exprCompatibility_block_head  -- private
+  -- Compiler.Proofs.IRGeneration.exprCompatibility_for_loop  -- private
+  -- Compiler.Proofs.IRGeneration.exprCompatibility_list  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_eq_execIRStmts_of_exprCompatibility
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_of_exprCompatibility
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_eq_execIRStmt_of_stmtSubgoals
@@ -5255,6 +5294,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRFunction_store0_calldataload4_stop_of_args_cons
   Compiler.Proofs.IRGeneration.execIRFunction_mstore0_calldataload4_return32_of_args_cons
   -- Compiler.Proofs.IRGeneration.yulStmtList_length_le_sizeOf  -- private
+  -- Compiler.Proofs.IRGeneration.mstore0_calldataload_aligned_body  -- private
+  -- Compiler.Proofs.IRGeneration.mstore0_calldataload_aligned_size  -- private
   Compiler.Proofs.IRGeneration.execIRFunction_mstore0_calldataload_aligned_return32
   Compiler.Proofs.IRGeneration.execIRFunction_mstore0_sload0_return32
   Compiler.Proofs.IRGeneration.execIRFunction_mstore0_lit_return32
@@ -5283,6 +5324,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.internalFunctionYulName_ne_log  -- private
   Compiler.Proofs.IRGeneration.internalFunctionYulName_isYulLogName_false
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCallAssign_compile
+  -- Compiler.Proofs.IRGeneration.internalCall_compile_ne_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.internalCall_compile_ne_invalid  -- private
+  -- Compiler.Proofs.IRGeneration.internalCall_compile_exec  -- private
   Compiler.Proofs.IRGeneration.execIRStmtsWithInternals_of_internalCall_compile
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_sender
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_calldata
@@ -5408,8 +5452,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.bindSupportedParams_names
   Compiler.Proofs.IRGeneration.ParamLoading.bindSupportedParams_names_nodup
   -- Compiler.Proofs.IRGeneration.ParamLoading.exec_minInputSizeCheck_supported_noop  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoadBodyFrom_supported_then_bind_cons  -- private
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoadBodyFrom_supported_then_cons_eq  -- private
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoadBodyFrom_supported_then
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported
+  -- Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel_guard  -- private
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
 
@@ -5695,6 +5742,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_internalCall_preserves_world
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_internalCall_obeys_summary
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_internalCallAssign_obeys_summary
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.findUniqueInternalFunction?_of_witness_filter_eq  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.findUniqueInternalFunction?_of_witness_eq_singleton  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.findUniqueInternalFunction?_of_witness  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.directHelperTouchesUnsupportedConstructorRawCalldataSurface_eq_false_of_supported
   Compiler.Proofs.IRGeneration.SourceSemantics.helperClosureTouchesUnsupportedConstructorRawCalldataSurface_eq_false_of_no_helper_calls
@@ -5714,6 +5763,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.evalInternalCallObeysSummary
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.execInternalCallObeysSummary
   Compiler.Proofs.IRGeneration.SourceSemantics.SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed_externalCall2  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.exprList_all_helperSurfaceClosed  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.evalExprListWithHelpers_eq_evalExprList_of_helperSurfaceClosed
@@ -5739,6 +5789,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_forEachSetBit_body  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.stmt_sizeOf_lt_cons  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed_inner  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_ite  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEach  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_forEachSetBit  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_exprList  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux_cases  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed
   Compiler.Proofs.IRGeneration.SourceSemantics.execStmtListWithHelpers_eq_execStmtList_of_helperSurfaceClosed
@@ -8748,4 +8803,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8024 theorems/lemmas (5562 public, 2462 private, 0 sorry'd)
+-- Total: 8079 theorems/lemmas (5562 public, 2517 private, 0 sorry'd)
