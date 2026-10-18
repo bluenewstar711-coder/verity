@@ -1,5 +1,6 @@
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
+import Compiler.Proofs.StateLenses
 
 /-!
 Generic EVM Frames (minimal extraction for climb / loop proofs).
@@ -197,49 +198,100 @@ theorem stmtsWriteOnly_cons
   | «return» value mid => rw [hstep] at hexec; cases hexec
   | revert => rw [hstep] at hexec; cases hexec
 
+/-! ### Continue-inversions and resource lenses
+
+Each simple statement either reverts or continues with one field update of the
+runtime state. The inversions expose that update and the lenses frame it, so the
+statement frame rules below never unfold `execStmt` per resource. -/
+
+theorem execStmt_letVar_continue_inv {fields : List Field} {st s : RuntimeState}
+    {name : String} {value : Expr} (h : execStmt fields st (.letVar name value) = .continue s) :
+    ∃ v, s = { st with bindings := bindValue st.bindings name v } := by
+  change (match evalExpr fields st value with
+    | some v => StmtResult.continue { st with bindings := bindValue st.bindings name v }
+    | none => .revert) = _ at h
+  cases hv : evalExpr fields st value <;> rw [hv] at h <;> cases h
+  exact ⟨_, rfl⟩
+
+theorem execStmt_assignVar_continue_inv {fields : List Field} {st s : RuntimeState}
+    {name : String} {value : Expr} (h : execStmt fields st (.assignVar name value) = .continue s) :
+    ∃ v, s = { st with bindings := bindValue st.bindings name v } := by
+  change (match evalExpr fields st value with
+    | some v => StmtResult.continue { st with bindings := bindValue st.bindings name v }
+    | none => .revert) = _ at h
+  cases hv : evalExpr fields st value <;> rw [hv] at h <;> cases h
+  exact ⟨_, rfl⟩
+
+theorem execStmt_mstore_continue_inv {fields : List Field} {st s : RuntimeState}
+    {offset value : Expr} (h : execStmt fields st (.mstore offset value) = .continue s) :
+    ∃ off v : Nat, evalExpr fields st offset = some off ∧
+      s = { st with world := st.world.writePhysicalMemoryValue off v } := by
+  change (match evalExpr fields st offset, evalExpr fields st value with
+    | some off, some v =>
+        StmtResult.continue { st with world := st.world.writePhysicalMemoryValue off v }
+    | _, _ => .revert) = _ at h
+  cases ho : evalExpr fields st offset <;> cases hv : evalExpr fields st value <;>
+    rw [ho, hv] at h <;> cases h
+  exact ⟨_, _, rfl, rfl⟩
+
+theorem execStmt_tstore_continue_inv {fields : List Field} {st s : RuntimeState}
+    {offset value : Expr} (h : execStmt fields st (.tstore offset value) = .continue s) :
+    ∃ off v : Nat, s = { st with world := st.world.writeTransient (wordNormalize off) v } := by
+  change (match evalExpr fields st offset, evalExpr fields st value with
+    | some off, some v =>
+        StmtResult.continue { st with world := st.world.writeTransient (wordNormalize off) v }
+    | _, _ => .revert) = _ at h
+  cases ho : evalExpr fields st offset <;> cases hv : evalExpr fields st value <;>
+    rw [ho, hv] at h <;> cases h
+  exact ⟨_, _, rfl⟩
+
+/-- Rebinding `name` frames every resource disjoint from `.binding name`. -/
+theorem ownedEq_bindValue_of_disjoint {r : Resource} {name : String}
+    (hdisj : Disjoint r (.binding name)) (st : RuntimeState) (v : Nat) :
+    OwnedEq r st { st with bindings := bindValue st.bindings name v } := by
+  cases r with
+  | mem lo hi => intro i _ _; rfl
+  | binding key =>
+      exact Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hdisj
+  | static => exact ⟨rfl, rfl⟩
+
+/-- A word store at `off` frames every resource disjoint from its 32-byte window. -/
+theorem ownedEq_writePhysicalMemoryValue_of_disjoint {r : Resource} {off : Nat}
+    (hdisj : Disjoint r (.mem off (off + 32))) (st : RuntimeState)
+    (v : Verity.Core.Uint256) :
+    OwnedEq r st { st with world := st.world.writePhysicalMemoryValue off v } := by
+  cases r with
+  | mem lo hi =>
+      intro i hlo hhi
+      apply Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryValue_byte_outside
+      rcases hdisj with h | h
+      · exact Or.inl (by omega)
+      · exact Or.inr (by omega)
+  | binding _ => rfl
+  | static => exact ⟨rfl, rfl⟩
+
+/-- Transient storage is outside the `Resource` algebra: a `tstore` frames everything. -/
+theorem ownedEq_writeTransient (r : Resource) (st : RuntimeState) (off : Nat)
+    (v : Verity.Core.Uint256) :
+    OwnedEq r st { st with world := st.world.writeTransient off v } := by
+  cases r with
+  | mem lo hi => intro i _ _; rfl
+  | binding _ => rfl
+  | static => exact ⟨rfl, rfl⟩
+
 theorem stmtWritesOnly_letVar
     (fields : List Field) (name : String) (value : Expr) :
     StmtWritesOnly fields (.letVar name value) [.binding name] := by
   intro st s h r hdisj
-  cases r with
-  | mem lo hi =>
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      intro i _ _; rfl
-  | binding key =>
-      have hne : key ≠ name := by
-        intro h
-        subst key
-        exact (hdisj (.binding name) (by simp)) rfl
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      exact Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hne
-  | static =>
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      exact ⟨rfl, rfl⟩
+  obtain ⟨v, rfl⟩ := execStmt_letVar_continue_inv h
+  exact ownedEq_bindValue_of_disjoint (hdisj _ (List.mem_singleton_self _)) st v
 
 theorem stmtWritesOnly_assignVar
     (fields : List Field) (name : String) (value : Expr) :
     StmtWritesOnly fields (.assignVar name value) [.binding name] := by
   intro st s h r hdisj
-  cases r with
-  | mem lo hi =>
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      intro i _ _; rfl
-  | binding key =>
-      have hne : key ≠ name := by
-        intro h
-        subst key
-        exact (hdisj (.binding name) (by simp)) rfl
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      exact Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hne
-  | static =>
-      simp [OwnedEq, execStmt] at h ⊢
-      split at h <;> cases h
-      exact ⟨rfl, rfl⟩
+  obtain ⟨v, rfl⟩ := execStmt_assignVar_continue_inv h
+  exact ownedEq_bindValue_of_disjoint (hdisj _ (List.mem_singleton_self _)) st v
 
 theorem stmtWritesOnly_mstore
     (fields : List Field) (offset value : Expr) (resolvedOffset : Nat)
@@ -248,61 +300,26 @@ theorem stmtWritesOnly_mstore
       evalExpr fields st offset = some resolvedOffset) :
     StmtWritesOnly fields (.mstore offset value) [.mem resolvedOffset (resolvedOffset + 32)] := by
   intro st s h r hdisj
-  have hoff' := hoff h
-  cases r with
-  | mem lo hi =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff'] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      intro i hlo hhi
-      have separated := hdisj (.mem resolvedOffset (resolvedOffset + 32)) (by simp)
-      have outside : i < resolvedOffset ∨ resolvedOffset + 32 ≤ i := by
-        simp only [Disjoint] at separated
-        rcases separated with left | right
-        · exact Or.inl (by omega)
-        · exact Or.inr (by omega)
-      exact Compiler.CompilationModel.PhysicalMemory.writePhysicalMemoryValue_byte_outside
-        st.world resolvedOffset _ i outside
-  | binding key =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff'] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      rfl
-  | static =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff'] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      exact ⟨rfl, rfl⟩
+  have hresolved := hoff h
+  obtain ⟨off, v, hoff', rfl⟩ := execStmt_mstore_continue_inv h
+  obtain rfl : off = resolvedOffset := Option.some.inj (hoff'.symm.trans hresolved)
+  exact ownedEq_writePhysicalMemoryValue_of_disjoint
+    (hdisj _ (List.mem_singleton_self _)) st _
+
+theorem stmtWritesOnly_tstore_any
+    (fields : List Field) (offset value : Expr) :
+    StmtWritesOnly fields (.tstore offset value) [] := by
+  intro st s h r _
+  obtain ⟨off, v, rfl⟩ := execStmt_tstore_continue_inv h
+  exact ownedEq_writeTransient r st _ _
 
 theorem stmtWritesOnly_tstore
     (fields : List Field) (offset value : Expr) (resolvedOffset : Nat)
-    (hoff : ∀ ⦃st s : RuntimeState⦄,
+    (_hoff : ∀ ⦃st s : RuntimeState⦄,
       execStmt fields st (.tstore offset value) = .continue s →
       evalExpr fields st offset = some resolvedOffset) :
-    StmtWritesOnly fields (.tstore offset value) [] := by
-  intro st s h r _
-  cases r with
-  | mem lo hi =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff h] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      intro i _ _; rfl
-  | binding key =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff h] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      rfl
-  | static =>
-      simp [OwnedEq, execStmt] at h ⊢
-      rw [hoff h] at h
-      cases hval : evalExpr fields st value <;> simp [hval] at h
-      cases h
-      exact ⟨rfl, rfl⟩
+    StmtWritesOnly fields (.tstore offset value) [] :=
+  stmtWritesOnly_tstore_any fields offset value
 
 /-- Syntactic constants accepted by footprint computation.  This is deliberately
 state-independent: any returned value evaluates to the same word in every
@@ -356,24 +373,6 @@ mutual
 end
 end Stmt
 
-theorem stmtWritesOnly_tstore_any
-    (fields : List Field) (offset value : Expr) :
-    StmtWritesOnly fields (.tstore offset value) [] := by
-  intro st s h r _
-  cases r <;> simp [OwnedEq, execStmt] at h ⊢
-  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
-    cases hval : evalExpr fields st value <;> simp [hval] at h
-    cases h
-    intro i _ _; rfl
-  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
-    cases hval : evalExpr fields st value <;> simp [hval] at h
-    cases h
-    rfl
-  · cases hoff : evalExpr fields st offset <;> simp [hoff] at h
-    cases hval : evalExpr fields st value <;> simp [hval] at h
-    cases h
-    exact ⟨rfl, rfl⟩
-
 theorem stmtWritesOnly_require
     (fields : List Field) (cond : Expr) (message : String) :
     StmtWritesOnly fields (.require cond message) [] := by
@@ -396,6 +395,27 @@ theorem stmtWritesOnly_stop
   intro st s h
   simp [execStmt] at h
 
+theorem stmtWritesOnly_mstore_of_staticValue
+    (fields : List Field) {offset : Expr} (value : Expr) {resolvedOffset : Nat}
+    (hoff : Expr.staticValue offset = some resolvedOffset) :
+    StmtWritesOnly fields (.mstore offset value) [.mem resolvedOffset (resolvedOffset + 32)] :=
+  stmtWritesOnly_mstore fields offset value _ fun st _ _ =>
+    evalExpr_staticValue (fields := fields) (st := st) hoff
+
+/-- An `ite` writes at most the union of its branches' write sets. -/
+theorem stmtWritesOnly_ite
+    {fields : List Field} {cond : Expr} {thenBranch elseBranch : List Stmt}
+    {thenWrites elseWrites : List Resource}
+    (hthen : StmtsWriteOnly fields thenBranch thenWrites)
+    (helse : StmtsWriteOnly fields elseBranch elseWrites) :
+    StmtWritesOnly fields (.ite cond thenBranch elseBranch) (thenWrites ++ elseWrites) := by
+  intro st s hexec
+  simp [execStmt] at hexec
+  split at hexec <;> try cases hexec
+  split at hexec
+  · exact preservesExcept_mono (helse hexec) (fun w hw => List.mem_append_right _ hw)
+  · exact preservesExcept_mono (hthen hexec) (fun w hw => List.mem_append_left _ hw)
+
 mutual
   theorem stmtWritesOnly_writeFootprint
       {fields : List Field} {stmt : Stmt} {written : List Resource}
@@ -410,9 +430,7 @@ mutual
     case mstore offset value =>
       cases hoff : Expr.staticValue offset <;> simp [hoff] at hfp
       cases hfp
-      apply stmtWritesOnly_mstore fields offset value _
-      intro st' _s' _h
-      exact evalExpr_staticValue (fields := fields) (st := st') (h := hoff)
+      exact stmtWritesOnly_mstore_of_staticValue fields value hoff
     case tstore offset value =>
       cases hfp; exact stmtWritesOnly_tstore_any fields offset value
     case require cond message =>
@@ -425,16 +443,8 @@ mutual
       cases hthen : Stmt.writeFootprintList thenBranch <;> simp [hthen] at hfp
       cases helse : Stmt.writeFootprintList elseBranch <;> simp [helse] at hfp
       cases hfp
-      intro st s hexec
-      simp [execStmt] at hexec
-      split at hexec <;> try cases hexec
-      split at hexec
-      · exact preservesExcept_mono
-          (stmtListWritesOnly_writeFootprint helse hexec)
-          (fun w hw => List.mem_append_right _ hw)
-      · exact preservesExcept_mono
-          (stmtListWritesOnly_writeFootprint hthen hexec)
-          (fun w hw => List.mem_append_left _ hw)
+      exact stmtWritesOnly_ite (stmtListWritesOnly_writeFootprint hthen)
+        (stmtListWritesOnly_writeFootprint helse)
 
   theorem stmtListWritesOnly_writeFootprint
       {fields : List Field} {stmts : List Stmt} {written : List Resource}
@@ -551,6 +561,14 @@ def SegmentSimWithFields (fields : List Field) (c : Coupling Abs)
 /-- Issue-facing simulation predicate for source IR segments. -/
 abbrev SegmentSim (c : Coupling Abs) (prog : List Stmt) (f : Abs → Abs) : Prop :=
   SegmentSimWithFields [] c prog f
+
+/-- A singleton statement list continues exactly when its statement does. -/
+theorem execStmtList_singleton_continue {fields : List Field} {st s : RuntimeState}
+    {stmt : Stmt} (h : execStmtList fields st [stmt] = .continue s) :
+    execStmt fields st stmt = .continue s := by
+  simp only [execStmtList] at h
+  cases hstmt : execStmt fields st stmt <;> rw [hstmt] at h <;> cases h
+  rfl
 
 theorem execStmtList_append_continue
     {fields : List Field} {p q : List Stmt} {st s : RuntimeState}
@@ -695,18 +713,8 @@ theorem execForEachLoop_sim
       exact hinv
   | succ remaining ih =>
       intro index st s a hinv hexec
-      rw [execForEachLoop_succ] at hexec
-      let loopState :=
-        { st with bindings := bindValue st.bindings varName (wordNormalize index) }
-      cases hrun : execStmtList fields loopState body with
-      | «continue» next =>
-          simp only [loopState, hrun] at hexec
-          exact ih
-            (hbody index (hbind index hinv) hrun)
-            hexec
-      | stop next => simp only [loopState, hrun] at hexec; cases hexec
-      | «return» value next => simp only [loopState, hrun] at hexec; cases hexec
-      | revert => simp only [loopState, hrun] at hexec; cases hexec
+      obtain ⟨next, hrun, hrest⟩ := execForEachLoop_succ_continue_iff.mp hexec
+      exact ih (hbody index (hbind index hinv) hrun) hrest
 
 theorem forEach
     {fields : List Field} {c : Coupling Abs} {varName : String}
@@ -721,25 +729,15 @@ theorem forEach
     SegmentSimWithFields fields c [.forEach varName count body]
       (Coupling.iterFrom step 0 bound) := by
   intro st a s hinv hexec
-  simp [execStmtList] at hexec
-  cases hstmt : execStmt fields st (.forEach varName count body) with
-  | «continue» next =>
-      rw [hstmt] at hexec
-      cases hexec
-      rw [show execStmt fields st (.forEach varName count body) =
-        match evalExpr fields st count with
-        | some bound =>
-            let initialLoopState :=
-              { st with bindings := bindValue st.bindings varName (wordNormalize 0) }
-            execForEachLoop varName
-              (fun loopState => execStmtList fields loopState body)
-              initialLoopState 0 bound
-        | none => .revert from rfl] at hstmt
-      rw [hcount hstmt] at hstmt
-      exact execForEachLoop_sim hbody hbind (hbind 0 hinv) hstmt
-  | stop next => rw [hstmt] at hexec; cases hexec
-  | «return» value next => rw [hstmt] at hexec; cases hexec
-  | revert => rw [hstmt] at hexec; cases hexec
+  have hstmt := execStmtList_singleton_continue hexec
+  have hbound := hcount hstmt
+  change (match evalExpr fields st count with
+    | some bound =>
+        execForEachLoop varName (fun loopState => execStmtList fields loopState body)
+          { st with bindings := bindValue st.bindings varName (wordNormalize 0) } 0 bound
+    | none => .revert) = _ at hstmt
+  rw [hbound] at hstmt
+  exact execForEachLoop_sim hbody hbind (hbind 0 hinv) hstmt
 
 end SegmentSimWithFields
 
@@ -891,34 +889,17 @@ theorem execStmt_letVar_preserves_bindings_except
     (st s : RuntimeState) (name : String) (e : Expr)
     (h : execStmt [] st (.letVar name e) = .continue s) :
     PreservesBindingsExcept st s [name] := by
-  rw [show execStmt [] st (.letVar name e) = (match evalExpr [] st e with
-    | some resolved => .continue { st with bindings := bindValue st.bindings name resolved }
-    | none => .revert) from rfl] at h
-  cases hev : evalExpr [] st e with
-  | none => rw [hev] at h; exact absurd h (by simp)
-  | some r =>
-      rw [hev] at h
-      injection h with hh; subst hh
-      intro key hne
-      have hNe : key ≠ name := by simpa using hne
-      simp [Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hNe]
+  obtain ⟨_, rfl⟩ := execStmt_letVar_continue_inv h
+  intro key hne
+  have hNe : key ≠ name := by simpa using hne
+  simp [Compiler.Proofs.IRGeneration.FunctionBody.lookupValue_bindValue_ne _ _ _ _ hNe]
 
 theorem execStmt_mstore_preserves_bindings_except
     (st s : RuntimeState) (off val : Expr)
     (h : execStmt [] st (.mstore off val) = .continue s) :
     PreservesBindingsExcept st s [] := by
-  rw [show execStmt [] st (.mstore off val) = (match evalExpr [] st off, evalExpr [] st val with
-    | some ro, some rv => .continue { st with world := st.world.writePhysicalMemoryValue ro rv }
-    | _, _ => .revert) from rfl] at h
-  cases hoff : evalExpr [] st off with
-  | none => rw [hoff] at h; exact absurd h (by simp)
-  | some _ =>
-      cases hval : evalExpr [] st val with
-      | none => rw [hoff, hval] at h; exact absurd h (by simp)
-      | some _ =>
-          rw [hoff, hval] at h
-          injection h with hh; subst hh
-          intro key _; rfl
+  obtain ⟨_, _, _, rfl⟩ := execStmt_mstore_continue_inv h
+  intro key _; rfl
 
 theorem execStmt_letVar_preserves_selector_calldata
     (st s : RuntimeState) (name : String) (e : Expr)
@@ -940,18 +921,8 @@ theorem execStmt_mstore_preserves_selector_calldata
     (st s : RuntimeState) (off val : Expr)
     (h : execStmt [] st (.mstore off val) = .continue s) :
     PreservesSelectorCalldata st s := by
-  rw [show execStmt [] st (.mstore off val) = (match evalExpr [] st off, evalExpr [] st val with
-    | some ro, some rv => .continue { st with world := st.world.writePhysicalMemoryValue ro rv }
-    | _, _ => .revert) from rfl] at h
-  cases hoff : evalExpr [] st off with
-  | none => rw [hoff] at h; exact absurd h (by simp)
-  | some _ =>
-      cases hval : evalExpr [] st val with
-      | none => rw [hoff, hval] at h; exact absurd h (by simp)
-      | some _ =>
-          rw [hoff, hval] at h
-          injection h with hh; subst hh
-          exact And.intro rfl rfl
+  obtain ⟨_, _, _, rfl⟩ := execStmt_mstore_continue_inv h
+  exact And.intro rfl rfl
 
 theorem writeUintSlots_preserves_storage_except
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
@@ -983,12 +954,9 @@ theorem writeStorageWordSlots_preserves_address_except
   have hcontains :
       (slots.map (fun base => wordNormalize (base + wordOffset))).contains slot = false := by
     simpa [List.elem_eq_contains] using hslot
-  simp [writeStorageWordSlots, Verity.ContractState.storageAddr_writePhysicalSlots]
-  exact Verity.ContractState.storageAddr_writeAddrSlots_not_mem
-    (world.writePhysicalSlots (slots.map (fun base => wordNormalize (base + wordOffset)))
-      (value : Verity.Core.Uint256))
-    (slots.map (fun base => wordNormalize (base + wordOffset)))
-    (Verity.wordToAddress (value : Verity.Core.Uint256)) hcontains
+  simp only [writeStorageWordSlots]
+  rw [Verity.ContractState.storageAddr_writeAddrSlots_not_mem _ _ _ hcontains,
+    Verity.ContractState.storageAddr_writePhysicalSlots]
 
 theorem writeAddressSlots_preserves_address_except
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat)
@@ -1033,42 +1001,21 @@ theorem writeUintFieldSlots_preserves_address
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
     (writeUintFieldSlots fields fieldName world slots value).storageAddr slot =
-      world.storageAddr slot := by
-  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
-  cases found with
-  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
-  | some result =>
-      rcases result with ⟨field, resolvedSlot⟩
-      generalize hpacked : field.packedBits = packed
-      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
-        split <;> simp [writeUintSlots, writeTransientTargets]
+      world.storageAddr slot :=
+  congrFun (StateLenses.storageAddr_writeUintFieldSlots fields fieldName world slots value) slot
 
 theorem writeUintFieldSlots_preserves_arrays
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
     (writeUintFieldSlots fields fieldName world slots value).storageArray slot =
-      world.storageArray slot := by
-  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
-  cases found with
-  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
-  | some result =>
-      rcases result with ⟨field, resolvedSlot⟩
-      generalize hpacked : field.packedBits = packed
-      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
-        split <;> simp [writeUintSlots, writeTransientTargets]
+      world.storageArray slot :=
+  congrFun (StateLenses.storageArray_writeUintFieldSlots fields fieldName world slots value) slot
 
 theorem writeUintFieldSlots_preserves_calldata
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
-    (writeUintFieldSlots fields fieldName world slots value).calldata = world.calldata := by
-  generalize hfind : Compiler.CompilationModel.findFieldWithResolvedSlot fields fieldName = found
-  cases found with
-  | none => simp [writeUintFieldSlots, hfind, writeUintSlots]
-  | some result =>
-      rcases result with ⟨field, resolvedSlot⟩
-      generalize hpacked : field.packedBits = packed
-      cases packed <;> simp only [writeUintFieldSlots, hfind, hpacked] <;>
-        split <;> simp [writeUintSlots, writeTransientTargets]
+    (writeUintFieldSlots fields fieldName world slots value).calldata = world.calldata :=
+  StateLenses.calldata_writeUintFieldSlots fields fieldName world slots value
 
 theorem writeAddressFieldSlots_preserves_address_except
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
@@ -1078,39 +1025,35 @@ theorem writeAddressFieldSlots_preserves_address_except
       world.storageAddr slot := by
   simp only [writeAddressFieldSlots]
   split
-  · have hcontains : (slots.map wordNormalize).contains slot = false := by
-      simpa [List.elem_eq_contains] using hslot
-    simp [writeTransientTargets, hcontains]
+  · exact congrFun (StateLenses.storageAddr_writeTransientTargets world slots _) slot
   · exact writeAddressSlots_preserves_address_except world slots value slot hslot
 
 theorem writeAddressFieldSlots_preserves_storage
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
-    (writeAddressFieldSlots fields fieldName world slots value).storage slot = world.storage slot := by
-  simp only [writeAddressFieldSlots]
-  split <;> simp [writeTransientTargets, writeAddressSlots]
+    (writeAddressFieldSlots fields fieldName world slots value).storage slot = world.storage slot :=
+  congrFun (StateLenses.storage_writeAddressFieldSlots fields fieldName world slots value) slot
 
 theorem writeAddressFieldSlots_preserves_arrays
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value slot : Nat) :
     (writeAddressFieldSlots fields fieldName world slots value).storageArray slot =
-      world.storageArray slot := by
-  simp only [writeAddressFieldSlots]
-  split <;> simp [writeTransientTargets, writeAddressSlots]
+      world.storageArray slot :=
+  congrFun (StateLenses.storageArray_writeAddressFieldSlots fields fieldName world slots value)
+    slot
 
 theorem writeAddressFieldSlots_preserves_calldata
     (fields : List Compiler.CompilationModel.Field) (fieldName : String)
     (world : Verity.ContractState) (slots : List Nat) (value : Nat) :
-    (writeAddressFieldSlots fields fieldName world slots value).calldata = world.calldata := by
-  simp only [writeAddressFieldSlots]
-  split <;> simp [writeTransientTargets, writeAddressSlots]
+    (writeAddressFieldSlots fields fieldName world slots value).calldata = world.calldata :=
+  StateLenses.calldata_writeAddressFieldSlots fields fieldName world slots value
 
 theorem writeStorageArray_preserves_arrays_except
     (world : Verity.ContractState) (arraySlot slot : Nat) (values : List Verity.Core.Uint256)
     (hslot : slot ∉ [arraySlot]) :
     (writeStorageArray world arraySlot values).storageArray slot = world.storageArray slot := by
   have hne : slot ≠ arraySlot := by simpa using hslot
-  simp [writeStorageArray, hne, BEq.beq]
+  simp [writeStorageArray, hne]
 
 theorem execStmt_setStorage_execution_summary
     (fields : List Compiler.CompilationModel.Field)
