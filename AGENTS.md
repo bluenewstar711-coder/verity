@@ -71,6 +71,10 @@ python3 scripts/lean_repl_daemon.py check \
   --file Compiler/Proofs/IRGeneration/FunctionBody/Stmt.lean \
   --start-line 4190 --end-line 4245
 ```
+Every request carries a deadline (`--timeout`, default 300s) that the daemon enforces: a runaway elaboration (e.g. a looping `simp`) gets the REPL killed and restarted instead of wedging every later request, and the reply says to re-run `load-header`. Bound exploratory tactics with `set_option maxHeartbeats 50000 in` so they fail fast instead.
+
+The REPL never frees environments: each multi-thousand-line prefix you load stays resident (several GiB for `GenericInduction/Storage.lean`). Run `python3 scripts/lean_repl_daemon.py restart` before loading another large file's prefix; `load-header` warns once the REPL exceeds 8 GiB, and `status` reports `repl_rss_mb`. A bloated REPL starves the host: new `lean`/`lake` processes then stall in kernel memory compaction.
+
 Or send ad-hoc commands / interactive tactics directly:
 ```bash
 python3 scripts/lean_repl_daemon.py send --env 0 --cmd "theorem my_helper (x : Nat) : x + 0 = x := by simp"
@@ -99,6 +103,7 @@ once before committing, and run the full merge gates once before merging. **Run 
 
 ### AVOID (Slow & Error-Prone Anti-Patterns Observed in Subagents)
 - **NEVER run `lake build <Module>` in a background loop with `sleep 60` / `sleep 240` polling build logs** to debug tactic errors. Debug with `lean_repl_daemon.py check`; run the final `lake build` once, synchronously in the foreground with a long tool timeout.
+- **NEVER accumulate many large prefixes in one REPL** (e.g. looping `load-header --until-line` over several 5k-line files): `restart` the daemon between files.
 - **NEVER `check` a file from its import header to EOF** (`load-header` without `--until-line`, then `check --start-line 14`): it re-elaborates thousands of lines per edit. Load the prefix up to the edited declaration and check only that declaration.
 - **NEVER run serial unsharded 293-mutant loops or two concurrent full mutation campaigns on the same host** (each mutant rebuilds `Import.lean` using ~2.7 GiB RAM; running two full suites concurrently starves CPU/RAM and hits 600s timeouts).
 - **NEVER invoke `repl` as a one-shot pipe** (`echo '{"cmd": ...}' | lake env repl`) per edit; when the command exits, the loaded environment is destroyed and every call pays the full import cost.
@@ -138,6 +143,8 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
    - Do **not** unfold large recursive evaluators (`evalExpr`, `execStmt`, `lowerCall`) directly with `simp` in downstream proofs. Instead, prove dedicated unfolding/step equations (`exec_stmt_assign`, `exec_stmt_mstore`, `lower_call_static`) and keep implementation internals behind clean API lemmas (or `irreducible` barriers where appropriate).
 2. **Compositional State & Frame Lenses**:
    - Express state transitions and invariants via reusable frame/lens predicates (e.g., storage-only updates preserve `memory`, `byteMemory`, `calldata`, `events`, and `sender`; memory-only updates preserve `storage` and `transientStorage`) rather than repeating field-by-field record destruction in every statement proof.
+   - `Compiler/Proofs/StateLenses.lean` provides `StorageWordsFrame` (with `refl`/`trans`) plus `@[simp]` projection lenses (`memory_writeUintSlots`, `events_writeAddressFieldSlots`, …) and storage-channel lenses (`transientStorage_writeUintSlots`, `storage_writeTransientTargets`, …) for the source-semantics storage writers; extend it (prove the writer's `StorageWordsFrame` once, derive the lenses) instead of unfolding a writer to read an untouched field.
+   - `Compiler/Proofs/Frames.lean` provides `execStmt_*_continue_inv` inversions and `ownedEq_*_of_disjoint` resource lenses; use them instead of `rw [show execStmt … = (match …) from rfl]` + `cases` in statement proofs.
 3. **Modular File Decomposition (Avoid Monoliths)**:
    - Split oversized files (`Import.lean`, `Stmt.lean`, `SourceSemantics.lean`, etc.) by construct family or semantic layer with minimal `import` dependencies. Smaller modules reduce `.olean` load times in `repl`, enable parallel `lake build`, and isolate proof maintenance.
 4. **Heartbeat Hygiene (Zero `maxHeartbeats` Escalation)**:

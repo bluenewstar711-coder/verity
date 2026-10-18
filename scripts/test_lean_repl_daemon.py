@@ -24,6 +24,7 @@ import lean_repl_daemon
 MOCK_REPL_CODE = """#!/usr/bin/env python3
 import json
 import sys
+import time
 
 env_counter = 0
 lines = []
@@ -34,6 +35,8 @@ for line in sys.stdin:
         req = json.loads("".join(lines))
         lines = []
         cmd = req.get("cmd", "")
+        if "HANG_HERE" in cmd:
+            time.sleep(3600)
         messages = []
         if "FAIL_HERE" in cmd:
             messages.append({"severity": "error", "data": "synthetic error"})
@@ -292,6 +295,47 @@ class LeanReplDaemonTests(unittest.TestCase):
         rc, _, err = self._run(["check", *sock, "--decl", "first", "--start-line", "5"])
         self.assertEqual(rc, 2)
         self.assertIn("not both", err)
+
+    def test_runaway_request_restarts_repl_instead_of_wedging(self) -> None:
+        self._start_mock_daemon()
+        sample = self.root / "Decls.lean"
+        sample.write_text(DECL_SAMPLE, encoding="utf-8")
+        sock = ["--socket", str(self.socket_path)]
+        rc, _, _ = self._run(["load-header", *sock, "--file", str(sample), "--until-line", "4"])
+        self.assertEqual(rc, 0)
+        before = lean_repl_daemon.request_daemon(self.socket_path, {"action": "status"})
+
+        hung = lean_repl_daemon.request_daemon(
+            self.socket_path,
+            {"action": "send", "payload": {"cmd": "HANG_HERE"}},
+            timeout=1.0,
+        )
+        self.assertTrue(hung.get("restarted"))
+        self.assertIn("Re-run `load-header`", hung["error"])
+
+        after = lean_repl_daemon.request_daemon(self.socket_path, {"action": "status"})
+        self.assertTrue(after["ok"])
+        self.assertIsNone(after["header_env"])
+        self.assertNotEqual(after["repl_pid"], before["repl_pid"])
+        rc, out, _ = self._run(["send", *sock, "--cmd", "def ok : Nat := 1"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(json.loads(out)["received_cmd"], "def ok : Nat := 1")
+
+    def test_restart_frees_envs_and_reports_rss(self) -> None:
+        self._start_mock_daemon()
+        sample = self.root / "Decls.lean"
+        sample.write_text(DECL_SAMPLE, encoding="utf-8")
+        sock = ["--socket", str(self.socket_path)]
+        rc, _, _ = self._run(["load-header", *sock, "--file", str(sample), "--until-line", "4"])
+        self.assertEqual(rc, 0)
+        before = lean_repl_daemon.request_daemon(self.socket_path, {"action": "status"})
+        self.assertIsInstance(before["repl_rss_mb"], int)
+
+        rc, _, _ = self._run(["restart", *sock])
+        self.assertEqual(rc, 0)
+        after = lean_repl_daemon.request_daemon(self.socket_path, {"action": "status"})
+        self.assertIsNone(after["header_env"])
+        self.assertNotEqual(after["repl_pid"], before["repl_pid"])
 
     def test_start_refuses_daemon_serving_another_worktree(self) -> None:
         self._start_mock_daemon()

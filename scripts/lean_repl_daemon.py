@@ -31,6 +31,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,9 @@ REPL_REPO_URL = "https://github.com/leanprover-community/repl.git"
 # A `check` range longer than this almost always means the prefix was not
 # loaded with `--until-line`, so the REPL re-elaborates far more than the edit.
 LARGE_CHECK_RANGE = 150
+# Server-side deadline for requests that do not carry their own `timeout`.
+DEFAULT_REQUEST_TIMEOUT = 300.0
+LARGE_REPL_RSS_MB = 8192
 
 
 def default_socket_path(repo_root: Path = ROOT) -> str:
@@ -201,6 +205,90 @@ def has_error_messages(resp: dict[str, Any]) -> bool:
     return False
 
 
+def spawn_repl(repl_cmd: list[str], cwd: Path, env: dict[str, str]) -> subprocess.Popen:
+    # Own process group: `lake env` forks the real `repl`, and killing only
+    # `lake` would orphan a still-spinning `repl` child.
+    return subprocess.Popen(
+        repl_cmd,
+        cwd=str(cwd),
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+
+
+def kill_repl(proc: subprocess.Popen, sig: int) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, sig)
+    except OSError:
+        proc.kill()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+        proc.wait()
+
+
+def process_tree_rss_mb(root_pid: int) -> int | None:
+    """Resident memory of `root_pid` and its descendants (Linux `/proc` only)."""
+    try:
+        children: dict[int, list[int]] = {}
+        rss_kb: dict[int, int] = {}
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                status = (entry / "status").read_text()
+            except OSError:
+                continue
+            pid = int(entry.name)
+            children.setdefault(int(fields[1]), []).append(pid)
+            for line in status.splitlines():
+                if line.startswith("VmRSS:"):
+                    rss_kb[pid] = int(line.split()[1])
+        total, stack = 0, [root_pid]
+        while stack:
+            pid = stack.pop()
+            total += rss_kb.get(pid, 0)
+            stack.extend(children.get(pid, []))
+        return total // 1024
+    except OSError:
+        return None
+
+
+def exchange_with_repl(proc: subprocess.Popen, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    """Send one stanza and read its response, raising `TimeoutError` past `timeout`."""
+    result: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            assert proc.stdin is not None and proc.stdout is not None
+            proc.stdin.write(json.dumps(payload) + "\n\n")
+            proc.stdin.flush()
+            result["resp"] = read_repl_response(proc.stdout)
+        except Exception as exc:  # surfaced to the caller below
+            result["exc"] = exc
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError
+    if "exc" in result:
+        raise result["exc"]
+    return result["resp"]
+
+
 def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = Path(f"{socket_path}.lock")
@@ -217,16 +305,7 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
     env = os.environ.copy()
     env.setdefault("LEAN_NUM_THREADS", str(os.cpu_count() or 4))
 
-    proc = subprocess.Popen(
-        repl_cmd,
-        cwd=str(cwd),
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-    )
+    proc = spawn_repl(repl_cmd, cwd, env)
 
     state: dict[str, Any] = {
         "header_env": None,
@@ -250,12 +329,7 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                 socket_path.unlink()
             except OSError:
                 pass
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+        kill_repl(proc, signal.SIGTERM)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             os.close(lock_fd)
@@ -292,8 +366,15 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                         "header_env": state["header_env"],
                         "last_env": state["last_env"],
                         "cwd": str(cwd.resolve()),
+                        "repl_rss_mb": process_tree_rss_mb(proc.pid),
                     }
                     conn.sendall(json.dumps(resp).encode("utf-8"))
+                    continue
+                if action == "restart":
+                    kill_repl(proc, signal.SIGKILL)
+                    proc = spawn_repl(repl_cmd, cwd, env)
+                    state.update(header_env=None, last_env=None, pid=proc.pid)
+                    conn.sendall(json.dumps({"ok": True, "repl_pid": proc.pid}).encode("utf-8"))
                     continue
                 if action == "stop":
                     conn.sendall(json.dumps({"ok": True, "stopped": True}).encode("utf-8"))
@@ -304,12 +385,22 @@ def serve_daemon(socket_path: Path, repl_cmd: list[str], cwd: Path) -> int:
                     conn.sendall(json.dumps({"error": "missing dict payload"}).encode("utf-8"))
                     continue
                 mark_header = bool(req.get("mark_header", False))
+                timeout = float(req.get("timeout", DEFAULT_REQUEST_TIMEOUT))
                 try:
-                    assert proc.stdin is not None and proc.stdout is not None
-                    stanza = json.dumps(payload) + "\n\n"
-                    proc.stdin.write(stanza)
-                    proc.stdin.flush()
-                    repl_resp = read_repl_response(proc.stdout)
+                    repl_resp = exchange_with_repl(proc, payload, timeout)
+                except TimeoutError:
+                    # A runaway elaboration (e.g. a looping `simp`) would otherwise
+                    # wedge every later request behind it: restart the REPL.
+                    kill_repl(proc, signal.SIGKILL)
+                    proc = spawn_repl(repl_cmd, cwd, env)
+                    state.update(header_env=None, last_env=None, pid=proc.pid)
+                    message = (
+                        f"REPL request exceeded {timeout:g}s; the REPL was restarted and "
+                        "header_env cleared. Re-run `load-header`, and bound exploratory "
+                        "tactics with `set_option maxHeartbeats N in`."
+                    )
+                    conn.sendall(json.dumps({"error": message, "restarted": True}).encode("utf-8"))
+                    continue
                 except Exception as exc:
                     conn.sendall(json.dumps({"error": f"REPL communication error: {exc}"}).encode("utf-8"))
                     continue
@@ -327,6 +418,11 @@ def request_daemon(socket_path: Path, message: dict[str, Any], timeout: float = 
         raise FileNotFoundError(
             f"REPL daemon socket {socket_path} does not exist. Run `lean_repl_daemon.py start` first."
         )
+    if message.get("action", "send") == "send":
+        # The daemon enforces the deadline (restarting a wedged REPL); wait a
+        # little longer here so its restart notice reaches the caller.
+        message = {**message, "timeout": timeout}
+        timeout += 30.0
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(timeout)
     with client:
@@ -482,6 +578,20 @@ def resolve_check_range(args: argparse.Namespace) -> tuple[int, int | None]:
     return args.start_line, args.end_line
 
 
+def warn_if_repl_memory_large(socket_path: Path) -> None:
+    # The REPL never frees environments; each multi-thousand-line prefix adds
+    # gigabytes, and a bloated REPL starves every new `lean`/`lake` process.
+    try:
+        rss = request_daemon(socket_path, {"action": "status"}, timeout=5.0).get("repl_rss_mb")
+    except OSError:
+        return
+    if isinstance(rss, int) and rss > LARGE_REPL_RSS_MB:
+        advise(
+            f"the REPL holds {rss} MiB of environments; run `lean_repl_daemon.py restart` "
+            "before loading another large file's prefix."
+        )
+
+
 def cmd_load_header(args: argparse.Namespace) -> int:
     socket_path = Path(args.socket)
     file_path = Path(args.file)
@@ -495,6 +605,7 @@ def cmd_load_header(args: argparse.Namespace) -> int:
         timeout=args.timeout,
     )
     print(json.dumps(resp, indent=2))
+    warn_if_repl_memory_large(socket_path)
     return 1 if has_error_messages(resp) else 0
 
 
@@ -550,6 +661,12 @@ def cmd_locate(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     resp = request_daemon(Path(args.socket), {"action": "status"}, timeout=5.0)
+    print(json.dumps(resp, indent=2))
+    return 0 if resp.get("ok") else 1
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    resp = request_daemon(Path(args.socket), {"action": "restart"}, timeout=30.0)
     print(json.dumps(resp, indent=2))
     return 0 if resp.get("ok") else 1
 
@@ -632,6 +749,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_status = sub.add_parser("status", help="Check daemon status and saved env IDs")
     p_status.add_argument("--socket", default=DEFAULT_SOCKET)
     p_status.set_defaults(func=cmd_status)
+
+    p_restart = sub.add_parser(
+        "restart",
+        help="Restart the REPL process (frees every loaded env; reload the header afterwards)",
+    )
+    p_restart.add_argument("--socket", default=DEFAULT_SOCKET)
+    p_restart.set_defaults(func=cmd_restart)
 
     p_stop = sub.add_parser("stop", help="Stop the running REPL daemon")
     p_stop.add_argument("--socket", default=DEFAULT_SOCKET)
