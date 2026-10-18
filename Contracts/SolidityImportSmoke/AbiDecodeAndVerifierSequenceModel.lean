@@ -5,21 +5,20 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel
+namespace SolidityImportSmoke.AbiDecodeAndVerifierSequenceModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "OfferHashAndDomainSeparatorSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "AbiDecodeAndVerifierSequence.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
   function fail()
   function read()
-  function DOMAIN_SEPARATOR()
-  function inspectOfferMem(Offer, uint256)
-  function inspectOfferCd(Offer, uint256, address)
+  function decodeMixedPayload(bytes, uint256)
+  function verifyEnvelopeCd(Envelope, bytes32, uint256)
 def model : CompilationModel := imported.model
 -- Mapping and dynamic storage array slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
-end SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel
+end SolidityImportSmoke.AbiDecodeAndVerifierSequenceModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -28,9 +27,9 @@ def main (args : List String) : IO UInt32 := do
       let selectors ← IO.ofExcept do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
-        SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel.model selectors .osaka)
+        SolidityImportSmoke.AbiDecodeAndVerifierSequenceModel.model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
-        SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel.model SolidityImportSmoke.OfferHashAndDomainSeparatorSequenceModel.oracle args
+        SolidityImportSmoke.AbiDecodeAndVerifierSequenceModel.model SolidityImportSmoke.AbiDecodeAndVerifierSequenceModel.oracle args

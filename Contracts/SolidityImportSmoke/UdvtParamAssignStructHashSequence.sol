@@ -17,24 +17,24 @@ library ClockLib {
 contract SequenceFixture {
     using ClockLib for Clock;
 
-    struct CollateralItem {
+    struct WeightedItem {
         uint256 token;
         uint64 factor;
         bool active;
     }
 
-    struct MarketBundle {
+    struct ItemBundle {
         uint256 baseId;
-        CollateralItem[] items;
+        WeightedItem[] items;
     }
 
     bytes32 internal constant ITEM_TYPEHASH =
-        keccak256("CollateralItem(uint256 token,uint64 factor,bool active)");
+        keccak256("WeightedItem(uint256 token,uint64 factor,bool active)");
 
     error UnauthorizedAccess(address caller, uint256 timestamp, uint256 step);
     error InvalidStepInput(uint256 step, address origin);
 
-    event MarketStepRecorded(
+    event StepRecorded(
         uint256 indexed totalScore,
         bytes32 indexed lastDigest,
         uint256 clockWord,
@@ -103,7 +103,7 @@ contract SequenceFixture {
         return pickChained ? _chainedPair(a, b) : (a + 100, bytes32(b + 200));
     }
 
-    function _hashCollateralItem(CollateralItem calldata item) internal pure returns (bytes32 digest) {
+    function _hashWeightedItem(WeightedItem calldata item) internal pure returns (bytes32 digest) {
         uint256 tok = item.token;
         uint256 fac = uint256(item.factor);
         uint256 act = item.active ? 1 : 0;
@@ -115,24 +115,24 @@ contract SequenceFixture {
         }
     }
 
-    function _hashCollateralItemMem(CollateralItem memory item) internal pure returns (bytes32) {
+    function _hashWeightedItemMem(WeightedItem memory item) internal pure returns (bytes32) {
         return keccak256(abi.encode(ITEM_TYPEHASH, item.token, item.factor, item.active));
     }
 
-    function hashMarketBundle(MarketBundle calldata market, Clock clockTag) internal returns (bytes32) {
-        clockTag = clockTag.advance(market.baseId & 0xff);
-        bytes32[] memory itemHashes = new bytes32[](market.items.length);
-        for (uint256 i = 0; i < market.items.length; i++) {
-            bytes32 cdHash = _hashCollateralItem(market.items[i]);
-            CollateralItem memory memCopy = market.items[i];
-            bytes32 memHash = _hashCollateralItemMem(memCopy);
+    function hashItemBundle(ItemBundle calldata bundle, Clock clockTag) internal returns (bytes32) {
+        clockTag = clockTag.advance(bundle.baseId & 0xff);
+        bytes32[] memory itemHashes = new bytes32[](bundle.items.length);
+        for (uint256 i = 0; i < bundle.items.length; i++) {
+            bytes32 cdHash = _hashWeightedItem(bundle.items[i]);
+            WeightedItem memory memCopy = bundle.items[i];
+            bytes32 memHash = _hashWeightedItemMem(memCopy);
             itemHashes[i] = bytes32(uint256(cdHash) ^ uint256(memHash));
         }
         bytes32 itemsDigest = _hashBytes32Array(itemHashes);
         uint256 cw = clockTag.stepValue();
         lastClockWord = cw;
-        lastDigest = bytes32(uint256(itemsDigest) ^ cw ^ market.baseId);
-        totalScore += (uint256(lastDigest) & 0xffff) + market.items.length;
+        lastDigest = bytes32(uint256(itemsDigest) ^ cw ^ bundle.baseId);
+        totalScore += (uint256(lastDigest) & 0xffff) + bundle.items.length;
         return lastDigest;
     }
 
@@ -173,7 +173,7 @@ contract SequenceFixture {
         uint256 delta = (uint256(combinedDigest) & 0xffffffff) + pairVal + uint256(shortTag);
         totalScore += delta;
 
-        emit MarketStepRecorded(totalScore, lastDigest, lastClockWord, uint256(lastShortTag));
+        emit StepRecorded(totalScore, lastDigest, lastClockWord, uint256(lastShortTag));
         require(callerCopy != 20, "udvt param assign rollback");
         return totalScore;
     }

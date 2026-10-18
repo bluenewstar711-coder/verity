@@ -1716,7 +1716,7 @@ def stateful_merkle_and_nonces_source(fixture: str, variant: str) -> str:
     raise ValueError(f'unknown merkle-and-nonces variant: {variant}')
 
 
-def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str) -> str:
+def stateful_multiproof_mapping_keys_verifiers_source(fixture: str, variant: str) -> str:
     """Equivalent dynamic memory scalar array allocation/write, extended mapping keys/struct members, and root named Yul return sources."""
     if variant == 'baseline':
         return fixture
@@ -1726,7 +1726,7 @@ def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str
             'left', 'right', 'value', 'a', 'b', 'slot', 'oldValue', 'proof',
             'proofFlags', 'leaves', 'merkleRoot', 'leavesLen', 'proofFlagsLen',
             'hashes', 'leafPos', 'hashPos', 'proofPos', 'input', 'resultAddr',
-            'badLeaves', 'badProof', 'badFlags', 'root', 'ratifierId', 'feed',
+            'badLeaves', 'badProof', 'badFlags', 'root', 'verifierId', 'feed',
             'maxDiff', 'isEnabled', 'delta', 'user', 'nKey', 'mode', 'tSlot',
             'nextActor', 'prevActor', 'loadedActor', 'score', 'exitSlot',
             'dirtyWord', 'r0', 'summary', 'caller',
@@ -1734,18 +1734,18 @@ def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-multiproof-ratifiers':
+    if variant == 'expanded-multiproof-verifiers':
         replacements = {
             'narrowKeyScores[nKey] += uint256(maxDiff);':
             'narrowKeyScores[nKey] = narrowKeyScores[nKey] + uint256(maxDiff);',
             'signedKeyScores[delta] += (input & 0x1f) + 1;':
             'signedKeyScores[delta] = signedKeyScores[delta] + (input & 0x1f) + 1;',
-            'boolKeyScores[ratifiers[ratifierId].enabled] += 3;':
-            'boolKeyScores[ratifiers[ratifierId].enabled] = boolKeyScores[ratifiers[ratifierId].enabled] + 3;',
+            'boolKeyScores[verifiers[verifierId].enabled] += 3;':
+            'boolKeyScores[verifiers[verifierId].enabled] = boolKeyScores[verifiers[verifierId].enabled] + 3;',
             'modeKeyScores[mode] += 5;':
             'modeKeyScores[mode] = modeKeyScores[mode] + 5;',
-            'feedKeyScores[ratifiers[ratifierId].oracle] += 7;':
-            'feedKeyScores[ratifiers[ratifierId].oracle] = feedKeyScores[ratifiers[ratifierId].oracle] + 7;',
+            'feedKeyScores[verifiers[verifierId].oracle] += 7;':
+            'feedKeyScores[verifiers[verifierId].oracle] = feedKeyScores[verifiers[verifierId].oracle] + 7;',
             'totalScore += score;':
             'totalScore = totalScore + score;',
             'totalScore += 999;':
@@ -1753,14 +1753,14 @@ def stateful_multiproof_mapping_keys_ratifiers_source(fixture: str, variant: str
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('multiproof-mapping-keys-ratifiers variant anchor changed')
+                raise ValueError('multiproof-mapping-keys-verifiers variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown multiproof-mapping-keys-ratifiers variant: {variant}')
+    raise ValueError(f'unknown multiproof-mapping-keys-verifiers variant: {variant}')
 
 
-def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> str:
-    """Equivalent user-defined value types, direct parameter assignment, chained/conditional multi-returns, and dynamic memory array/market hashing sources."""
+def stateful_udvt_param_assign_struct_hash_source(fixture: str, variant: str) -> str:
+    """Equivalent user-defined value types, direct parameter assignment, chained/conditional multi-returns, and dynamic memory array/bundle hashing sources."""
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
@@ -1768,7 +1768,7 @@ def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> 
         names = {
             'c', 'delta', 'cap', 'tokens', 'digest', 'words', 'items', 'step',
             'bonus', 'id', 'raw', 'a', 'b', 'pickChained', 'item', 'tok', 'fac',
-            'act', 'th', 'market', 'clockTag', 'itemHashes', 'cdHash', 'memCopy',
+            'act', 'th', 'bundle', 'clockTag', 'itemHashes', 'cdHash', 'memCopy',
             'memHash', 'itemsDigest', 'cw', 'input', 'callerCopy', 'scrubbed',
             'clk', 'clockWord', 'sid', 'shortTag', 'tokHash', 'wordHash',
             'pairVal', 'pairTag', 'combinedDigest', 'addBonus',
@@ -1776,7 +1776,7 @@ def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> 
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-udvt-param-hashmarket':
+    if variant == 'expanded-udvt-param-struct-hash':
         replacements = {
             'step = step * 2 + bonus;':
             'step = (step << 1) + bonus;',
@@ -1784,8 +1784,8 @@ def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> 
             'raw += delta;',
             'a = a + 7;':
             'a += 7;',
-            'totalScore += (uint256(lastDigest) & 0xffff) + market.items.length;':
-            'totalScore = totalScore + (uint256(lastDigest) & 0xffff) + market.items.length;',
+            'totalScore += (uint256(lastDigest) & 0xffff) + bundle.items.length;':
+            'totalScore = totalScore + (uint256(lastDigest) & 0xffff) + bundle.items.length;',
             'totalScore += delta;':
             'totalScore = totalScore + delta;',
             'totalScore += 999;':
@@ -1793,10 +1793,10 @@ def stateful_udvt_param_assign_hashmarket_source(fixture: str, variant: str) -> 
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('udvt-param-assign-hashmarket variant anchor changed')
+                raise ValueError('udvt-param-assign-struct-hash variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown udvt-param-assign-hashmarket variant: {variant}')
+    raise ValueError(f'unknown udvt-param-assign-struct-hash variant: {variant}')
 
 
 def stateful_struct_mapping_and_bytes4_interface_source(fixture: str, variant: str) -> str:
@@ -1955,31 +1955,31 @@ def stateful_checkpoints_and_struct_arrays_source(fixture: str, variant: str) ->
     raise ValueError(f'unknown checkpoints-and-struct-arrays variant: {variant}')
 
 
-def stateful_ticklib_and_three_key_mapping_source(fixture: str, variant: str) -> str:
-    """Equivalent Pareto TickLib, 3-key scalar/struct mappings, and top-level fixed-size storage arrays sources."""
+def stateful_wad_exp_and_three_key_mapping_source(fixture: str, variant: str) -> str:
+    """Equivalent WAD exponential library, 3-key scalar/struct mappings, and top-level fixed-size storage arrays sources."""
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
         import re
         names = {
             'x', 'd', 'ln2', 'offset', 'q', 'r', 'secondTerm', 'thirdTerm', 'expR',
-            'tick', 'price', 'spacing', 'low', 'high', 'mid', 'input', 'rawTick',
-            'alignedTick', 'recoveredTick', 'idx4', 'idx3', 'snapFees', 'snapCaps',
-            'delegate', 'side', 'nAfterInc', 'marketId', 'bucket', 'qSnap',
+            'level', 'ratio', 'spacing', 'low', 'high', 'mid', 'input', 'rawLevel',
+            'alignedLevel', 'recoveredLevel', 'idx4', 'idx3', 'snapFees', 'snapCaps',
+            'delegate', 'side', 'nAfterInc', 'groupId', 'bucket', 'qSnap',
             'd0', 'd1', 'feeSummary', 'capSummary', 'nonceSummary', 'q0',
             'quotaSummary', 'boundedSpacing', 'recovered',
-            'divHalfDownUnchecked', 'wExp', 'tickToPrice', 'priceToTick',
-            'LN_ONE_PLUS_DELTA', 'MAX_TICK', 'PRICE_ROUNDING_STEP',
+            'divHalfDownUnchecked', 'wadExp', 'levelToRatio', 'ratioToLevel',
+            'LN_LEVEL_BASE', 'MAX_LEVEL', 'RATIO_ROUNDING_STEP',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-ticklib-and-three-key-mapping':
+    if variant == 'expanded-wad-exp-and-three-key-mapping':
         replacements = {
-            'lastPrice += price;':
-            'lastPrice = lastPrice + price;',
-            'lastTick += recoveredTick;':
-            'lastTick = lastTick + recoveredTick;',
+            'lastRatio += ratio;':
+            'lastRatio = lastRatio + ratio;',
+            'lastLevel += recoveredLevel;':
+            'lastLevel = lastLevel + recoveredLevel;',
             'nonces[side][msg.sender][delegate] += 1;':
             'nonces[side][msg.sender][delegate] = nonces[side][msg.sender][delegate] + 1;',
             'q.used += uint64(snapFees[idx4]);':
@@ -1987,52 +1987,52 @@ def stateful_ticklib_and_three_key_mapping_source(fixture: str, variant: str) ->
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('ticklib-and-three-key-mapping variant anchor changed')
+                raise ValueError('wad-exp-and-three-key-mapping variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown ticklib-and-three-key-mapping variant: {variant}')
+    raise ValueError(f'unknown wad-exp-and-three-key-mapping variant: {variant}')
 
 
-def stateful_offer_hash_and_domain_separator_source(fixture: str, variant: str) -> str:
-    """Equivalent Midnight Offer/Market/CollateralParams EIP-712 hashing and DOMAIN_SEPARATOR sources."""
+def stateful_struct_hash_and_domain_separator_source(fixture: str, variant: str) -> str:
+    """Equivalent nested struct EIP-712 hashing and DOMAIN_SEPARATOR sources."""
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
         import re
         names = {
             'height', 'treeHash', 'priceTreeHash', 'rateTreeHash', 'combinedTree',
-            'cp', 'cpHash', 'nonce', 'maxExpiry', 'enterStructHash', 'enterDigest',
-            'dom', 'rHash', 'pHash', 'mHash', 'digest', 'cpBonus', 'firstCp',
-            'cbBonus', 'flagBonus', 'encodedCollateralParams',
-            'offerTreeTypeHash', 'priceRatifierV1OfferTreeTypeHash',
-            'rateRatifierV1OfferTreeTypeHash', 'hashNode', 'hashCollateralParams',
-            'hashMarket', 'hashOffer', 'hashPriceRatifierV1Offer', 'hashRateRatifierV1Offer',
-            'MAX_HEIGHT', 'COLLATERAL_PARAMS_TYPEHASH', 'MARKET_TYPEHASH', 'OFFER_TYPEHASH',
-            'PRICE_RATIFIER_V1_OFFER_TYPEHASH', 'RATE_RATIFIER_V1_OFFER_TYPEHASH',
+            'item', 'itemHash', 'nonce', 'maxExpiry', 'enterStructHash', 'enterDigest',
+            'dom', 'rHash', 'pHash', 'mHash', 'digest', 'itemBonus', 'firstItem',
+            'payloadBonus', 'flagBonus', 'encodedItems',
+            'envelopeTreeTypeHash', 'priceVerifierEnvelopeTreeTypeHash',
+            'rateVerifierEnvelopeTreeTypeHash', 'hashNode', 'hashRecordItem',
+            'hashRecord', 'hashEnvelope', 'hashPriceVerifierEnvelope', 'hashRateVerifierEnvelope',
+            'MAX_HEIGHT', 'RECORD_ITEM_TYPEHASH', 'RECORD_TYPEHASH', 'ENVELOPE_TYPEHASH',
+            'PRICE_VERIFIER_ENVELOPE_TYPEHASH', 'RATE_VERIFIER_ENVELOPE_TYPEHASH',
             'EIP712_DOMAIN_TYPEHASH', 'ENTER_TYPEHASH',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-offer-hash-and-domain-separator':
+    if variant == 'expanded-struct-hash-and-domain-separator':
         replacements = {
-            'offerCounts[combinedTree] += 1;':
-            'offerCounts[combinedTree] = offerCounts[combinedTree] + 1;',
-            'offerCounts[rHash] += 1;':
-            'offerCounts[rHash] = offerCounts[rHash] + 1;',
-            'offerCounts[pHash] += 1;':
-            'offerCounts[pHash] = offerCounts[pHash] + 1;',
+            'envelopeCounts[combinedTree] += 1;':
+            'envelopeCounts[combinedTree] = envelopeCounts[combinedTree] + 1;',
+            'envelopeCounts[rHash] += 1;':
+            'envelopeCounts[rHash] = envelopeCounts[rHash] + 1;',
+            'envelopeCounts[pHash] += 1;':
+            'envelopeCounts[pHash] = envelopeCounts[pHash] + 1;',
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('offer-hash-and-domain-separator variant anchor changed')
+                raise ValueError('struct-hash-and-domain-separator variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown offer-hash-and-domain-separator variant: {variant}')
+    raise ValueError(f'unknown struct-hash-and-domain-separator variant: {variant}')
 
 
-def stateful_abi_decode_and_ratifier_source(fixture: str, variant: str) -> str:
-    """Equivalent abi.decode (scalars, static structs, dynamic arrays, bytes, strings, Offer.callbackData) and ratifier sources."""
+def stateful_abi_decode_and_verifier_source(fixture: str, variant: str) -> str:
+    """Equivalent abi.decode (scalars, static structs, dynamic arrays, bytes, strings, struct bytes member) and verifier sources."""
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
@@ -2044,29 +2044,29 @@ def stateful_abi_decode_and_ratifier_source(fixture: str, variant: str) -> str:
             'arrDecoded', 'inlineElem', 'extraWord', 'rateFloor', 'weights', 'extraBytes', 'label',
             'weightSum', 'extraHash', 'bonus', 'actualRate', 'targetRoot', 'badBool',
             'flag', 'xs', 'hashNode', 'computeRoot', 'isLeaf', '_decodeStoredHeader',
-            '_decodeUintArray', '_firstOrZero', 'MAX_HEIGHT', 'ratifiedCounts',
-            'storedPayload', 'lastRatifiedRoot', 'lastDecodedRate',
+            '_decodeUintArray', '_firstOrZero', 'MAX_HEIGHT', 'verifiedCounts',
+            'storedPayload', 'lastVerifiedRoot', 'lastDecodedRate',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-abi-decode-and-ratifier':
+    if variant == 'expanded-abi-decode-and-verifier':
         replacements = {
-            'ratifiedCounts[root] += 1;':
-            'ratifiedCounts[root] = ratifiedCounts[root] + 1;',
-            'ratifiedCounts[extraHash] += 1;':
-            'ratifiedCounts[extraHash] = ratifiedCounts[extraHash] + 1;',
-            'ratifiedCounts[targetRoot] += 1;':
-            'ratifiedCounts[targetRoot] = ratifiedCounts[targetRoot] + 1;',
+            'verifiedCounts[root] += 1;':
+            'verifiedCounts[root] = verifiedCounts[root] + 1;',
+            'verifiedCounts[extraHash] += 1;':
+            'verifiedCounts[extraHash] = verifiedCounts[extraHash] + 1;',
+            'verifiedCounts[targetRoot] += 1;':
+            'verifiedCounts[targetRoot] = verifiedCounts[targetRoot] + 1;',
             'weightSum += weights[i];':
             'weightSum = weightSum + weights[i];',
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('abi-decode-and-ratifier variant anchor changed')
+                raise ValueError('abi-decode-and-verifier variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown abi-decode-and-ratifier variant: {variant}')
+    raise ValueError(f'unknown abi-decode-and-verifier variant: {variant}')
 
 
 def stateful_votes_checkpoints_arrays_bitmaps_source(fixture: str, variant: str) -> str:
@@ -2173,21 +2173,21 @@ def stateful_ecrecover_authorizer_arrays_map_source(fixture: str, variant: str) 
     raise ValueError(f'unknown ecrecover-authorizer-arrays-map variant: {variant}')
 
 
-def stateful_market_params_balances_source(fixture: str, variant: str) -> str:
+def stateful_struct_params_and_balances_source(fixture: str, variant: str) -> str:
     if variant == 'baseline':
         return fixture
     if variant == 'renamed':
         import re
         names = {
-            'MARKET_PARAMS_BYTES_LENGTH', 'VIRTUAL_SHARES', 'VIRTUAL_ASSETS',
-            'totalScore', 'lastDigest', '_simulatedMarket', 'marketParamsId',
+            'ASSET_PARAMS_BYTES_LENGTH', 'VIRTUAL_SHARES', 'VIRTUAL_ASSETS',
+            'totalScore', 'lastDigest', '_simulatedReserve', 'paramsId',
             'ratePerSecond', 'supplyDelta', 'borrowDelta', 'mintedSupplyShares',
             'mintedBorrowShares', 'stepTag',
         }
         token = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|[A-Za-z_$][A-Za-z0-9_$]*'
         return re.sub(token, lambda m: m.group(0) + '_renamed'
                       if m.group(0) in names else m.group(0), fixture)
-    if variant == 'expanded-market-params-balances':
+    if variant == 'expanded-struct-params-and-balances':
         replacements = {
             'm.totalBorrowAssets += interest.toUint128();':
             'm.totalBorrowAssets = m.totalBorrowAssets + interest.toUint128();',
@@ -2216,10 +2216,10 @@ def stateful_market_params_balances_source(fixture: str, variant: str) -> str:
         }
         for before, after in replacements.items():
             if fixture.count(before) != 1:
-                raise ValueError('market-params-balances variant anchor changed')
+                raise ValueError('struct-params-and-balances variant anchor changed')
             fixture = fixture.replace(before, after)
         return fixture
-    raise ValueError(f'unknown market-params-balances variant: {variant}')
+    raise ValueError(f'unknown struct-params-and-balances variant: {variant}')
 
 
 def stateful_packed_struct_mapping_ternary_tuple_source(fixture: str, variant: str) -> str:

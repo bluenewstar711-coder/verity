@@ -5,16 +5,16 @@ namespace SolidityImportSmoke.AbiCoverageChecks
 open Compiler.CompilationModel Compiler.CompilationModel.SolidityImport
 
 def schema : List AbiSchema.Member :=
-  [.scalar ⟨"chainId", .uint ⟨31, by decide⟩⟩,
-   .scalar ⟨"midnight", .address⟩,
-   .scalar ⟨"loanToken", .address⟩,
-   .structArray "collateralParams"
-     [⟨"token", .address⟩, ⟨"lltv", .uint ⟨31, by decide⟩⟩,
-      ⟨"liquidationCursor", .uint ⟨31, by decide⟩⟩, ⟨"oracle", .address⟩],
-   .scalar ⟨"maturity", .uint ⟨31, by decide⟩⟩,
-   .scalar ⟨"rcfThreshold", .uint ⟨31, by decide⟩⟩,
-   .scalar ⟨"enterGate", .address⟩,
-   .scalar ⟨"liquidatorGate", .address⟩]
+  [.scalar ⟨"head", .uint ⟨31, by decide⟩⟩,
+   .scalar ⟨"origin", .address⟩,
+   .scalar ⟨"token", .address⟩,
+   .structArray "items"
+     [⟨"token", .address⟩, ⟨"weight", .uint ⟨31, by decide⟩⟩,
+      ⟨"cursor", .uint ⟨31, by decide⟩⟩, ⟨"source", .address⟩],
+   .scalar ⟨"deadline", .uint ⟨31, by decide⟩⟩,
+   .scalar ⟨"threshold", .uint ⟨31, by decide⟩⟩,
+   .scalar ⟨"firstGate", .address⟩,
+   .scalar ⟨"secondGate", .address⟩]
 
 theorem memory_root_is_executable :
     executableStmtListCovered (AbiRootLowering.root "source" 2 0 schema true).body = true := by
@@ -24,19 +24,21 @@ theorem calldata_root_is_executable :
     executableStmtListCovered (AbiRootLowering.root "source" 2 0 schema false).body = true := by
   decide +kernel
 
-def offerSchema : List AbiSchema.Member :=
-  [.nestedStruct "market" 0 "Market" [] schema,
-   .scalar ⟨"buy", .bool⟩,
-   .scalar ⟨"maker", .address⟩,
-   .bytesField "callbackData",
+def envelopeSchema : List AbiSchema.Member :=
+  [.nestedStruct "record" 0 "NestedRecord" [] schema,
+   .scalar ⟨"flag", .bool⟩,
+   .scalar ⟨"sender", .address⟩,
+   .bytesField "payload",
    .scalar ⟨"maxUnits", .uint ⟨15, by decide⟩⟩]
 
-theorem offer_memory_root_is_executable :
-    executableStmtListCovered (AbiRootLowering.root "offer" 2 0 offerSchema true).body = true := by
+theorem envelope_memory_root_is_executable :
+    executableStmtListCovered
+      (AbiRootLowering.root "envelope" 2 0 envelopeSchema true).body = true := by
   decide +kernel
 
-theorem offer_calldata_root_is_executable :
-    executableStmtListCovered (AbiRootLowering.root "offer" 2 0 offerSchema false).body = true := by
+theorem envelope_calldata_root_is_executable :
+    executableStmtListCovered
+      (AbiRootLowering.root "envelope" 2 0 envelopeSchema false).body = true := by
   decide +kernel
 
 theorem memory_write_is_not_read_only :

@@ -3,50 +3,50 @@ pragma solidity 0.8.34;
 
 uint256 constant MAX_HEIGHT = 3;
 
-struct CollateralParams {
+struct RecordItem {
     address token;
-    uint256 lltv;
-    uint256 liquidationCursor;
-    address oracle;
+    uint256 weight;
+    uint256 cursor;
+    address source;
 }
 
-struct Market {
-    uint256 chainId;
-    address midnight;
-    address loanToken;
-    CollateralParams[] collateralParams;
-    uint256 maturity;
-    uint256 rcfThreshold;
-    address enterGate;
-    address liquidatorGate;
+struct NestedRecord {
+    uint256 head;
+    address origin;
+    address token;
+    RecordItem[] items;
+    uint256 deadline;
+    uint256 threshold;
+    address firstGate;
+    address secondGate;
 }
 
-struct Offer {
-    Market market;
-    bool buy;
-    address maker;
+struct Envelope {
+    NestedRecord record;
+    bool flag;
+    address sender;
     uint256 start;
     uint256 expiry;
-    uint256 tick;
+    uint256 step;
     bytes32 group;
-    address callback;
-    bytes callbackData;
-    address receiverIfMakerIsSeller;
-    address ratifier;
-    bool reduceOnly;
+    address hook;
+    bytes payload;
+    address receiver;
+    address validator;
+    bool limited;
     uint128 maxUnits;
-    uint128 maxAssets;
-    uint256 continuousFeeCap;
+    uint128 maxAmount;
+    uint256 rateCap;
 }
 
-struct RatifierConfig {
+struct VerifierConfig {
     uint256 minRate;
-    address allowedTaker;
+    address allowedCaller;
     bool active;
     bytes4 tag;
 }
 
-library RatifierHashLib {
+library VerifierHashLib {
     error TreeTooHigh();
 
     function hashNode(bytes32 left, bytes32 right) internal pure returns (bytes32) {
@@ -78,19 +78,19 @@ library RatifierHashLib {
 }
 
 contract SequenceFixture {
-    error NotTheMaker();
+    error NotTheSender();
     error ExpiredTree();
     error InvalidLeaf();
     error RateTooLow();
 
     mapping(address => mapping(bytes32 => uint256)) public maxBlockNumber;
-    mapping(bytes32 => uint256) private ratifiedCounts;
+    mapping(bytes32 => uint256) private verifiedCounts;
     bytes private storedPayload;
-    bytes32 private lastRatifiedRoot;
+    bytes32 private lastVerifiedRoot;
     uint256 private lastDecodedRate;
 
-    function _decodeStoredHeader() internal view returns (RatifierConfig memory) {
-        return abi.decode(storedPayload, (RatifierConfig));
+    function _decodeStoredHeader() internal view returns (VerifierConfig memory) {
+        return abi.decode(storedPayload, (VerifierConfig));
     }
 
     function _decodeUintArray(bytes memory raw) internal pure returns (uint256[] memory) {
@@ -103,15 +103,15 @@ contract SequenceFixture {
 
     function change(uint256 input) external returns (uint256, uint256) {
         uint256 minRate = 1000 + (input % 500);
-        address allowedTaker = address(uint160(0x3000 + (input % 11)));
+        address allowedCaller = address(uint160(0x3000 + (input % 11)));
         bool active = (input & 1) == 0;
         bytes4 tag = bytes4(keccak256(abi.encode(input)));
 
-        bytes memory encodedConfig = abi.encode(minRate, allowedTaker, active, tag);
+        bytes memory encodedConfig = abi.encode(minRate, allowedCaller, active, tag);
         storedPayload = encodedConfig;
 
-        RatifierConfig memory cfg = _decodeStoredHeader();
-        uint256 directMinRate = abi.decode(encodedConfig, (RatifierConfig)).minRate;
+        VerifierConfig memory cfg = _decodeStoredHeader();
+        uint256 directMinRate = abi.decode(encodedConfig, (VerifierConfig)).minRate;
 
         (uint256 tupRate, , bool tupActive, bytes4 tupTag) =
             abi.decode(storedPayload, (uint256, address, bool, bytes4));
@@ -124,24 +124,24 @@ contract SequenceFixture {
         uint256 inlineElem = _firstOrZero(abi.decode(arrBuf, (uint256[])));
         uint256 extraWord = singleDecoded + arrDecoded[0] + inlineElem;
         bytes32 root = keccak256(
-            abi.encode(cfg.minRate, cfg.allowedTaker, tupActive, tupTag, extraWord)
+            abi.encode(cfg.minRate, cfg.allowedCaller, tupActive, tupTag, extraWord)
         );
 
         maxBlockNumber[msg.sender][root] = block.number + (input % 17);
-        ratifiedCounts[root] += 1;
-        lastRatifiedRoot = root;
+        verifiedCounts[root] += 1;
+        lastVerifiedRoot = root;
         lastDecodedRate = cfg.minRate + directMinRate + tupRate;
 
-        require(input != 20, "ratifier change rollback");
+        require(input != 20, "validator change rollback");
         return (
-            lastDecodedRate + ratifiedCounts[root],
+            lastDecodedRate + verifiedCounts[root],
             (uint256(root) & 0xFFFFFFFFFFFFFFFF) + maxBlockNumber[msg.sender][root]
         );
     }
 
     function decodeMixedPayload(bytes calldata raw, uint256 rateFloor) external returns (uint256, uint256) {
-        (RatifierConfig memory cfg, uint256[] memory weights, bytes memory extraBytes, string memory label) =
-            abi.decode(raw, (RatifierConfig, uint256[], bytes, string));
+        (VerifierConfig memory cfg, uint256[] memory weights, bytes memory extraBytes, string memory label) =
+            abi.decode(raw, (VerifierConfig, uint256[], bytes, string));
 
         if (cfg.minRate < rateFloor) revert RateTooLow();
 
@@ -154,42 +154,42 @@ contract SequenceFixture {
         uint256 bonus = extraBytes.length + bytes(label).length + (cfg.active ? 11 : 22);
 
         storedPayload = extraBytes;
-        ratifiedCounts[extraHash] += 1;
-        lastRatifiedRoot = extraHash;
+        verifiedCounts[extraHash] += 1;
+        lastVerifiedRoot = extraHash;
         lastDecodedRate = cfg.minRate + weightSum;
 
         return (
-            lastDecodedRate + bonus + ratifiedCounts[extraHash],
+            lastDecodedRate + bonus + verifiedCounts[extraHash],
             (uint256(extraHash) & 0xFFFFFFFFFFFFFFFF) + (uint256(uint32(cfg.tag)))
         );
     }
 
-    function ratifyOfferCd(Offer calldata offer, bytes32 root, uint256 actualRate) external returns (uint256, uint256) {
-        (uint256 minRate, address allowedTaker, uint256 leafIndex, bytes32[] memory proof) =
-            abi.decode(offer.callbackData, (uint256, address, uint256, bytes32[]));
+    function verifyEnvelopeCd(Envelope calldata envelope, bytes32 root, uint256 actualRate) external returns (uint256, uint256) {
+        (uint256 minRate, address allowedCaller, uint256 leafIndex, bytes32[] memory proof) =
+            abi.decode(envelope.payload, (uint256, address, uint256, bytes32[]));
 
-        if (allowedTaker != address(0) && allowedTaker != msg.sender) {
-            revert NotTheMaker();
+        if (allowedCaller != address(0) && allowedCaller != msg.sender) {
+            revert NotTheSender();
         }
         if (actualRate < minRate) {
             revert RateTooLow();
         }
 
-        bytes32 leafHash = keccak256(abi.encode(offer.maker, offer.tick, minRate, allowedTaker));
+        bytes32 leafHash = keccak256(abi.encode(envelope.sender, envelope.step, minRate, allowedCaller));
         bytes32 targetRoot = root == bytes32(0)
-            ? RatifierHashLib.computeRoot(leafHash, leafIndex % 8, proof)
+            ? VerifierHashLib.computeRoot(leafHash, leafIndex % 8, proof)
             : root;
-        if (!RatifierHashLib.isLeaf(targetRoot, leafHash, leafIndex % 8, proof)) {
+        if (!VerifierHashLib.isLeaf(targetRoot, leafHash, leafIndex % 8, proof)) {
             revert InvalidLeaf();
         }
 
-        ratifiedCounts[targetRoot] += 1;
-        lastRatifiedRoot = targetRoot;
+        verifiedCounts[targetRoot] += 1;
+        lastVerifiedRoot = targetRoot;
         lastDecodedRate = actualRate - minRate + proof.length;
 
         return (
-            lastDecodedRate + ratifiedCounts[targetRoot],
-            (uint256(leafHash) & 0xFFFFFFFFFFFFFFFF) + offer.market.collateralParams.length
+            lastDecodedRate + verifiedCounts[targetRoot],
+            (uint256(leafHash) & 0xFFFFFFFFFFFFFFFF) + envelope.record.items.length
         );
     }
 
@@ -204,10 +204,10 @@ contract SequenceFixture {
 
     function read() external view returns (uint256, uint256, uint256, uint256) {
         return (
-            uint256(lastRatifiedRoot) & 0xFFFFFFFFFFFFFFFF,
+            uint256(lastVerifiedRoot) & 0xFFFFFFFFFFFFFFFF,
             lastDecodedRate,
             storedPayload.length,
-            maxBlockNumber[msg.sender][lastRatifiedRoot]
+            maxBlockNumber[msg.sender][lastVerifiedRoot]
         );
     }
 }

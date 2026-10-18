@@ -5,20 +5,27 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel
+namespace SolidityImportSmoke.StructParamsAndBalancesSequenceModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "AbiDecodeAndRatifierSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "StructParamsAndBalancesSequence.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
   function fail()
   function read()
-  function decodeMixedPayload(bytes, uint256)
-  function ratifyOfferCd(Offer, bytes32, uint256)
+  function feeRecipient()
+  function lastReserveId()
+  function reserves(Id)
+  function holdings(Id, address)
+  function computeId(AssetParams)
+  function expectedReserveBalances(AssetParams, uint256)
+  function expectedTotalSupplyAssets(AssetParams, uint256)
+  function expectedSupplyAssets(AssetParams, address, uint256)
+  function expectedBorrowAssets(AssetParams, address, uint256)
 def model : CompilationModel := imported.model
--- Mapping and dynamic storage array slots use the actual Keccak oracle shared with differential execution.
+-- Mapping slots and struct hashes use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
-end SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel
+end SolidityImportSmoke.StructParamsAndBalancesSequenceModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -27,9 +34,9 @@ def main (args : List String) : IO UInt32 := do
       let selectors ← IO.ofExcept do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
-        SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel.model selectors .osaka)
+        SolidityImportSmoke.StructParamsAndBalancesSequenceModel.model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
-        SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel.model SolidityImportSmoke.AbiDecodeAndRatifierSequenceModel.oracle args
+        SolidityImportSmoke.StructParamsAndBalancesSequenceModel.model SolidityImportSmoke.StructParamsAndBalancesSequenceModel.oracle args

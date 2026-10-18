@@ -5,18 +5,19 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.UdvtParamAssignHashMarketSequenceModel
+namespace SolidityImportSmoke.WadExpAndThreeKeyMappingSequenceModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "UdvtParamAssignHashMarketSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "WadExpAndThreeKeyMappingSequence.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
   function fail()
   function read()
+  function quoteLevelRoundtrip(uint256, uint256)
 def model : CompilationModel := imported.model
--- Mapping slots use the actual Keccak oracle shared with differential execution.
+-- Mapping and dynamic storage array slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
-end SolidityImportSmoke.UdvtParamAssignHashMarketSequenceModel
+end SolidityImportSmoke.WadExpAndThreeKeyMappingSequenceModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -25,9 +26,9 @@ def main (args : List String) : IO UInt32 := do
       let selectors ← IO.ofExcept do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
-        SolidityImportSmoke.UdvtParamAssignHashMarketSequenceModel.model selectors .osaka)
+        SolidityImportSmoke.WadExpAndThreeKeyMappingSequenceModel.model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
-        SolidityImportSmoke.UdvtParamAssignHashMarketSequenceModel.model SolidityImportSmoke.UdvtParamAssignHashMarketSequenceModel.oracle args
+        SolidityImportSmoke.WadExpAndThreeKeyMappingSequenceModel.model SolidityImportSmoke.WadExpAndThreeKeyMappingSequenceModel.oracle args

@@ -13,10 +13,10 @@ contract SequenceFixture {
     }
 
     error InvalidMultiProof(uint256 leavesLength, uint256 flagsLength);
-    error UnauthorizedRatifier(address caller);
-    event MultiProofRatified(uint256 indexed totalScore, bytes32 rootDigest, address indexed oracle, bool enabled);
+    error UnauthorizedVerifier(address caller);
+    event MultiProofVerified(uint256 indexed totalScore, bytes32 rootDigest, address indexed oracle, bool enabled);
 
-    struct RatifierData {
+    struct VerifierData {
         IOracleFeed oracle;
         uint88 maxPercentageDifference;
         bool enabled;
@@ -28,7 +28,7 @@ contract SequenceFixture {
     bytes32 private lastMultiRoot;
     address private lastTransientActor;
 
-    mapping(bytes32 => RatifierData) private ratifiers;
+    mapping(bytes32 => VerifierData) private verifiers;
     mapping(address => mapping(address => bool)) private isWhitelisted;
     mapping(uint64 => uint256) private narrowKeyScores;
     mapping(int256 => uint256) private signedKeyScores;
@@ -118,20 +118,20 @@ contract SequenceFixture {
         bytes32 root = _processMultiProof(proof, flags, leaves);
         lastMultiRoot = root;
 
-        bytes32 ratifierId = bytes32(input & 3);
+        bytes32 verifierId = bytes32(input & 3);
         IOracleFeed feed = IOracleFeed(address(uint160(0x1000 + (input & 7))));
         uint88 maxDiff = uint88(((input & 0xff) + 10) * 100);
         bool isEnabled = (input & 2) == 0;
         int256 delta = int256(input & 0x7f) - 40;
 
-        ratifiers[ratifierId].oracle = feed;
-        ratifiers[ratifierId].maxPercentageDifference = maxDiff;
-        ratifiers[ratifierId].enabled = isEnabled;
-        ratifiers[ratifierId].lastDigest = root;
-        ratifiers[ratifierId].signedDelta = delta;
+        verifiers[verifierId].oracle = feed;
+        verifiers[verifierId].maxPercentageDifference = maxDiff;
+        verifiers[verifierId].enabled = isEnabled;
+        verifiers[verifierId].lastDigest = root;
+        verifiers[verifierId].signedDelta = delta;
 
         if ((input & 4) != 0) {
-            delete ratifiers[ratifierId].enabled;
+            delete verifiers[verifierId].enabled;
         }
 
         address user = address(uint160(0x2000 + (input & 3)));
@@ -139,10 +139,10 @@ contract SequenceFixture {
         uint64 nKey = uint64((input & 7) + 1);
         narrowKeyScores[nKey] += uint256(maxDiff);
         signedKeyScores[delta] += (input & 0x1f) + 1;
-        boolKeyScores[ratifiers[ratifierId].enabled] += 3;
+        boolKeyScores[verifiers[verifierId].enabled] += 3;
         GateMode mode = (input & 1) == 0 ? GateMode.Whitelist : GateMode.Public;
         modeKeyScores[mode] += 5;
-        feedKeyScores[ratifiers[ratifierId].oracle] += 7;
+        feedKeyScores[verifiers[verifierId].oracle] += 7;
 
         bytes32 tSlot = bytes32(uint256(0x9100 + (input & 1)));
         address nextActor = address(uint160(uint256(root) ^ uint256(uint160(address(feed)))));
@@ -151,9 +151,9 @@ contract SequenceFixture {
         lastTransientActor = loadedActor;
 
         uint256 score = (uint256(root) & 0xffffffff)
-            + uint256(uint160(address(ratifiers[ratifierId].oracle)))
-            + uint256(ratifiers[ratifierId].maxPercentageDifference)
-            + (ratifiers[ratifierId].enabled ? 100 : 10)
+            + uint256(uint160(address(verifiers[verifierId].oracle)))
+            + uint256(verifiers[verifierId].maxPercentageDifference)
+            + (verifiers[verifierId].enabled ? 100 : 10)
             + (isWhitelisted[msg.sender][user] ? 50 : 5)
             + narrowKeyScores[nKey]
             + signedKeyScores[delta]
@@ -161,11 +161,11 @@ contract SequenceFixture {
             + modeKeyScores[mode]
             + feedKeyScores[feed]
             + uint256(uint160(prevActor))
-            + (uint256(uint24(uint256(ratifiers[ratifierId].signedDelta))) & 0xffff);
+            + (uint256(uint24(uint256(verifiers[verifierId].signedDelta))) & 0xffff);
 
         totalScore += score;
-        emit MultiProofRatified(totalScore, lastMultiRoot, address(ratifiers[ratifierId].oracle), ratifiers[ratifierId].enabled);
-        require(input != 20, "multiproof ratifiers rollback");
+        emit MultiProofVerified(totalScore, lastMultiRoot, address(verifiers[verifierId].oracle), verifiers[verifierId].enabled);
+        require(input != 20, "multiproof verifiers rollback");
 
         bytes32 exitSlot = bytes32(uint256(0x9200));
         uint256 dirtyWord = totalScore | (uint256(0xfeedface) << 160);
@@ -178,17 +178,17 @@ contract SequenceFixture {
     function fail() external {
         totalScore += 999;
         address caller = msg.sender;
-        revert UnauthorizedRatifier(caller);
+        revert UnauthorizedVerifier(caller);
     }
 
     function read() external view returns (uint256, bytes32, address, bool) {
         bytes32 r0 = bytes32(uint256(0));
         uint256 summary = totalScore
-            + uint256(ratifiers[r0].maxPercentageDifference)
+            + uint256(verifiers[r0].maxPercentageDifference)
             + boolKeyScores[true]
             + boolKeyScores[false]
             + modeKeyScores[GateMode.Whitelist]
             + modeKeyScores[GateMode.Public];
-        return (summary, lastMultiRoot, address(ratifiers[r0].oracle), ratifiers[r0].enabled);
+        return (summary, lastMultiRoot, address(verifiers[r0].oracle), verifiers[r0].enabled);
     }
 }

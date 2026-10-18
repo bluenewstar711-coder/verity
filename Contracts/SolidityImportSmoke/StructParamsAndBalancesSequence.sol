@@ -3,21 +3,21 @@ pragma solidity 0.8.34;
 
 type Id is bytes32;
 
-struct MarketParams {
-    address loanToken;
-    address collateralToken;
+struct AssetParams {
+    address baseToken;
+    address quoteToken;
     address oracle;
-    address irm;
-    uint256 lltv;
+    address rateModel;
+    uint256 maxRatio;
 }
 
-struct Position {
+struct Holding {
     uint256 supplyShares;
     uint128 borrowShares;
     uint128 collateral;
 }
 
-struct Market {
+struct Reserve {
     uint128 totalSupplyAssets;
     uint128 totalSupplyShares;
     uint128 totalBorrowAssets;
@@ -28,17 +28,17 @@ struct Market {
 
 uint256 constant WAD = 1e18;
 
-library MarketParamsLib {
-    uint256 internal constant MARKET_PARAMS_BYTES_LENGTH = 5 * 32;
+library AssetParamsLib {
+    uint256 internal constant ASSET_PARAMS_BYTES_LENGTH = 5 * 32;
 
-    function id(MarketParams memory marketParams) internal pure returns (Id marketParamsId) {
+    function id(AssetParams memory params) internal pure returns (Id paramsId) {
         assembly ("memory-safe") {
-            marketParamsId := keccak256(marketParams, MARKET_PARAMS_BYTES_LENGTH)
+            paramsId := keccak256(params, ASSET_PARAMS_BYTES_LENGTH)
         }
     }
 }
 
-library UtilsLib {
+library MinCastLib {
     function min(uint256 x, uint256 y) internal pure returns (uint256 z) {
         assembly {
             z := xor(x, mul(xor(x, y), lt(y, x)))
@@ -57,7 +57,7 @@ library UtilsLib {
     }
 }
 
-library MathLib {
+library WadMathLib {
     function wMulDown(uint256 x, uint256 y) internal pure returns (uint256) {
         return mulDivDown(x, y, WAD);
     }
@@ -78,8 +78,8 @@ library MathLib {
     }
 }
 
-library SharesMathLib {
-    using MathLib for uint256;
+library ShareConversionLib {
+    using WadMathLib for uint256;
 
     uint256 internal constant VIRTUAL_SHARES = 1e6;
     uint256 internal constant VIRTUAL_ASSETS = 1;
@@ -102,27 +102,27 @@ library SharesMathLib {
 }
 
 contract SequenceFixture {
-    using MarketParamsLib for MarketParams;
-    using MathLib for uint256;
-    using SharesMathLib for uint256;
-    using UtilsLib for uint256;
+    using AssetParamsLib for AssetParams;
+    using WadMathLib for uint256;
+    using ShareConversionLib for uint256;
+    using MinCastLib for uint256;
 
-    error MarketStepBlocked(Id marketId, uint256 totalSupplyAssets, uint256 totalBorrowAssets);
+    error ReserveStepBlocked(Id reserveId, uint256 totalSupplyAssets, uint256 totalBorrowAssets);
 
-    event AccrueInterest(Id indexed id, uint256 prevBorrowRate, uint256 interest, uint256 feeShares);
+    event InterestAccrued(Id indexed id, uint256 prevBorrowRate, uint256 interest, uint256 feeShares);
 
     address public feeRecipient;
-    Id public lastMarketId;
-    mapping(Id => Market) public market;
-    mapping(Id => mapping(address => Position)) public position;
+    Id public lastReserveId;
+    mapping(Id => Reserve) public reserves;
+    mapping(Id => mapping(address => Holding)) public holdings;
 
     uint256 private totalScore;
     bytes32 private lastDigest;
 
-    function _simulatedMarket(Id id, address irm, uint256 ratePerSecond) internal view returns (Market memory m) {
-        m = market[id];
+    function _simulatedReserve(Id id, address rateModel, uint256 ratePerSecond) internal view returns (Reserve memory m) {
+        m = reserves[id];
         uint256 elapsed = block.timestamp.zeroFloorSub(m.lastUpdate);
-        if (elapsed != 0 && m.totalBorrowAssets != 0 && irm != address(0)) {
+        if (elapsed != 0 && m.totalBorrowAssets != 0 && rateModel != address(0)) {
             uint256 interest = uint256(m.totalBorrowAssets).wMulDown(ratePerSecond.wTaylorCompounded(elapsed));
             m.totalBorrowAssets += interest.toUint128();
             m.totalSupplyAssets += interest.toUint128();
@@ -136,47 +136,47 @@ contract SequenceFixture {
         ++m.lastUpdate;
     }
 
-    function computeId(MarketParams memory marketParams) external pure returns (Id) {
-        return marketParams.id();
+    function computeId(AssetParams memory params) external pure returns (Id) {
+        return params.id();
     }
 
-    function expectedMarketBalances(MarketParams memory marketParams, uint256 ratePerSecond)
+    function expectedReserveBalances(AssetParams memory params, uint256 ratePerSecond)
         public
         view
         returns (uint256, uint256, uint256, uint256)
     {
-        Id id = marketParams.id();
-        Market memory m = _simulatedMarket(id, marketParams.irm, ratePerSecond);
+        Id id = params.id();
+        Reserve memory m = _simulatedReserve(id, params.rateModel, ratePerSecond);
         return (m.totalSupplyAssets, m.totalSupplyShares, m.totalBorrowAssets, m.totalBorrowShares);
     }
 
-    function expectedTotalSupplyAssets(MarketParams memory marketParams, uint256 ratePerSecond)
+    function expectedTotalSupplyAssets(AssetParams memory params, uint256 ratePerSecond)
         external
         view
         returns (uint256 totalSupplyAssets)
     {
-        (totalSupplyAssets,,,) = expectedMarketBalances(marketParams, ratePerSecond);
+        (totalSupplyAssets,,,) = expectedReserveBalances(params, ratePerSecond);
     }
 
-    function expectedSupplyAssets(MarketParams memory marketParams, address user, uint256 ratePerSecond)
+    function expectedSupplyAssets(AssetParams memory params, address user, uint256 ratePerSecond)
         external
         view
         returns (uint256)
     {
-        Id id = marketParams.id();
-        uint256 supplyShares = position[id][user].supplyShares;
-        (uint256 totalSupplyAssets, uint256 totalSupplyShares,,) = expectedMarketBalances(marketParams, ratePerSecond);
+        Id id = params.id();
+        uint256 supplyShares = holdings[id][user].supplyShares;
+        (uint256 totalSupplyAssets, uint256 totalSupplyShares,,) = expectedReserveBalances(params, ratePerSecond);
         return supplyShares.toAssetsDown(totalSupplyAssets, totalSupplyShares);
     }
 
-    function expectedBorrowAssets(MarketParams memory marketParams, address user, uint256 ratePerSecond)
+    function expectedBorrowAssets(AssetParams memory params, address user, uint256 ratePerSecond)
         external
         view
         returns (uint256)
     {
-        Id id = marketParams.id();
-        uint256 borrowShares = position[id][user].borrowShares;
-        (,, uint256 totalBorrowAssets, uint256 totalBorrowShares) = expectedMarketBalances(marketParams, ratePerSecond);
+        Id id = params.id();
+        uint256 borrowShares = holdings[id][user].borrowShares;
+        (,, uint256 totalBorrowAssets, uint256 totalBorrowShares) = expectedReserveBalances(params, ratePerSecond);
         return borrowShares.toAssetsUp(totalBorrowAssets, totalBorrowShares);
     }
 
@@ -190,15 +190,15 @@ contract SequenceFixture {
         uint256 borrowDelta = supplyDelta / 2;
         uint256 ratePerSecond = ((input & 0xf) + 1) * 1e8;
 
-        MarketParams memory mp = MarketParams({
-            loanToken: address(uint160(0x1000 | bucket)),
-            collateralToken: address(uint160(0x2000 | bucket)),
+        AssetParams memory mp = AssetParams({
+            baseToken: address(uint160(0x1000 | bucket)),
+            quoteToken: address(uint160(0x2000 | bucket)),
             oracle: address(uint160(0x4000 | bucket)),
-            irm: (input & 8) != 0 ? address(0) : address(uint160(0x5000 | bucket)),
-            lltv: 800000000000000000 + bucket * 10000000000000000
+            rateModel: (input & 8) != 0 ? address(0) : address(uint160(0x5000 | bucket)),
+            maxRatio: 800000000000000000 + bucket * 10000000000000000
         });
         Id id = mp.id();
-        Market memory m = _simulatedMarket(id, mp.irm, ratePerSecond);
+        Reserve memory m = _simulatedReserve(id, mp.rateModel, ratePerSecond);
 
         uint256 mintedSupplyShares = supplyDelta.toSharesDown(m.totalSupplyAssets, m.totalSupplyShares);
         m.totalSupplyAssets += supplyDelta.toUint128();
@@ -211,20 +211,20 @@ contract SequenceFixture {
         m.fee = uint128(((input & 0x7) + 1) * 1e16);
         m.lastUpdate = uint128(block.timestamp.zeroFloorSub(5));
         uint128 stepTag = m.lastUpdate++;
-        market[id] = m;
+        reserves[id] = m;
 
-        Position memory pos = position[id][user];
+        Holding memory pos = holdings[id][user];
         pos.supplyShares += mintedSupplyShares;
         pos.borrowShares += mintedBorrowShares.toUint128();
         pos.collateral += uint128(supplyDelta * 2);
-        position[id][user] = pos;
-        lastMarketId = id;
+        holdings[id][user] = pos;
+        lastReserveId = id;
 
         if (input == 21) {
-            revert MarketStepBlocked(id, m.totalSupplyAssets, m.totalBorrowAssets);
+            revert ReserveStepBlocked(id, m.totalSupplyAssets, m.totalBorrowAssets);
         }
 
-        emit AccrueInterest(id, ratePerSecond, m.totalSupplyAssets, m.totalSupplyShares);
+        emit InterestAccrued(id, ratePerSecond, m.totalSupplyAssets, m.totalSupplyShares);
 
         uint256 summary;
         unchecked {
@@ -251,17 +251,17 @@ contract SequenceFixture {
         uint256 metric = (uint256(digest) & 0xffffffff) + (summary & 0xffffffff);
         totalScore += metric;
         lastDigest = digest;
-        require(input != 20, "MP: rollback");
+        require(input != 20, "SP: rollback");
         return totalScore;
     }
 
     function fail() external {
         feeRecipient = address(0xBEEF);
         totalScore += 999;
-        revert("MP: fail");
+        revert("SP: fail");
     }
 
     function read() external view returns (uint256, bytes32, Id, address) {
-        return (totalScore, lastDigest, lastMarketId, feeRecipient);
+        return (totalScore, lastDigest, lastReserveId, feeRecipient);
     }
 }

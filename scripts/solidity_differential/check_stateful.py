@@ -13,16 +13,16 @@ from .identity import ImplementationIdentity
 from .programs import stateful_scalar_source
 
 
-OFFER_MEM_SIG = 'inspectOfferMem(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256)'
-OFFER_CD_SIG = 'inspectOfferCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256,address)'
-RATIFY_OFFER_CD_SIG = 'ratifyOfferCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),bytes32,uint256)'
+ENVELOPE_MEM_SIG = 'inspectEnvelopeMem(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256)'
+ENVELOPE_CD_SIG = 'inspectEnvelopeCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),uint256,address)'
+VERIFY_ENVELOPE_CD_SIG = 'verifyEnvelopeCd(((uint256,address,address,(address,uint256,uint256,address)[],uint256,uint256,address,address),bool,address,uint256,uint256,uint256,bytes32,address,bytes,address,address,bool,uint128,uint128,uint256),bytes32,uint256)'
 
 
 def _encode_mixed_payload_call(
     rate_floor,
     *,
     min_rate=1200,
-    allowed_taker=0x3001,
+    allowed_caller=0x3001,
     active=1,
     tag=0xAABBCCDD << 224,
     weights=(10, 20),
@@ -43,7 +43,7 @@ def _encode_mixed_payload_call(
     l_off = (e_off + 32 * (1 + len(extra_words))) if label_rel_offset is None else label_rel_offset
     inner_words = [
         min_rate,
-        allowed_taker,
+        allowed_caller,
         active,
         tag,
         w_off,
@@ -60,100 +60,100 @@ def _encode_mixed_payload_call(
     return [raw_offset, rate_floor, actual_raw_len, *inner_words]
 
 
-def _encode_offer_call(
+def _encode_envelope_call(
     extra_scalars,
     *,
-    chain_id=1,
-    midnight=0x1111,
-    loan_token=0x2222,
-    collateral_params=(),
-    maturity=1700000000,
-    rcf_threshold=5000,
-    enter_gate=0x3333,
-    liquidator_gate=0x4444,
-    buy=1,
-    maker=0x5555,
+    head=1,
+    origin=0x1111,
+    token=0x2222,
+    items=(),
+    deadline=1700000000,
+    threshold=5000,
+    first_gate=0x3333,
+    second_gate=0x4444,
+    flag=1,
+    sender=0x5555,
     start=100,
     expiry=200,
-    tick=120,
+    step=120,
     group=0xABCD,
-    callback=0x6666,
-    cb_words=(),
-    cb_len=None,
-    receiver_if_seller=0x7777,
-    ratifier=0x8888,
-    reduce_only=0,
+    hook=0x6666,
+    payload_words=(),
+    payload_len=None,
+    receiver=0x7777,
+    validator=0x8888,
+    limited=0,
     max_units=1000,
-    max_assets=2000,
-    fee_cap=300,
-    offer_offset=None,
-    market_rel_offset=None,
-    cp_rel_offset=None,
-    cb_rel_offset=None,
+    max_amount=2000,
+    rate_cap=300,
+    envelope_offset=None,
+    record_rel_offset=None,
+    items_rel_offset=None,
+    payload_rel_offset=None,
 ):
     head_arity = 1 + len(extra_scalars)
-    top_off = (32 * head_arity) if offer_offset is None else offer_offset
-    mkt_off = (15 * 32) if market_rel_offset is None else market_rel_offset
-    cp_off = (8 * 32) if cp_rel_offset is None else cp_rel_offset
-    mkt_words = [
-        chain_id,
-        midnight,
-        loan_token,
-        cp_off,
-        maturity,
-        rcf_threshold,
-        enter_gate,
-        liquidator_gate,
-        len(collateral_params),
+    top_off = (32 * head_arity) if envelope_offset is None else envelope_offset
+    record_off = (15 * 32) if record_rel_offset is None else record_rel_offset
+    items_off = (8 * 32) if items_rel_offset is None else items_rel_offset
+    record_words = [
+        head,
+        origin,
+        token,
+        items_off,
+        deadline,
+        threshold,
+        first_gate,
+        second_gate,
+        len(items),
     ]
-    for cp in collateral_params:
-        mkt_words.extend(cp)
-    default_cb_off = 15 * 32 + 32 * len(mkt_words)
-    cb_off = default_cb_off if cb_rel_offset is None else cb_rel_offset
-    actual_cb_len = (32 * len(cb_words)) if cb_len is None else cb_len
-    offer_head = [
-        mkt_off,
-        buy,
-        maker,
+    for item in items:
+        record_words.extend(item)
+    default_payload_off = 15 * 32 + 32 * len(record_words)
+    payload_off = default_payload_off if payload_rel_offset is None else payload_rel_offset
+    actual_payload_len = (32 * len(payload_words)) if payload_len is None else payload_len
+    envelope_head = [
+        record_off,
+        flag,
+        sender,
         start,
         expiry,
-        tick,
+        step,
         group,
-        callback,
-        cb_off,
-        receiver_if_seller,
-        ratifier,
-        reduce_only,
+        hook,
+        payload_off,
+        receiver,
+        validator,
+        limited,
         max_units,
-        max_assets,
-        fee_cap,
+        max_amount,
+        rate_cap,
     ]
-    return [top_off, *extra_scalars, *offer_head, *mkt_words, actual_cb_len, *cb_words]
+    return [top_off, *extra_scalars, *envelope_head, *record_words, actual_payload_len, *payload_words]
 
 
-def _encode_ratify_offer_call(
+def _encode_verify_envelope_call(
     root,
     actual_rate,
     *,
     min_rate=500,
-    allowed_taker=0,
+    allowed_caller=0,
     leaf_index=0,
     proof=(),
     proof_rel_offset=128,
-    cb_len=None,
-    collateral_params=(),
-    buy=1,
-    reduce_only=0,
+    payload_len=None,
+    items=(),
+    flag=1,
+    limited=0,
     max_units=1000,
 ):
-    cb_words = (min_rate, allowed_taker, leaf_index, proof_rel_offset, len(proof), *proof)
-    return _encode_offer_call(
+    payload_words = (min_rate, allowed_caller, leaf_index, proof_rel_offset, len(proof), *proof)
+    return _encode_envelope_call(
         [root, actual_rate],
-        collateral_params=collateral_params,
-        cb_words=cb_words,
-        cb_len=cb_len,
-        buy=buy,
-        reduce_only=reduce_only,
+        items=items,
+        payload_words=payload_words,
+        payload_len=payload_len,
+        flag=flag,
+        limited=limited,
         max_units=max_units,
     )
 
@@ -229,7 +229,7 @@ def main():
         'syncStorage(string,bytes,uint256)',
         'getName()',
         'getPayload()',
-        'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)',
+        'hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)',
         'checkInterface(bytes4,uint256)',
         'royaltyAndHolderCheck(uint256,uint256)',
         'dequeAndBitmapStep(string,uint256)',
@@ -237,12 +237,12 @@ def main():
         'vaultLabel()',
         'trancheHistorySnapshot(uint256)',
         'lookupWindow(uint48,uint256)',
-        'quoteTickRoundtrip(uint256,uint256)',
+        'quoteLevelRoundtrip(uint256,uint256)',
         'DOMAIN_SEPARATOR()',
-        OFFER_MEM_SIG,
-        OFFER_CD_SIG,
+        ENVELOPE_MEM_SIG,
+        ENVELOPE_CD_SIG,
         'decodeMixedPayload(bytes,uint256)',
-        RATIFY_OFFER_CD_SIG,
+        VERIFY_ENVELOPE_CD_SIG,
         'checkpoints(address,uint32)',
         'latestTotalCheckpoint()',
         'pendingDefaultAdminView()',
@@ -267,17 +267,17 @@ def main():
         'verifyAndRecord((address,address,bool,uint256,uint256),(uint8,bytes32,bytes32))',
         'batchCheckAndSum(address[],uint256[])',
         'feeRecipient()',
-        'lastMarketId()',
+        'lastReserveId()',
         'summaryCard()',
         'bucketView(bytes32)',
-        'market(bytes32)',
-        'position(bytes32,address)',
+        'reserves(bytes32)',
+        'holdings(bytes32,address)',
         'entries(bytes32,address)',
         'slotOf(bytes32,address,uint256)',
         'interpolatedRate(bytes32,uint256)',
         'previewEntry(bytes32,address,uint256)',
         'computeId((address,address,address,address,uint256))',
-        'expectedMarketBalances((address,address,address,address,uint256),uint256)',
+        'expectedReserveBalances((address,address,address,address,uint256),uint256)',
         'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)',
         'expectedSupplyAssets((address,address,address,address,uint256),address,uint256)',
         'expectedBorrowAssets((address,address,address,address,uint256),address,uint256)',
@@ -490,16 +490,16 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(storage_bytes_prefix[:remaining_budget])
-    if 'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)' in source['methodIdentifiers']:
-        market_bundle_prefix = [
-            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 0]),
-            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 3, 1]),
-            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 250, 15, 64, 2, 7, 3, 1, 13, 5, 0]),
-            ('hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 1 << 64, 1]),
+    if 'hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)' in source['methodIdentifiers']:
+        item_bundle_prefix = [
+            ('hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 0]),
+            ('hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 3, 1]),
+            ('hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 250, 15, 64, 2, 7, 3, 1, 13, 5, 0]),
+            ('hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)', [64, 100, 10, 64, 1, 7, 1 << 64, 1]),
             ('read()', []),
         ]
         remaining_budget = max(0, args.transactions - len(calls))
-        calls.extend(market_bundle_prefix[:remaining_budget])
+        calls.extend(item_bundle_prefix[:remaining_budget])
     if 'checkInterface(bytes4,uint256)' in source['methodIdentifiers']:
         check_iface_prefix = [
             ('checkInterface(bytes4,uint256)', [0x01ffc9a7 << 224, 7]),
@@ -573,61 +573,61 @@ def main():
         ]
         remaining_budget = max(0, args.transactions - len(calls))
         calls.extend(lookup_window_prefix[:remaining_budget])
-    if 'quoteTickRoundtrip(uint256,uint256)' in source['methodIdentifiers']:
-        quote_tick_prefix = [
-            ('quoteTickRoundtrip(uint256,uint256)', [0, 8]),
-            ('quoteTickRoundtrip(uint256,uint256)', [3368, 8]),
-            ('quoteTickRoundtrip(uint256,uint256)', [3376, 8]),
-            ('quoteTickRoundtrip(uint256,uint256)', [6744, 8]),
-            ('quoteTickRoundtrip(uint256,uint256)', [1200, 24]),
-            ('quoteTickRoundtrip(uint256,uint256)', [4800, 0]),
-            ('quoteTickRoundtrip(uint256,uint256)', [6745, 8]),
+    if 'quoteLevelRoundtrip(uint256,uint256)' in source['methodIdentifiers']:
+        quote_level_prefix = [
+            ('quoteLevelRoundtrip(uint256,uint256)', [0, 8]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [3368, 8]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [3376, 8]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [6744, 8]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [1200, 24]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [4800, 0]),
+            ('quoteLevelRoundtrip(uint256,uint256)', [6745, 8]),
             ('read()', []),
         ]
         remaining_budget = max(0, args.transactions - len(calls))
-        calls.extend(quote_tick_prefix[:remaining_budget])
-    if OFFER_MEM_SIG in source['methodIdentifiers']:
-        offer_prefix = [
+        calls.extend(quote_level_prefix[:remaining_budget])
+    if ENVELOPE_MEM_SIG in source['methodIdentifiers']:
+        envelope_prefix = [
             ('DOMAIN_SEPARATOR()', []),
-            (OFFER_MEM_SIG, _encode_offer_call([500])),
-            (OFFER_MEM_SIG, _encode_offer_call(
+            (ENVELOPE_MEM_SIG, _encode_envelope_call([500])),
+            (ENVELOPE_MEM_SIG, _encode_envelope_call(
                 [750],
-                collateral_params=((0xA1, 8500, 1500, 0xB1),),
-                cb_len=5,
-                cb_words=(0x1122334455 << 216,),
+                items=((0xA1, 8500, 1500, 0xB1),),
+                payload_len=5,
+                payload_words=(0x1122334455 << 216,),
             )),
-            (OFFER_MEM_SIG, _encode_offer_call(
+            (ENVELOPE_MEM_SIG, _encode_envelope_call(
                 [900],
-                buy=0,
-                reduce_only=1,
-                collateral_params=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)),
-                cb_len=35,
-                cb_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232),
+                flag=0,
+                limited=1,
+                items=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)),
+                payload_len=35,
+                payload_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232),
             )),
-            (OFFER_MEM_SIG, _encode_offer_call([500], max_units=1 << 128)),
-            (OFFER_MEM_SIG, _encode_offer_call([500], buy=2)),
-            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999])),
-            (OFFER_CD_SIG, _encode_offer_call(
+            (ENVELOPE_MEM_SIG, _encode_envelope_call([500], max_units=1 << 128)),
+            (ENVELOPE_MEM_SIG, _encode_envelope_call([500], flag=2)),
+            (ENVELOPE_CD_SIG, _encode_envelope_call([600, 0x9999])),
+            (ENVELOPE_CD_SIG, _encode_envelope_call(
                 [850, 0xAAAA],
-                buy=0,
-                reduce_only=1,
-                collateral_params=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)),
-                cb_len=4,
-                cb_words=(0xDEADBEEF << 224,),
+                flag=0,
+                limited=1,
+                items=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)),
+                payload_len=4,
+                payload_words=(0xDEADBEEF << 224,),
             )),
-            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999], collateral_params=((0xA1, 8200, 1400, 1 << 160),))),
-            (OFFER_CD_SIG, _encode_offer_call([600, 0x9999], cb_len=65)),
+            (ENVELOPE_CD_SIG, _encode_envelope_call([600, 0x9999], items=((0xA1, 8200, 1400, 1 << 160),))),
+            (ENVELOPE_CD_SIG, _encode_envelope_call([600, 0x9999], payload_len=65)),
             ('read()', []),
         ]
         remaining_budget = max(0, args.transactions - len(calls))
-        calls.extend(offer_prefix[:remaining_budget])
+        calls.extend(envelope_prefix[:remaining_budget])
     if 'decodeMixedPayload(bytes,uint256)' in source['methodIdentifiers']:
-        ratifier_prefix = [
+        verifier_prefix = [
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000)),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(
                 900,
                 min_rate=950,
-                allowed_taker=0x3005,
+                allowed_caller=0x3005,
                 active=0,
                 tag=0x11223344 << 224,
                 weights=(5, 15, 25),
@@ -638,29 +638,29 @@ def main():
             )),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1500, min_rate=1200)),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, active=2)),
-            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, allowed_taker=1 << 160)),
+            ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, allowed_caller=1 << 160)),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, tag=(0xAABBCCDD << 224) | 1)),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, raw_len=64)),
             ('decodeMixedPayload(bytes,uint256)', _encode_mixed_payload_call(1000, extra_len=65)),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0, leaf_index=0, proof=())),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0, 600, min_rate=500, allowed_caller=0, leaf_index=0, proof=())),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(
                 0,
                 850,
                 min_rate=700,
-                allowed_taker=0,
+                allowed_caller=0,
                 leaf_index=1,
                 proof=(0x1111, 0x2222),
-                collateral_params=((0xA1, 8200, 1400, 0xB1),),
+                items=((0xA1, 8200, 1400, 0xB1),),
             )),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 400, min_rate=500)),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0x9999)),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0xDEAD, 600, min_rate=500)),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=1 << 160)),
-            (RATIFY_OFFER_CD_SIG, _encode_ratify_offer_call(0, 600, min_rate=500, cb_len=64)),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0, 400, min_rate=500)),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0, 600, min_rate=500, allowed_caller=0x9999)),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0xDEAD, 600, min_rate=500)),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0, 600, min_rate=500, allowed_caller=1 << 160)),
+            (VERIFY_ENVELOPE_CD_SIG, _encode_verify_envelope_call(0, 600, min_rate=500, payload_len=64)),
             ('read()', []),
         ]
         remaining_budget = max(0, args.transactions - len(calls))
-        calls.extend(ratifier_prefix[:remaining_budget])
+        calls.extend(verifier_prefix[:remaining_budget])
     if 'voteWindow(uint256,uint256)' in source['methodIdentifiers']:
         votes_prefix = [
             ('latestTotalCheckpoint()', []),
@@ -730,23 +730,23 @@ def main():
     if 'computeId((address,address,address,address,uint256))' in names:
         mp_a = [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000]
         mp_b = [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000]
-        market_params_prefix = [
+        struct_params_prefix = [
             ('computeId((address,address,address,address,uint256))', mp_a),
             ('change(uint256)', [0]),
             ('change(uint256)', [5]),
             ('computeId((address,address,address,address,uint256))', mp_a),
-            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_a + [31709791983]),
+            ('expectedReserveBalances((address,address,address,address,uint256),uint256)', mp_a + [31709791983]),
             ('expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)', mp_a + [31709791983]),
             ('expectedSupplyAssets((address,address,address,address,uint256),address,uint256)', mp_a + [int(senders[0], 16), 31709791983]),
             ('expectedBorrowAssets((address,address,address,address,uint256),address,uint256)', mp_a + [int(senders[0], 16), 31709791983]),
-            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_b + [0]),
+            ('expectedReserveBalances((address,address,address,address,uint256),uint256)', mp_b + [0]),
             ('change(uint256)', [12]),
-            ('expectedMarketBalances((address,address,address,address,uint256),uint256)', mp_b + [63419583966]),
+            ('expectedReserveBalances((address,address,address,address,uint256),uint256)', mp_b + [63419583966]),
             ('expectedBorrowAssets((address,address,address,address,uint256),address,uint256)', mp_b + [int(senders[0], 16), 63419583966]),
             ('read()', []),
         ]
         remaining_budget = max(0, args.transactions - len(calls))
-        calls.extend(market_params_prefix[:remaining_budget])
+        calls.extend(struct_params_prefix[:remaining_budget])
     if 'interpolatedRate(bytes32,uint256)' in names:
         packed_struct_prefix = [
             ('change(uint256)', [7]),
@@ -1038,7 +1038,7 @@ def main():
                 [96, 128, 3, 0, 0],
                 [96, 160, 4, 6, 0x70617265746f << 208, 0],
             ])
-        elif name == 'hashMarketBundle((uint256,(uint256,uint64,bool)[]),uint256)':
+        elif name == 'hashItemBundle((uint256,(uint256,uint64,bool)[]),uint256)':
             call_args = rng.choice([
                 [64, 100, 10, 64, 0],
                 [64, 100, 10, 64, 1, 7, 3, 1],
@@ -1081,20 +1081,20 @@ def main():
             call_args = rng.choice([[0], [1], [2], [3], [4], [5], [97], [98], [99]])
         elif name == 'lookupWindow(uint48,uint256)':
             call_args = rng.choice([[0, 0], [1, 0], [3, 0], [5, 1], [8, 0], [2, 97], [2, 98], [2, 99], [1 << 48, 0]])
-        elif name == 'quoteTickRoundtrip(uint256,uint256)':
+        elif name == 'quoteLevelRoundtrip(uint256,uint256)':
             call_args = rng.choice([[0, 8], [1600, 8], [3368, 8], [3376, 8], [5000, 24], [6744, 8], [6745, 8], [2400, 0]])
-        elif name == OFFER_MEM_SIG:
+        elif name == ENVELOPE_MEM_SIG:
             call_args = rng.choice([
-                _encode_offer_call([500]),
-                _encode_offer_call([750], collateral_params=((0xA1, 8500, 1500, 0xB1),), cb_len=5, cb_words=(0x1122334455 << 216,)),
-                _encode_offer_call([900], buy=0, reduce_only=1, collateral_params=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)), cb_len=35, cb_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232)),
-                _encode_offer_call([500], max_units=1 << 128),
+                _encode_envelope_call([500]),
+                _encode_envelope_call([750], items=((0xA1, 8500, 1500, 0xB1),), payload_len=5, payload_words=(0x1122334455 << 216,)),
+                _encode_envelope_call([900], flag=0, limited=1, items=((0xA1, 8000, 1200, 0xB1), (0xA2, 9000, 1800, 0xB2)), payload_len=35, payload_words=(0x4142434445464748494a4b4c4d4e4f505152535455565758595a303132333435, 0x363738 << 232)),
+                _encode_envelope_call([500], max_units=1 << 128),
             ])
-        elif name == OFFER_CD_SIG:
+        elif name == ENVELOPE_CD_SIG:
             call_args = rng.choice([
-                _encode_offer_call([600, 0x9999]),
-                _encode_offer_call([850, 0xAAAA], buy=0, reduce_only=1, collateral_params=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)), cb_len=4, cb_words=(0xDEADBEEF << 224,)),
-                _encode_offer_call([600, 0x9999], collateral_params=((0xA1, 8200, 1400, 1 << 160),)),
+                _encode_envelope_call([600, 0x9999]),
+                _encode_envelope_call([850, 0xAAAA], flag=0, limited=1, items=((0xA1, 8200, 1400, 0xB1), (0xA2, 8800, 1600, 0xB2)), payload_len=4, payload_words=(0xDEADBEEF << 224,)),
+                _encode_envelope_call([600, 0x9999], items=((0xA1, 8200, 1400, 1 << 160),)),
             ])
         elif name == 'decodeMixedPayload(bytes,uint256)':
             call_args = rng.choice([
@@ -1103,12 +1103,12 @@ def main():
                 _encode_mixed_payload_call(1500, min_rate=1200),
                 _encode_mixed_payload_call(1000, active=2),
             ])
-        elif name == RATIFY_OFFER_CD_SIG:
+        elif name == VERIFY_ENVELOPE_CD_SIG:
             call_args = rng.choice([
-                _encode_ratify_offer_call(0, 600, min_rate=500, allowed_taker=0, leaf_index=0, proof=()),
-                _encode_ratify_offer_call(0, 850, min_rate=700, allowed_taker=0, leaf_index=1, proof=(0x1111, 0x2222)),
-                _encode_ratify_offer_call(0, 400, min_rate=500),
-                _encode_ratify_offer_call(0xDEAD, 600, min_rate=500),
+                _encode_verify_envelope_call(0, 600, min_rate=500, allowed_caller=0, leaf_index=0, proof=()),
+                _encode_verify_envelope_call(0, 850, min_rate=700, allowed_caller=0, leaf_index=1, proof=(0x1111, 0x2222)),
+                _encode_verify_envelope_call(0, 400, min_rate=500),
+                _encode_verify_envelope_call(0xDEAD, 600, min_rate=500),
             ])
         elif name == 'checkpoints(address,uint32)':
             call_args = rng.choice([[0x4000, 0], [0x4001, 0], [0x4002, 0], [0x4000, 1], [0x4000, 99]])
@@ -1162,7 +1162,7 @@ def main():
                 [0x1002, 0x2002, 0x3002, 0x4002, 860000000000000000],
                 [1 << 160, 0x2001, 0x3001, 0x4001, 800000000000000000],
             ])
-        elif name in ('expectedMarketBalances((address,address,address,address,uint256),uint256)',
+        elif name in ('expectedReserveBalances((address,address,address,address,uint256),uint256)',
                       'expectedTotalSupplyAssets((address,address,address,address,uint256),uint256)'):
             mp = rng.choice([
                 [0x1001, 0x2001, 0x3001, 0x4001, 800000000000000000],
@@ -1177,9 +1177,9 @@ def main():
             ])
             user = rng.choice([int(senders[0], 16), 0x3002, 1 << 160])
             call_args = mp + [user, rng.choice([0, 31709791983, 63419583966])]
-        elif name in ('position(bytes32,address)', 'entries(bytes32,address)'):
+        elif name in ('holdings(bytes32,address)', 'entries(bytes32,address)'):
             call_args = [rng.choice([0, 1, 2]), rng.choice([int(senders[0], 16), 0x3002, 0x6000, 1 << 160])]
-        elif name in ('market(bytes32)', 'bucketView(bytes32)'):
+        elif name in ('reserves(bytes32)', 'bucketView(bytes32)'):
             call_args = [rng.choice([0, 1])]
         elif name == 'slotOf(bytes32,address,uint256)':
             call_args = [rng.choice([0, 1]), rng.choice([int(senders[0], 16), 0x6000, 1 << 160]), rng.choice([0, 1, 2])]

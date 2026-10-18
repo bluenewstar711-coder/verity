@@ -5,27 +5,18 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.MarketParamsBalancesSequenceModel
+namespace SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "MarketParamsBalancesSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "MultiProofMappingKeysVerifiersSequence.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
   function fail()
   function read()
-  function feeRecipient()
-  function lastMarketId()
-  function market(Id)
-  function position(Id, address)
-  function computeId(MarketParams)
-  function expectedMarketBalances(MarketParams, uint256)
-  function expectedTotalSupplyAssets(MarketParams, uint256)
-  function expectedSupplyAssets(MarketParams, address, uint256)
-  function expectedBorrowAssets(MarketParams, address, uint256)
 def model : CompilationModel := imported.model
--- Mapping slots and struct hashes use the actual Keccak oracle shared with differential execution.
+-- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
-end SolidityImportSmoke.MarketParamsBalancesSequenceModel
+end SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -34,9 +25,9 @@ def main (args : List String) : IO UInt32 := do
       let selectors ← IO.ofExcept do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
-        SolidityImportSmoke.MarketParamsBalancesSequenceModel.model selectors .osaka)
+        SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel.model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
-        SolidityImportSmoke.MarketParamsBalancesSequenceModel.model SolidityImportSmoke.MarketParamsBalancesSequenceModel.oracle args
+        SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel.model SolidityImportSmoke.MultiProofMappingKeysVerifiersSequenceModel.oracle args

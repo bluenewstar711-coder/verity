@@ -5,19 +5,18 @@ import Compiler.CompilationModel
 import Compiler.Codegen
 import Compiler.Yul.PrettyPrint
 
-namespace SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel
+namespace SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel
 open Compiler.CompilationModel
-solidity_import imported from "Contracts/SolidityImportSmoke" entry "TickLibAndThreeKeyMappingSequence.sol"
+solidity_import imported from "Contracts/SolidityImportSmoke" entry "UdvtParamAssignStructHashSequence.sol"
   using { evmVersion := "osaka", viaIR := true, optimizerRuns := some 466, bytecodeHash := "none" }
   contract SequenceFixture
   function change(uint256)
   function fail()
   function read()
-  function quoteTickRoundtrip(uint256, uint256)
 def model : CompilationModel := imported.model
--- Mapping and dynamic storage array slots use the actual Keccak oracle shared with differential execution.
+-- Mapping slots use the actual Keccak oracle shared with differential execution.
 def oracle : Denote.DenoteOracle := SolidityImport.Differential.oracle
-end SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel
+end SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel
 
 def main (args : List String) : IO UInt32 := do
   match args with
@@ -26,9 +25,9 @@ def main (args : List String) : IO UInt32 := do
       let selectors ← IO.ofExcept do
         (← parsed.getArr?).toList.mapM fun j => j.getNat?
       let compiled ← IO.ofExcept (Compiler.CompilationModel.compile
-        SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel.model selectors .osaka)
+        SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel.model selectors .osaka)
       IO.FS.writeFile output (Compiler.Yul.render (Compiler.emitYul compiled))
       return 0
   | _ =>
       Compiler.CompilationModel.SolidityImport.SequenceRunner.run
-        SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel.model SolidityImportSmoke.TickLibAndThreeKeyMappingSequenceModel.oracle args
+        SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel.model SolidityImportSmoke.UdvtParamAssignStructHashSequenceModel.oracle args
