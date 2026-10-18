@@ -250,9 +250,9 @@ def main():
         if args.fixture == 'governor-slice-proposer-delay':
             extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
         if args.fixture == 'unchecked-blocks':
-            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, (1 << 256) - 1])]
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, 262, 263, (1 << 256) - 1])]
         if args.fixture == 'tuple-destructuring':
-            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 86399, 86400, 86401, 604799, 604800, 691199])]
+            extra = ['--change-prefix', *map(str, [0, 1, 2, 3, 15, 31, 86399, 86400, 86401, 604799, 604800, 691199])]
         if args.fixture == 'solc-0810':
             extra = ['--solc-version', '0.8.10', '--change-prefix', *map(str, [0, 1, 2, 3, 19, 20, 21, 100, 1000, 50000, 100000, 999999, (1 << 256) - 1])]
         if args.fixture == 'yul-numeric':

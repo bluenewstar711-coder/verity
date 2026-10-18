@@ -6,6 +6,11 @@ contract SequenceFixture {
     mapping(uint256 => uint256) m;
 
     function change(uint256 value) external returns (uint256, uint256) {
+        if (value % 16 == 15) {
+            // Both components panic: left-to-right evaluation reports 0x11, not 0x12.
+            (uint256 g, uint256 h) = (value - (value + 1), 7 / (value - value));
+            total += g + h;
+        }
         (uint128 a, , uint128 c) = split(value);
         uint256 t = value % 8 days;
         (uint256 start, uint256 end, uint256 lo, uint256 hi) =

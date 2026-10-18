@@ -575,11 +575,11 @@ def run(directory, output, name):
     if fixture == 'UncheckedSequence':
         tx_idx = argv.index('--transactions')
         argv[tx_idx + 1] = '48'
-        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, (1 << 256) - 1])])
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, 262, 263, (1 << 256) - 1])])
     if fixture == 'TupleSequence':
         tx_idx = argv.index('--transactions')
         argv[tx_idx + 1] = '48'
-        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 86399, 86400, 86401, 604799, 604800, 691199])])
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 15, 31, 86399, 86400, 86401, 604799, 604800, 691199])])
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]

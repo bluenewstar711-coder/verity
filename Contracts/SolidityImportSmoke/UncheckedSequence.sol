@@ -10,8 +10,11 @@ contract SequenceFixture {
     function change(uint256 value) external returns (uint256, uint256) {
         uint256 wrapped;
         uint8 t;
+        uint8 d;
         unchecked {
             t = uint8(value % 256) + 250;
+            // Separate narrow add and sub results so each mask is observable.
+            d = uint8(value % 7) - 3;
             total += value;
             small += uint8(value % 256) + 250;
             mid -= uint64(value % 5) + 1;
@@ -19,7 +22,7 @@ contract SequenceFixture {
             credit[msg.sender]--;
         }
         uint256 checkedSum = total % 1000 + 1;
-        return (wrapped + t, bump(value) + checkedSum + clip(value % 128));
+        return (wrapped + t + d, bump(value) + checkedSum + clip(value % 128));
     }
 
     function clip(uint256 x) internal pure returns (uint256) {
