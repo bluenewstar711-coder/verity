@@ -48,15 +48,6 @@ ALLOWLIST: set[str] = {
     # break the shared sizeOf termination measure across the mutual block.
     "execIRStmt_stable",
     "execIRStmts_stable",
-    # #2276/lane 2.2 splice simulation: the main WF induction dispatches per
-    # constructor to the cons-step lemmas (which carry the real content); the
-    # block-step mirrors the if-step's exhaustive fuel/branch bookkeeping.
-    "execIRStmts_spliced",
-    "spliced_cons_block",
-    "spliced_cons_if",
-    "spliced_cons_atomic",
-    "execIRStmts_applyLockReleaseOnExits_fallthrough",
-    "spliced_cons_switch",
     "execIRStmts_mstore_ptr_expr_block",
     # guarded-family root: one coherent composition of the shape pin, the
     # ParamLoading prefix, and the guarded-unit laws; fragmenting it would
@@ -67,16 +58,6 @@ ALLOWLIST: set[str] = {
     # executable mirror; splitting per constructor would break the mutual
     # recursion with the Cases/Dflt/List companions.
     "spliceSimCheck_sound",
-    # the master dispatcher skeleton: single source of truth for the
-    # payable/arity/binding case analysis, generic over compile predicate,
-    # source semantics, and IR executor; every dispatcher theorem derives
-    # from it, so splitting it would just reintroduce the duplication it
-    # removed.
-    "interpretContractWith_correct_generic",
-    # #2085 widened twin of the skeleton above: same payable/arity/binding case
-    # analysis, phrased over the external ABI binder so dynamic parameters are
-    # in scope. Kept whole for the same reason as its scalar counterpart.
-    "interpretContractWith_correct_generic_external",
     "compileValidatedCore_ok_yields_guarded_functions",
     # #2083 expression-surface closure: both proofs are mechanical constructor/list
     # traversals kept whole so the denotation and scanner cases remain auditable
@@ -159,15 +140,6 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # #2205 selector dispatch with populated internal tables: these two proofs
-    # mirror the same payable/argument-length case split as the legacy dispatch
-    # theorem while threading the helper-aware interpreter. Splitting either
-    # would duplicate the Forall₂ lookup and rollback-result plumbing.
-    # now thin derivations of interpretContractWith_correct_generic; the
-    # residual length is the verbatim interpretIRWithInternals dispatch-shape
-    # equation (hinterp) that pins the interpreter's fallback records.
-    "interpretContractWithInternals_correct_of_compiled_functions",
-    "interpretContractWithHelpersWithInternals_correct_of_compiled_functions",
     # #2205 contract-facing adapter: the body is one application; its length is
     # dominated by the mirrored helper-rich function premises and named types.
     "compileFunctionSpec_correct_with_helper_rich_support_of_body_goal",
@@ -294,7 +266,6 @@ ALLOWLIST: set[str] = {
     "denote_sound",
     "denote_sound_with_helpers",
     # --- Legacy compatibility and dispatch ---
-    "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # bounded-loop fuel stability: the induction on remaining iterations must
     # thread the counter invariant through the three body outcomes and the
     # post-increment in one pass; splitting per-outcome would duplicate the
@@ -340,8 +311,6 @@ ALLOWLIST: set[str] = {
     "compileFunctionSpec_correct_generic_with_helper_proofs",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
-    "interpretContract_correct_of_compiled_functions_with_helper_proofs",
-    "interpretContract_correct_of_compiled_functions_with_helper_proofs_and_helper_ir_goal",
     "compile_preserves_semantics_with_helper_proofs",
     "stmtListGenericWithHelpersAndHelperIR_of_helperFreeStepInterface_and_internalHelperSurfaceStepInterface_and_residualHelperSurfaceStepInterface_and_helperFreeCompiledLegacyCompatible",
     # --- Return statement compilation (memory sync adds steps) ---
@@ -823,26 +792,11 @@ ALLOWLIST: set[str] = {
     # them apart would force each fragment to restate the full intermediate
     # state and the bounds already established by its predecessors.
     "exec_bytesLoaderStmts_then",
-    "exec_genSingleParamLoad_external_then",
-    "exec_genParamLoadBodyFrom_external_then",
-    "exec_genParamLoads_external",
     # #2085 decode-of-encode round trip: one arithmetic argument tying the
     # encoder's head/tail layout to the binder's bounds checks. Its `have`s are
     # mutually dependent size facts about a single encoded block; splitting them
     # would duplicate that context in every fragment.
     "bindExternalParam_bytes_of_abiEncodeArgs",
-    # #2085 slice 5 `T[]` / `fixedArray` / `tuple` external parameters, the
-    # direct analogues of the `bytes` entries above. Both loader lemmas are
-    # straight-line symbolic executions of the generated Yul: one `have` per
-    # emitted statement, each phrased over the `IRState` its predecessor
-    # produced. That state is a growing `setVar` chain, so extracting the steps
-    # would make every fragment restate the full intermediate state.
-    "exec_lengthPrefixedLoaderStmts_then",
-    "exec_dynamicCompositeLoaderStmts_then",
-    # The array payload guard is a single `div`/`lt` statement; the length is
-    # the modular-arithmetic side conditions relating the emitted EVM `div` to
-    # `Nat` division, which are only meaningful against this guard's own state.
-    "exec_arrayPayloadGuard_noop",
     # #2085 slice 5 decode-of-encode round trip for `T[]`, matching
     # `bindExternalParam_bytes_of_abiEncodeArgs` above. The `have`s are mutually
     # dependent size facts about one encoded block, and each restates the same
