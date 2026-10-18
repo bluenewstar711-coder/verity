@@ -40,6 +40,11 @@ structure Observation where
   success : Bool
   state : State
 
+/-- Big-endian value of the first (at most 32) returned bytes. Callers check
+that a complete word is present before trusting it as an ABI word. -/
+def firstWord (data : Bytes) : Nat :=
+  (data.take 32).foldl (fun accumulator byte => accumulator * 256 + byte.toNat) 0
+
 /-- Decode the uint256 return of a Solidity typed interface staticcall. Extra
 bytes are accepted; an incomplete first word reverts with empty payload. A
 failed child call forwards its bytes without padding. The state already holds
@@ -47,10 +52,7 @@ the checked staticcall world and accesses from `execute`. -/
 def decodeStaticUint256 (observed : Observation) : Denote.StmtOutcome :=
   if observed.success then
     if observed.state.returndata.length < 32 then .revertWithData []
-    else
-      let value := (observed.state.returndata.take 32).foldl
-        (fun accumulator byte => accumulator * 256 + byte.toNat) 0
-      .return value observed.state.frame
+    else .return (firstWord observed.state.returndata) observed.state.frame
   else .revertWithData observed.state.returndata
 
 theorem decodeStaticUint256_failure (state : State) :
@@ -60,6 +62,78 @@ theorem decodeStaticUint256_failure (state : State) :
 theorem decodeStaticUint256_short (state : State) (hshort : state.returndata.length < 32) :
     decodeStaticUint256 { success := true, state } = .revertWithData [] := by
   simp [decodeStaticUint256, hshort]
+
+/-- Decode the bool return of a Solidity typed interface staticcall. As for
+`decodeStaticUint256`, extra bytes are accepted, an incomplete first word
+reverts empty and a failed child forwards its bytes. ABI validation of the
+returned bool reverts empty unless the first word is exactly `0` or `1`. -/
+def decodeStaticBool (observed : Observation) : Denote.StmtOutcome :=
+  if observed.success then
+    if observed.state.returndata.length < 32 then .revertWithData []
+    else if firstWord observed.state.returndata ≤ 1 then
+      .return (firstWord observed.state.returndata) observed.state.frame
+    else .revertWithData []
+  else .revertWithData observed.state.returndata
+
+theorem decodeStaticBool_failure (state : State) :
+    decodeStaticBool { success := false, state } = .revertWithData state.returndata := rfl
+
+theorem decodeStaticBool_short (state : State) (hshort : state.returndata.length < 32) :
+    decodeStaticBool { success := true, state } = .revertWithData [] := by
+  simp [decodeStaticBool, hshort]
+
+theorem decodeStaticBool_of_le_one (state : State) (hlength : 32 ≤ state.returndata.length)
+    (hword : firstWord state.returndata ≤ 1) :
+    decodeStaticBool { success := true, state } =
+      .return (firstWord state.returndata) state.frame := by
+  simp [decodeStaticBool, Nat.not_lt.mpr hlength, hword]
+
+theorem decodeStaticBool_of_one_lt (state : State) (hlength : 32 ≤ state.returndata.length)
+    (hword : 1 < firstWord state.returndata) :
+    decodeStaticBool { success := true, state } = .revertWithData [] := by
+  simp [decodeStaticBool, Nat.not_lt.mpr hlength, Nat.not_le.mpr hword]
+
+/-- Optional-bool check of a low-level `.call(bytes)` (the Solady
+`SafeTransferLib` convention for tokens that may return nothing): the call
+succeeds when the child succeeded and either returned no bytes or returned a
+complete first word equal to `1`. Any other observation reverts empty; the
+caller's own error payload and any separate code-existence check (for example
+`extCodeSize`) are composed outside this decoder. -/
+def decodeOptionalBoolCall (observed : Observation) : Denote.StmtOutcome :=
+  if observed.success ∧ (observed.state.returndata.isEmpty ∨
+      (32 ≤ observed.state.returndata.length ∧ firstWord observed.state.returndata = 1)) then
+    .return 1 observed.state.frame
+  else .revertWithData []
+
+theorem decodeOptionalBoolCall_eq_return_iff (observed : Observation) :
+    decodeOptionalBoolCall observed = .return 1 observed.state.frame ↔
+      observed.success = true ∧ (observed.state.returndata.isEmpty ∨
+        (32 ≤ observed.state.returndata.length ∧ firstWord observed.state.returndata = 1)) := by
+  unfold decodeOptionalBoolCall
+  split <;> simp_all
+
+theorem decodeOptionalBoolCall_failure (state : State) :
+    decodeOptionalBoolCall { success := false, state } = .revertWithData [] := by
+  simp [decodeOptionalBoolCall]
+
+theorem decodeOptionalBoolCall_empty (state : State) (hempty : state.returndata = []) :
+    decodeOptionalBoolCall { success := true, state } = .return 1 state.frame := by
+  simp [decodeOptionalBoolCall, hempty]
+
+theorem decodeOptionalBoolCall_true (state : State) (hlength : 32 ≤ state.returndata.length)
+    (hword : firstWord state.returndata = 1) :
+    decodeOptionalBoolCall { success := true, state } = .return 1 state.frame := by
+  simp [decodeOptionalBoolCall, hlength, hword]
+
+theorem decodeOptionalBoolCall_short (state : State) (hnonempty : state.returndata ≠ [])
+    (hshort : state.returndata.length < 32) :
+    decodeOptionalBoolCall { success := true, state } = .revertWithData [] := by
+  simp [decodeOptionalBoolCall, hnonempty, Nat.not_le.mpr hshort]
+
+theorem decodeOptionalBoolCall_of_ne_one (state : State) (hnonempty : state.returndata ≠ [])
+    (hword : firstWord state.returndata ≠ 1) :
+    decodeOptionalBoolCall { success := true, state } = .revertWithData [] := by
+  simp [decodeOptionalBoolCall, hnonempty, hword]
 
 def execute (adversary : Adversary) (request : Request) (state : State) : Observation :=
   let observed := ByteExternalCall.execute adversary request state.frame.world
@@ -82,6 +156,70 @@ def staticRequest (state : State) (target : Verity.Address)
       (fun index => UInt8.ofNat (selector.val / 256 ^ (3 - index) % 256)) ++
       arguments.flatMap (fun word => Denote.wordBytes word.val)
     gas }
+
+/-- A readonly call with arbitrary, already-encoded calldata. -/
+def staticBytesRequest (state : State) (target : Verity.Address) (calldata : Bytes)
+    (gas : Nat) : Request :=
+  { kind := .staticcall
+    caller := state.frame.world.thisAddress.val
+    target := target.val
+    value := 0
+    calldata
+    gas }
+
+/-- A value-free `CALL` with arbitrary, already-encoded calldata. -/
+def callBytesRequest (state : State) (target : Verity.Address) (calldata : Bytes)
+    (gas : Nat) : Request :=
+  { kind := .call
+    caller := state.frame.world.thisAddress.val
+    target := target.val
+    value := 0
+    calldata
+    gas }
+
+section BytesRequests
+
+variable (state : State) (target : Verity.Address) (calldata : Bytes) (gas : Nat)
+
+@[simp] theorem staticBytesRequest_kind :
+    (staticBytesRequest state target calldata gas).kind = .staticcall := rfl
+
+@[simp] theorem staticBytesRequest_caller :
+    (staticBytesRequest state target calldata gas).caller =
+      state.frame.world.thisAddress.val := rfl
+
+@[simp] theorem staticBytesRequest_target :
+    (staticBytesRequest state target calldata gas).target = target.val := rfl
+
+@[simp] theorem staticBytesRequest_value :
+    (staticBytesRequest state target calldata gas).value = 0 := rfl
+
+@[simp] theorem staticBytesRequest_calldata :
+    (staticBytesRequest state target calldata gas).calldata = calldata := rfl
+
+@[simp] theorem staticBytesRequest_gas :
+    (staticBytesRequest state target calldata gas).gas = gas := rfl
+
+@[simp] theorem callBytesRequest_kind :
+    (callBytesRequest state target calldata gas).kind = .call := rfl
+
+@[simp] theorem callBytesRequest_caller :
+    (callBytesRequest state target calldata gas).caller =
+      state.frame.world.thisAddress.val := rfl
+
+@[simp] theorem callBytesRequest_target :
+    (callBytesRequest state target calldata gas).target = target.val := rfl
+
+@[simp] theorem callBytesRequest_value :
+    (callBytesRequest state target calldata gas).value = 0 := rfl
+
+@[simp] theorem callBytesRequest_calldata :
+    (callBytesRequest state target calldata gas).calldata = calldata := rfl
+
+@[simp] theorem callBytesRequest_gas :
+    (callBytesRequest state target calldata gas).gas = gas := rfl
+
+end BytesRequests
 
 def executeStaticUint256 (adversary : Adversary) (state : State) (target : Verity.Address)
     (selector : Fin (2^32)) (arguments : List Verity.Uint256) (gas : Nat) :
