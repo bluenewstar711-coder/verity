@@ -2019,6 +2019,7 @@ theorem supported_function_correct
       simpa [compiledFunctionIR, List.length_append, Nat.add_assoc, Nat.add_left_comm, Nat.add_comm,
         hfuelEq'] using hfuel
     simpa [hadequacy] using hfuel'
+
 theorem supported_function_correct_with_helper_proofs_body_goal
     (model : CompilationModel)
     (selectors : List Nat)
