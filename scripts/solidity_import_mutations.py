@@ -20,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
+
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
@@ -487,7 +489,7 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -719,6 +721,29 @@ def reference_location_mutation() -> None:
     print("pass reference-location", flush=True)
 
 
+def byte_call_mutations() -> None:
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print("pass canonical byte-call and exact empty-revert mutations", flush=True)
+
+
+def interface_static_call_rejections() -> None:
+    module_campaign_output("check_interface_static_call_rejections",
+                           "interface-static-call-rejections", MUTANT_TIMEOUT)
+    print("pass interface staticcall located rejections", flush=True)
+
+
+def interface_static_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_interface_static_call_mutations", mutant,
+                             MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"interface staticcall mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -735,12 +760,15 @@ def tasks(update_golden: bool) -> list:
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
              ("reference-location", 1, reference_location_mutation),
+             ("byte-call", 1, byte_call_mutations),
              ("deployment-world", 1, deployment_world_mutations),
              ("create2-opcode", 1, create2_opcode_mutations),
-             ("account-storage", 1, account_storage_mutations)]
+             ("account-storage", 1, account_storage_mutations),
+             ("interface-static-call-rejections", 1, interface_static_call_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
+    items += [(m, 1, (lambda m=m: interface_static_call_mutant(m))) for m in INTERFACE_MUTANTS]
     return items
 
 
