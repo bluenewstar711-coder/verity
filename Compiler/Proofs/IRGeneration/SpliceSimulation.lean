@@ -191,6 +191,86 @@ theorem execIRStmt_atomic_no_halt (x : YulStmt) (hx : AtomicNonExit x)
   | «switch» _ _ _ => simp [AtomicNonExit] at hx
   | block _ => simp [AtomicNonExit] at hx
 
+/-- The splice simulation for a list body, at all fuels above the bounds. -/
+private def SplicedSim (slot : Nat) (xs : List YulStmt) : Prop :=
+  ∀ (F G : Nat) (state : IRState),
+    stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) ≤ F →
+    stmtsFuelBound xs ≤ G →
+    execIRStmts F state (spliceLockReleaseList (lockReleaseStmt slot) xs) =
+      releasedResult slot (execIRStmts G state xs)
+
+/-- The splice simulation for a single (spliced, original) head statement. -/
+private def HeadSim (slot : Nat) (x' x : YulStmt) : Prop :=
+  ∀ (F G : Nat) (state : IRState), stmtFuelBound x' ≤ F → stmtFuelBound x ≤ G →
+    execIRStmt F state x' = releasedResult slot (execIRStmt G state x)
+
+/-- Both components of a cons bound sit strictly below it. -/
+private theorem stmtsFuelBound_cons_le {x : YulStmt} {xs : List YulStmt} {F : Nat}
+    (h : stmtsFuelBound (x :: xs) ≤ F) :
+    stmtFuelBound x + 1 ≤ F ∧ stmtsFuelBound xs + 1 ≤ F := by
+  simp only [stmtsFuelBound] at h
+  have h1 : stmtFuelBound x ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound xs) :=
+    Nat.le_max_left _ _
+  have h2 : stmtsFuelBound xs ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound xs) :=
+    Nat.le_max_right _ _
+  omega
+
+/-- List step at successor fuel: a related head result propagates through the
+spliced tail. -/
+private theorem execIRStmts_cons_succ_of_head (slot : Nat) (x' x : YulStmt)
+    (rest : List YulStmt) (IHrest : SplicedSim slot rest) (F G : Nat) (state : IRState)
+    (hhead : execIRStmt F state x' = releasedResult slot (execIRStmt G state x))
+    (hF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤ F)
+    (hG : stmtsFuelBound rest ≤ G) :
+    execIRStmts (F + 1) state (x' :: spliceLockReleaseList (lockReleaseStmt slot) rest) =
+      releasedResult slot (execIRStmts (G + 1) state (x :: rest)) := by
+  simp only [execIRStmts, hhead]
+  cases execIRStmt G state x with
+  | «continue» s₁ => exact IHrest F G s₁ hF hG
+  | _ => rfl
+
+/-- Cons step from a head simulation: peel one unit of fuel on each side and
+propagate the head result through the tail. -/
+private theorem execIRStmts_cons_of_head (slot : Nat) (x' x : YulStmt)
+    (rest : List YulStmt) (hhead : HeadSim slot x' x) (IHrest : SplicedSim slot rest)
+    (F G : Nat) (state : IRState)
+    (hF : stmtsFuelBound (x' :: spliceLockReleaseList (lockReleaseStmt slot) rest) ≤ F)
+    (hG : stmtsFuelBound (x :: rest) ≤ G) :
+    execIRStmts F state (x' :: spliceLockReleaseList (lockReleaseStmt slot) rest) =
+      releasedResult slot (execIRStmts G state (x :: rest)) := by
+  obtain ⟨hF1, hF2⟩ := stmtsFuelBound_cons_le hF
+  obtain ⟨hG1, hG2⟩ := stmtsFuelBound_cons_le hG
+  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
+  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
+  exact execIRStmts_cons_succ_of_head slot x' x rest IHrest F' G' state
+    (hhead F' G' state (by omega) (by omega)) (by omega) (by omega)
+
+/-- The splice keeps an atomic non-exit head in place. -/
+private theorem spliceLockReleaseList_cons_atomic (slot : Nat) (x : YulStmt)
+    (rest : List YulStmt) (hAtomic : AtomicNonExit x) :
+    spliceLockReleaseList (lockReleaseStmt slot) (x :: rest) =
+      x :: spliceLockReleaseList (lockReleaseStmt slot) rest := by
+  rw [show spliceLockReleaseList (lockReleaseStmt slot) (x :: rest) =
+    spliceLockRelease (lockReleaseStmt slot) x ++
+      spliceLockReleaseList (lockReleaseStmt slot) rest from rfl,
+    spliceLockRelease_atomic (lockReleaseStmt slot) x hAtomic]
+  rfl
+
+/-- An atomic non-exit head executes identically at any fuels above its bound
+and never halts, so its result is unchanged by `releasedResult`. -/
+private theorem headSim_atomic (slot : Nat) (x : YulStmt) (hAtomic : AtomicNonExit x)
+    (hLFx : LoopFree x) : HeadSim slot x x := by
+  intro F G state hbx hbx'
+  rw [execIRStmt_stable_of_le x hLFx F G state hbx hbx']
+  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 :=
+    ⟨G - 1, by have := stmtFuelBound_pos x; omega⟩
+  have hnohalt := execIRStmt_atomic_no_halt x hAtomic G' state
+  cases hres : execIRStmt (G' + 1) state x with
+  | «continue» s₁ => rfl
+  | «return» v s => exact absurd hres (hnohalt.1 v s)
+  | stop s => exact absurd hres (hnohalt.2 s)
+  | revert s => rfl
+
 /-- Cons step for an atomic non-exit head: the head executes identically on
 both sides (fuel stability), cannot halt, and the tails relate by the given
 induction hypothesis. -/
@@ -206,56 +286,9 @@ theorem spliced_cons_atomic (slot : Nat) (x : YulStmt) (rest : List YulStmt)
     (hG : stmtsFuelBound (x :: rest) ≤ G) :
     execIRStmts F state (spliceLockReleaseList (lockReleaseStmt slot) (x :: rest)) =
       releasedResult slot (execIRStmts G state (x :: rest)) := by
-  have hshape : spliceLockReleaseList (lockReleaseStmt slot) (x :: rest) =
-      x :: spliceLockReleaseList (lockReleaseStmt slot) rest := by
-    rw [show spliceLockReleaseList (lockReleaseStmt slot) (x :: rest) =
-      spliceLockRelease (lockReleaseStmt slot) x ++
-        spliceLockReleaseList (lockReleaseStmt slot) rest from rfl,
-      spliceLockRelease_atomic (lockReleaseStmt slot) x hAtomic]
-    rfl
-  rw [hshape] at hF ⊢
-  simp only [stmtsFuelBound] at hF hG
-  have hmaxF : stmtFuelBound x ≤ Nat.max (stmtFuelBound x)
-      (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) ∧
-      stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤
-        Nat.max (stmtFuelBound x)
-          (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    ⟨Nat.le_max_left _ _, Nat.le_max_right _ _⟩
-  have hmaxG : stmtFuelBound x ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound rest) ∧
-      stmtsFuelBound rest ≤ Nat.max (stmtFuelBound x) (stmtsFuelBound rest) :=
-    ⟨Nat.le_max_left _ _, Nat.le_max_right _ _⟩
-  have hbx : stmtFuelBound x ≤ F - 1 := by omega
-  have hbx' : stmtFuelBound x ≤ G - 1 := by omega
-  have hbrest : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤
-      F - 1 := by omega
-  have hbrest' : stmtsFuelBound rest ≤ G - 1 := by omega
-  have hFpos : 1 ≤ F := by omega
-  have hGpos : 1 ≤ G := by omega
-  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
-  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
-  simp only [Nat.add_sub_cancel] at hbx hbx' hbrest hbrest'
-  have hhead : execIRStmt F' state x = execIRStmt G' state x :=
-    execIRStmt_stable_of_le x hLFx F' G' state hbx hbx'
-  show (match execIRStmt F' state x with
-    | .continue s₁ => execIRStmts F' s₁
-        (spliceLockReleaseList (lockReleaseStmt slot) rest)
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) =
-    releasedResult slot (match execIRStmt G' state x with
-    | .continue s₁ => execIRStmts G' s₁ rest
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s)
-  rw [hhead]
-  obtain ⟨G'', rfl⟩ : ∃ G'', G' = G'' + 1 :=
-    ⟨G' - 1, by have := stmtFuelBound_pos x; omega⟩
-  have hnohalt := execIRStmt_atomic_no_halt x hAtomic G'' state
-  cases hres : execIRStmt (G'' + 1) state x with
-  | «continue» s₁ => exact IH F' (G'' + 1) s₁ hbrest hbrest'
-  | «return» v s => exact absurd hres (hnohalt.1 v s)
-  | stop s => exact absurd hres (hnohalt.2 s)
-  | revert s => rfl
+  rw [spliceLockReleaseList_cons_atomic slot x rest hAtomic] at hF ⊢
+  exact execIRStmts_cons_of_head slot x x rest (headSim_atomic slot x hAtomic hLFx) IH
+    F G state hF hG
 
 /-- Cons step for a `stop()` head: the release runs, the frame halts with the
 released state, the tail is dead on both sides. -/
@@ -341,6 +374,23 @@ theorem spliced_cons_return (slot : Nat)
     simp [execIRStmts, execIRStmt, evalIRExpr, releasedResult,
       releaseState, hb]
 
+/-- An `if` head with a spliced body relates by the body simulation. -/
+private theorem headSim_if (slot : Nat) (cond : YulExpr) (body : List YulStmt)
+    (IHbody : SplicedSim slot body) :
+    HeadSim slot (.if_ cond (spliceLockReleaseList (lockReleaseStmt slot) body))
+      (.if_ cond body) := by
+  intro F G state hF hG
+  simp only [stmtFuelBound] at hF hG
+  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
+  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
+  cases heval : evalIRExpr state cond with
+  | none => simp only [execIRStmt, heval, releasedResult]
+  | some c =>
+      by_cases hc : c ≠ 0
+      · simp only [execIRStmt, heval, if_pos hc]
+        exact IHbody F' G' state (by omega) (by omega)
+      · simp only [execIRStmt, heval, if_neg hc, releasedResult]
+
 /-- Cons step for an `if` head: the condition evaluates identically, the
 spliced branch relates by the body IH, and the outcome propagates through the
 list step by cases on the original branch result. -/
@@ -362,58 +412,19 @@ theorem spliced_cons_if (slot : Nat) (cond : YulExpr) (body rest : List YulStmt)
     execIRStmts F state (spliceLockReleaseList (lockReleaseStmt slot)
         (YulStmt.if_ cond body :: rest)) =
       releasedResult slot (execIRStmts G state (YulStmt.if_ cond body :: rest)) := by
-  have hshape : spliceLockReleaseList (lockReleaseStmt slot)
-      (YulStmt.if_ cond body :: rest) =
-      YulStmt.if_ cond (spliceLockReleaseList (lockReleaseStmt slot) body) ::
-        spliceLockReleaseList (lockReleaseStmt slot) rest := rfl
-  rw [hshape] at hF ⊢
-  simp only [stmtsFuelBound, stmtFuelBound] at hF hG
-  have hx1 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) + 1 ≤
-      Nat.max (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_left _ _
-  have hx2 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤
-      Nat.max (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_right _ _
-  have hg1 : stmtsFuelBound body + 1 ≤
-      Nat.max (stmtsFuelBound body + 1) (stmtsFuelBound rest) := Nat.le_max_left _ _
-  have hg2 : stmtsFuelBound rest ≤
-      Nat.max (stmtsFuelBound body + 1) (stmtsFuelBound rest) := Nat.le_max_right _ _
-  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 2 := ⟨F - 2, by omega⟩
-  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 2 := ⟨G - 2, by omega⟩
-  show (match (match evalIRExpr state cond with
-      | some c => if c ≠ 0 then
-          execIRStmts F' state (spliceLockReleaseList (lockReleaseStmt slot) body)
-        else .continue state
-      | none => .revert state) with
-    | .continue s₁ => execIRStmts (F' + 1) s₁
-        (spliceLockReleaseList (lockReleaseStmt slot) rest)
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) =
-    releasedResult slot (match (match evalIRExpr state cond with
-      | some c => if c ≠ 0 then execIRStmts G' state body else .continue state
-      | none => .revert state) with
-    | .continue s₁ => execIRStmts (G' + 1) s₁ rest
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s)
-  cases heval : evalIRExpr state cond with
-  | none => simp [releasedResult]
-  | some c =>
-      by_cases hc : c ≠ 0
-      · simp only [if_pos hc]
-        rw [IHbody F' G' state (by omega) (by omega)]
-        cases hrb : execIRStmts G' state body with
-        | «continue» s₁ =>
-            simp only [releasedResult]
-            exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
-        | «return» v s => simp [releasedResult]
-        | stop s => simp [releasedResult]
-        | revert s => simp [releasedResult]
-      · simp only [if_neg hc, releasedResult]
-        exact IHrest (F' + 1) (G' + 1) state (by omega) (by omega)
+  exact execIRStmts_cons_of_head slot _ _ rest (headSim_if slot cond body IHbody) IHrest
+    F G state hF hG
+
+/-- A `block` head with a spliced body relates by the body simulation. -/
+private theorem headSim_block (slot : Nat) (stmts : List YulStmt)
+    (IHbody : SplicedSim slot stmts) :
+    HeadSim slot (.block (spliceLockReleaseList (lockReleaseStmt slot) stmts))
+      (.block stmts) := by
+  intro F G state hF hG
+  simp only [stmtFuelBound] at hF hG
+  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
+  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
+  exact IHbody F' G' state (by omega) (by omega)
 
 /-- Cons step for a `block` head: the spliced block relates by the body IH
 and the outcome propagates through the list step. -/
@@ -435,46 +446,8 @@ theorem spliced_cons_block (slot : Nat) (stmts rest : List YulStmt)
     execIRStmts F state (spliceLockReleaseList (lockReleaseStmt slot)
         (YulStmt.block stmts :: rest)) =
       releasedResult slot (execIRStmts G state (YulStmt.block stmts :: rest)) := by
-  have hshape : spliceLockReleaseList (lockReleaseStmt slot)
-      (YulStmt.block stmts :: rest) =
-      YulStmt.block (spliceLockReleaseList (lockReleaseStmt slot) stmts) ::
-        spliceLockReleaseList (lockReleaseStmt slot) rest := rfl
-  rw [hshape] at hF ⊢
-  simp only [stmtsFuelBound, stmtFuelBound] at hF hG
-  have hx1 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) stmts) + 1 ≤
-      Nat.max (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) stmts) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_left _ _
-  have hx2 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤
-      Nat.max (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) stmts) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_right _ _
-  have hg1 : stmtsFuelBound stmts + 1 ≤
-      Nat.max (stmtsFuelBound stmts + 1) (stmtsFuelBound rest) := Nat.le_max_left _ _
-  have hg2 : stmtsFuelBound rest ≤
-      Nat.max (stmtsFuelBound stmts + 1) (stmtsFuelBound rest) := Nat.le_max_right _ _
-  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 2 := ⟨F - 2, by omega⟩
-  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 2 := ⟨G - 2, by omega⟩
-  show (match execIRStmts F' state
-      (spliceLockReleaseList (lockReleaseStmt slot) stmts) with
-    | .continue s₁ => execIRStmts (F' + 1) s₁
-        (spliceLockReleaseList (lockReleaseStmt slot) rest)
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s) =
-    releasedResult slot (match execIRStmts G' state stmts with
-    | .continue s₁ => execIRStmts (G' + 1) s₁ rest
-    | .return v s => .return v s
-    | .stop s => .stop s
-    | .revert s => .revert s)
-  rw [IHbody F' G' state (by omega) (by omega)]
-  cases hrb : execIRStmts G' state stmts with
-  | «continue» s₁ =>
-      simp only [releasedResult]
-      exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
-  | «return» v s => simp [releasedResult]
-  | stop s => simp [releasedResult]
-  | revert s => simp [releasedResult]
+  exact execIRStmts_cons_of_head slot _ _ rest (headSim_block slot stmts IHbody) IHrest
+    F G state hF hG
 
 /-- `find?` commutes with the key-preserving case splice. -/
 theorem find?_spliceCases (release : YulStmt) (v : Nat) :
@@ -521,6 +494,98 @@ theorem SpliceSimCases.mem :
       · exact hx
       · exact ih hrest hmem
 
+/-- Fuel bounds for a selected switch case, on both sides of the splice. -/
+private theorem spliced_switch_case_bounds (slot : Nat)
+    {cases : List (Nat × List YulStmt)} {dflt : Option (List YulStmt)}
+    {c : Nat × List YulStmt} (hmem : c ∈ cases) {F G : Nat}
+    (hF : Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
+      (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) + 1 ≤ F + 1)
+    (hG : Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1 ≤ G + 1) :
+    stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) c.2) ≤ F ∧
+      stmtsFuelBound c.2 ≤ G := by
+  have h1 := spliced_case_bound_le (lockReleaseStmt slot) cases c hmem
+  have h2 := stmtsFuelBound_le_casesFuelBound cases c hmem
+  have h3 : casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases) ≤
+      Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
+        (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) :=
+    Nat.le_max_left _ _
+  have h4 : casesFuelBound cases ≤ Nat.max (casesFuelBound cases) (dfltFuelBound dflt) :=
+    Nat.le_max_left _ _
+  omega
+
+/-- Fuel bounds for a present switch default, on both sides of the splice. -/
+private theorem spliced_switch_dflt_bounds (slot : Nat)
+    {cases : List (Nat × List YulStmt)} {body : List YulStmt} {F G : Nat}
+    (hF : Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
+      (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body))) + 1 ≤ F + 1)
+    (hG : Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) + 1 ≤ G + 1) :
+    stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) ≤ F ∧
+      stmtsFuelBound body ≤ G := by
+  have h1 : dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body)) ≤
+      Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
+        (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body))) :=
+    Nat.le_max_right _ _
+  have h2 : dfltFuelBound (some body) ≤
+      Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) := Nat.le_max_right _ _
+  have h3 : dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body)) =
+      stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) := rfl
+  have h4 : dfltFuelBound (some body) = stmtsFuelBound body := rfl
+  omega
+
+/-- The default branch of a switch whose scrutinee matches no case. -/
+private theorem spliced_switch_dflt_exec (slot : Nat) (cases : List (Nat × List YulStmt))
+    (dflt : Option (List YulStmt))
+    (IHdflt : ∀ body, dflt = some body → SplicedSim slot body) (F G : Nat) (state : IRState)
+    (hF : Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
+      (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) + 1 ≤ F + 1)
+    (hG : Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1 ≤ G + 1) :
+    (match (generalizing := false) spliceLockReleaseDflt (lockReleaseStmt slot) dflt with
+      | some body => execIRStmts F state body
+      | none => .continue state) =
+      releasedResult slot (match (generalizing := false) dflt with
+        | some body => execIRStmts G state body
+        | none => .continue state) := by
+  cases dflt with
+  | none => rfl
+  | some body =>
+      obtain ⟨hbF, hbG⟩ := spliced_switch_dflt_bounds slot hF hG
+      exact IHdflt body rfl F G state hbF hbG
+
+/-- A `switch` head with spliced branches relates by the branch simulations:
+the scrutinee evaluates identically and `find?` commutes with the splice. -/
+private theorem headSim_switch (slot : Nat) (e : YulExpr)
+    (cases : List (Nat × List YulStmt)) (dflt : Option (List YulStmt))
+    (IHcases : ∀ c ∈ cases, SplicedSim slot c.2)
+    (IHdflt : ∀ body, dflt = some body → SplicedSim slot body) :
+    HeadSim slot (.switch e (spliceLockReleaseCases (lockReleaseStmt slot) cases)
+      (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) (.switch e cases dflt) := by
+  intro F G state hF hG
+  simp only [stmtFuelBound] at hF hG
+  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
+  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
+  cases heval : evalIRExpr state e with
+  | none => simp only [execIRStmt, heval, releasedResult]
+  | some v =>
+      simp only [execIRStmt, heval, find?_spliceCases (lockReleaseStmt slot) v cases]
+      cases hfind : List.find? (fun (c : Nat × List YulStmt) => c.1 == v) cases with
+      | some c =>
+          obtain ⟨k, body⟩ := c
+          have hmem := List.mem_of_find?_eq_some hfind
+          obtain ⟨hbF, hbG⟩ := spliced_switch_case_bounds slot hmem hF hG
+          exact IHcases (k, body) hmem F' G' state hbF hbG
+      | none => exact spliced_switch_dflt_exec slot cases dflt IHdflt F' G' state hF hG
+
+/-- `spliced_cons_switch`, stated over `SplicedSim`. -/
+private theorem spliced_cons_switch_sim (slot : Nat) (e : YulExpr)
+    (cases : List (Nat × List YulStmt)) (dflt : Option (List YulStmt))
+    (rest : List YulStmt) (IHcases : ∀ c ∈ cases, SplicedSim slot c.2)
+    (IHdflt : ∀ body, dflt = some body → SplicedSim slot body)
+    (IHrest : SplicedSim slot rest) :
+    SplicedSim slot (YulStmt.switch e cases dflt :: rest) := by
+  intro F G state hF hG
+  exact execIRStmts_cons_of_head slot _ _ rest
+    (headSim_switch slot e cases dflt IHcases IHdflt) IHrest F G state hF hG
+
 /-- Cons step for a `switch` head: the scrutinee evaluates identically, the
 selected branch (case via the find? commutation, or default) relates by the
 given IHs, and the outcome propagates through the list step. -/
@@ -550,112 +615,46 @@ theorem spliced_cons_switch (slot : Nat) (e : YulExpr)
         (YulStmt.switch e cases dflt :: rest)) =
       releasedResult slot
         (execIRStmts G state (YulStmt.switch e cases dflt :: rest)) := by
-  have hshape : spliceLockReleaseList (lockReleaseStmt slot)
-      (YulStmt.switch e cases dflt :: rest) =
-      YulStmt.switch e (spliceLockReleaseCases (lockReleaseStmt slot) cases)
-          (spliceLockReleaseDflt (lockReleaseStmt slot) dflt) ::
-        spliceLockReleaseList (lockReleaseStmt slot) rest := rfl
-  rw [hshape] at hF ⊢
-  simp only [stmtsFuelBound, stmtFuelBound] at hF hG
-  have hx1 : Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
-      (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) + 1 ≤
-      Nat.max (Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
-        (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_left _ _
-  have hx2 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest) ≤
-      Nat.max (Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
-        (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) + 1)
-        (stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) rest)) :=
-    Nat.le_max_right _ _
-  have hg1 : Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1 ≤
-      Nat.max (Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1)
-        (stmtsFuelBound rest) := Nat.le_max_left _ _
-  have hg2 : stmtsFuelBound rest ≤
-      Nat.max (Nat.max (casesFuelBound cases) (dfltFuelBound dflt) + 1)
-        (stmtsFuelBound rest) := Nat.le_max_right _ _
-  obtain ⟨F', rfl⟩ : ∃ F', F = F' + 2 := ⟨F - 2, by omega⟩
-  obtain ⟨G', rfl⟩ : ∃ G', G = G' + 2 := ⟨G - 2, by omega⟩
-  cases heval : evalIRExpr state e with
-  | none => simp [execIRStmts, execIRStmt, heval, releasedResult]
-  | some v =>
-      simp only [execIRStmts, execIRStmt, heval,
-        find?_spliceCases (lockReleaseStmt slot) v cases]
+  exact spliced_cons_switch_sim slot e cases dflt rest IHcases IHdflt IHrest F G state hF hG
 
-      cases hfind : List.find? (fun (c : Nat × List YulStmt) => c.1 == v) cases with
-      | some c =>
-          obtain ⟨k, body⟩ := c
-          have hmem := List.mem_of_find?_eq_some hfind
-          have hbF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) ≤ F' := by
-            have hc1 : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) ≤
-                casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases) :=
-              spliced_case_bound_le (lockReleaseStmt slot) cases (k, body) hmem
-            have h2 : casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases) ≤
-                Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
-                  (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) dflt)) :=
-              Nat.le_max_left _ _
-            omega
-          have hbG : stmtsFuelBound body ≤ G' := by
-            have hc1 : stmtsFuelBound body ≤ casesFuelBound cases :=
-              stmtsFuelBound_le_casesFuelBound cases (k, body) hmem
-            have h2 : casesFuelBound cases ≤
-                Nat.max (casesFuelBound cases) (dfltFuelBound dflt) :=
-              Nat.le_max_left _ _
-            omega
-          simp only [Option.map]
-          rw [show execIRStmts F' state
-              (spliceLockReleaseList (lockReleaseStmt slot) (k, body).2) =
-            releasedResult slot (execIRStmts G' state (k, body).2) from
-            IHcases (k, body) hmem F' G' state hbF hbG]
-          cases hrb : execIRStmts G' state body with
-          | «continue» s₁ =>
-              simp only [releasedResult]
-              exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
-          | «return» v' s => simp [releasedResult]
-          | stop s => simp [releasedResult]
-          | revert s => simp [releasedResult]
-      | none =>
-          simp only [Option.map]
-          cases hdd : dflt with
-          | none =>
-              simp only [spliceLockReleaseDflt]
-              exact IHrest (F' + 1) (G' + 1) state (by omega) (by omega)
-          | some body =>
-              rw [hdd] at hF hG hx1 hx2 hg1 hg2
-              have hbF : stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) ≤ F' := by
-                have h2 : dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body)) ≤
-                    Nat.max (casesFuelBound (spliceLockReleaseCases (lockReleaseStmt slot) cases))
-                      (dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body))) :=
-                  Nat.le_max_right _ _
-                have h3 : dfltFuelBound (spliceLockReleaseDflt (lockReleaseStmt slot) (some body)) =
-                    stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) body) := rfl
-                omega
-              have hbG : stmtsFuelBound body ≤ G' := by
-                have h2 : dfltFuelBound (some body) ≤
-                    Nat.max (casesFuelBound cases) (dfltFuelBound (some body)) :=
-                  Nat.le_max_right _ _
-                have h3 : dfltFuelBound (some body) = stmtsFuelBound body := rfl
-                omega
-              show (match execIRStmts F' state
-                  (spliceLockReleaseList (lockReleaseStmt slot) body) with
-                | .continue s' => execIRStmts (F' + 1) s'
-                    (spliceLockReleaseList (lockReleaseStmt slot) rest)
-                | .return v s => .return v s
-                | .stop s => .stop s
-                | .revert s => .revert s) =
-                releasedResult slot (match execIRStmts G' state body with
-                | .continue s' => execIRStmts (G' + 1) s' rest
-                | .return v s => .return v s
-                | .stop s => .stop s
-                | .revert s => .revert s)
-              rw [IHdflt body hdd F' G' state hbF hbG]
-              cases hrb : execIRStmts G' state body with
-              | «continue» s₁ =>
-                  simp only [releasedResult]
-                  exact IHrest (F' + 1) (G' + 1) s₁ (by omega) (by omega)
-              | «return» v' s => simp [releasedResult]
-              | stop s => simp [releasedResult]
-              | revert s => simp [releasedResult]
+/-- Cons step for an atomic non-exit head, stated over `SplicedSim`. -/
+private theorem spliced_cons_leaf (slot : Nat) (x : YulStmt) (rest : List YulStmt)
+    (hx : AtomicNonExit x ∧ LoopFree x) (IHrest : SplicedSim slot rest) :
+    SplicedSim slot (x :: rest) :=
+  spliced_cons_atomic slot x rest hx.1 hx.2 IHrest
+
+/-- Cons step for an expression-statement head of the fragment: `return`/`stop`
+heads take the release, every other call is atomic. -/
+private theorem spliced_cons_exprStmt (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus) (e : YulExpr) (rest : List YulStmt)
+    (hx : SpliceSim (.exprStmt e)) (IHrest : SplicedSim slot rest) :
+    SplicedSim slot (.exprStmt e :: rest) := by
+  intro F G state hF hG
+  cases e
+  case call f args =>
+    by_cases hret : f = "return"
+    · subst hret
+      obtain ⟨a, b, rfl⟩ : ∃ a b, args = [YulExpr.lit a, YulExpr.lit b] := by
+        simpa [SpliceSim] using hx
+      exact spliced_cons_return slot hslot a b rest F G state hF hG
+    · by_cases hstop : f = "stop"
+      · subst hstop
+        obtain rfl : args = [] := by simpa [SpliceSim] using hx
+        exact spliced_cons_stop slot hslot rest F G state hF hG
+      · by_cases hsd : f = "selfdestruct"
+        · subst hsd
+          exact absurd hx (by simp [SpliceSim])
+        · exact spliced_cons_leaf slot _ rest
+            (by simp [AtomicNonExit, LoopFree, hret, hstop, hsd])
+            IHrest F G state hF hG
+  all_goals
+    exact spliced_cons_leaf slot _ rest (by simp [AtomicNonExit, LoopFree])
+      IHrest F G state hF hG
+
+/-- The splice simulation for the empty body. -/
+private theorem spliced_nil (slot : Nat) : SplicedSim slot [] := by
+  intro F G state _ _
+  simp only [spliceLockReleaseList, execIRStmts, releasedResult]
 
 mutual
 
@@ -669,74 +668,23 @@ theorem execIRStmts_spliced (slot : Nat)
       stmtsFuelBound xs ≤ G →
       execIRStmts F state (spliceLockReleaseList (lockReleaseStmt slot) xs) =
         releasedResult slot (execIRStmts G state xs)
-  | [], _, F, G, state, hF, hG => by
-      have hF1 : 1 ≤ F := Nat.le_trans (by simp [spliceLockReleaseList, stmtsFuelBound]) hF
-      have hG1 : 1 ≤ G := Nat.le_trans (by simp [stmtsFuelBound]) hG
-      obtain ⟨F', rfl⟩ : ∃ F', F = F' + 1 := ⟨F - 1, by omega⟩
-      obtain ⟨G', rfl⟩ : ∃ G', G = G' + 1 := ⟨G - 1, by omega⟩
-      simp [spliceLockReleaseList, execIRStmts, releasedResult]
-  | x :: rest, hSS, F, G, state, hF, hG => by
-      obtain ⟨hx, hrest⟩ : SpliceSim x ∧ SpliceSimList rest := by
-        simpa [SpliceSimList] using hSS
-      have IHrest := fun F G st hF hG =>
-        execIRStmts_spliced slot hslot rest hrest F G st hF hG
-      cases x with
-      | if_ cond body =>
-          exact spliced_cons_if slot cond body rest
-            (fun F G st hF hG => execIRStmts_spliced slot hslot body
-              (by simpa [SpliceSim] using hx) F G st hF hG)
-            IHrest F G state hF hG
-      | block stmts =>
-          exact spliced_cons_block slot stmts rest
-            (fun F G st hF hG => execIRStmts_spliced slot hslot stmts
-              (by simpa [SpliceSim] using hx) F G st hF hG)
-            IHrest F G state hF hG
-      | for_ _ _ _ _ => exact absurd hx (by simp [SpliceSim])
-      | «switch» e cases dflt =>
-          obtain ⟨hc, hd⟩ : SpliceSimCases cases ∧ SpliceSimDflt dflt := by
-            simpa [SpliceSim] using hx
-          exact spliced_cons_switch slot e cases dflt rest
-            (execIRStmts_splicedCases slot hslot cases hc)
-            (execIRStmts_splicedDflt slot hslot dflt hd)
-            IHrest F G state hF hG
-      | comment t =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | let_ n v =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | letMany ns v =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | assign n v =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | «leave» =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | funcDef n ps rs b =>
-          exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-      | exprStmt e =>
-          cases e with
-          | lit v => exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-          | hex v => exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-          | ident n => exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-          | str t => exact spliced_cons_atomic slot _ rest (by simp [AtomicNonExit]) (by simp [LoopFree]) IHrest F G state hF hG
-          | call f args =>
-              by_cases hret : f = "return"
-              · subst hret
-                obtain ⟨a, b, rfl⟩ : ∃ a b, args = [YulExpr.lit a, YulExpr.lit b] := by
-                  simpa [SpliceSim] using hx
-                exact spliced_cons_return slot hslot a b rest F G state hF hG
-              · by_cases hstop : f = "stop"
-                · subst hstop
-                  obtain rfl : args = [] := by simpa [SpliceSim] using hx
-                  exact spliced_cons_stop slot hslot rest F G state hF hG
-                · by_cases hsd : f = "selfdestruct"
-                  · subst hsd
-                    exact absurd hx (by simp [SpliceSim])
-                  · exact spliced_cons_atomic slot _ rest
-                      (by simp [AtomicNonExit, hret, hstop, hsd]) (by simp [LoopFree])
-                      IHrest F G state hF hG
-termination_by xs _ _ _ _ _ _ => sizeOf xs
-decreasing_by
-  all_goals simp_wf
-  all_goals (try simp [*, Option.some.sizeOf_spec]); omega
+  | [], _ => spliced_nil slot
+  | x :: rest, hSS => by
+      have IHrest := execIRStmts_spliced slot hslot rest hSS.2
+      cases x
+      case if_ c b =>
+        exact spliced_cons_if slot c b rest (execIRStmts_spliced slot hslot b hSS.1) IHrest
+      case block b =>
+        exact spliced_cons_block slot b rest (execIRStmts_spliced slot hslot b hSS.1) IHrest
+      case «switch» e cs d =>
+        exact spliced_cons_switch slot e cs d rest
+          (execIRStmts_splicedCases slot hslot cs hSS.1.1)
+          (execIRStmts_splicedDflt slot hslot d hSS.1.2) IHrest
+      case for_ => exact absurd hSS.1 (by simp [SpliceSim])
+      case exprStmt e => exact spliced_cons_exprStmt slot hslot e rest hSS.1 IHrest
+      all_goals exact spliced_cons_leaf slot _ rest (by simp [AtomicNonExit, LoopFree]) IHrest
+termination_by xs _ => sizeOf xs
+decreasing_by all_goals (simp_wf; (try simp [*, Option.some.sizeOf_spec]); try omega)
 
 /-- Companion recursion over switch cases: pointwise simulation for every
 member body, with structurally static termination. -/
@@ -817,6 +765,25 @@ theorem execIRStmts_append_halt (ys : List YulStmt) :
           | stop s => rw [hstep] at hr; rw [← hr]
           | revert s => rw [hstep] at hr; rw [← hr]
 
+/-- A continuing prefix followed by the trailing release continues with the
+released state. -/
+private theorem execIRStmts_append_lockRelease_continue (slot : Nat)
+    (hslot : slot < Compiler.Constants.evmModulus) (xs : List YulStmt) (F : Nat)
+    (state s : IRState) (hpre : execIRStmts F state xs = .continue s)
+    (hF : xs.length + 2 ≤ F) :
+    execIRStmts F state (xs ++ [lockReleaseStmt slot]) =
+      .continue (releaseState slot s) := by
+  rw [execIRStmts_append_continue [lockReleaseStmt slot] _ F state s hpre]
+  obtain ⟨k, hk⟩ : ∃ k, F - xs.length = k + 2 := ⟨F - xs.length - 2, by omega⟩
+  rw [hk, show execIRStmts (k + 2) s [lockReleaseStmt slot] =
+    (match execIRStmt (k + 1) s (lockReleaseStmt slot) with
+      | .continue s₁ => execIRStmts (k + 1) s₁ []
+      | .return v s' => .return v s'
+      | .stop s' => .stop s'
+      | .revert s' => .revert s') from rfl,
+    execIRStmt_lockRelease k s slot hslot]
+  rfl
+
 /-- Wrapper composition, fall-through analysis branch: when the halt analysis
 reports the body can fall through, `applyLockReleaseOnExits` appends a
 trailing release, and the wrapped execution equals the original with every
@@ -837,50 +804,16 @@ theorem execIRStmts_applyLockReleaseOnExits_fallthrough (slot : Nat)
         | .return v s => .return v (releaseState slot s)
         | .stop s => .stop (releaseState slot s)
         | .revert s => .revert s) := by
-  have hboundlist : 1 ≤ stmtsFuelBound (spliceLockReleaseList (lockReleaseStmt slot) xs) :=
-    stmtsFuelBound_pos _
-  unfold applyLockReleaseOnExits
-  rw [hH]
-  simp only [Bool.false_eq_true, if_false]
+  have hbound := stmtsFuelBound_pos (spliceLockReleaseList (lockReleaseStmt slot) xs)
+  simp only [applyLockReleaseOnExits, hH, Bool.false_eq_true, if_false]
   have hsim := execIRStmts_spliced slot hslot xs hSS F G state (by omega) hG
-  cases hres : execIRStmts G state xs with
-  | «continue» s =>
-      have hpre : execIRStmts F state
-          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .continue s := by
-        rw [hsim, hres]; rfl
-      rw [execIRStmts_append_continue [lockReleaseStmt slot] _ F state s hpre]
-      obtain ⟨k, hk⟩ : ∃ k, F -
-          (spliceLockReleaseList (lockReleaseStmt slot) xs).length = k + 2 :=
-        ⟨F - (spliceLockReleaseList (lockReleaseStmt slot) xs).length - 2, by omega⟩
-      rw [hk]
-      rw [show execIRStmts (k + 2) s [lockReleaseStmt slot] =
-        (match execIRStmt (k + 1) s (lockReleaseStmt slot) with
-          | .continue s₁ => execIRStmts (k + 1) s₁ []
-          | .return v s' => .return v s'
-          | .stop s' => .stop s'
-          | .revert s' => .revert s') from rfl,
-        execIRStmt_lockRelease k s slot hslot]
-      rfl
-  | «return» v s =>
-      have hpre : execIRStmts F state
-          (spliceLockReleaseList (lockReleaseStmt slot) xs) =
-          .return v (releaseState slot s) := by
-        rw [hsim, hres]; rfl
-      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
-        (by intro s' h; cases h)]
-  | stop s =>
-      have hpre : execIRStmts F state
-          (spliceLockReleaseList (lockReleaseStmt slot) xs) =
-          .stop (releaseState slot s) := by
-        rw [hsim, hres]; rfl
-      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
-        (by intro s' h; cases h)]
-  | revert s =>
-      have hpre : execIRStmts F state
-          (spliceLockReleaseList (lockReleaseStmt slot) xs) = .revert s := by
-        rw [hsim, hres]; rfl
-      rw [execIRStmts_append_halt [lockReleaseStmt slot] _ F state _ hpre
-        (by intro s' h; cases h)]
+  cases hres : execIRStmts G state xs
+  case «continue» s =>
+    exact execIRStmts_append_lockRelease_continue slot hslot _ F state s
+      (by rw [hsim, hres]; rfl) (by omega)
+  all_goals
+    exact execIRStmts_append_halt [lockReleaseStmt slot] _ F state _
+      (by rw [hsim, hres]; rfl) (by intro s' h; cases h)
 
 /-- Frame halts whose interpreter semantics actually halt (the analysis also
 marks `invalid`/`selfdestruct`, which the interpreter continues — those are

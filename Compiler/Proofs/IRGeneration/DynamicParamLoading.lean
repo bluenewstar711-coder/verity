@@ -253,6 +253,239 @@ def lengthPrefixedLoaderState (state : IRState) (name : String)
         s!"{name}_tail_head_end" (baseOffset + relativeOffset + 32)).setVar
           s!"{name}_tail_remaining" (calldataSize - (baseOffset + relativeOffset + 32))
 
+private theorem externalCalldataSize_eq (calldata : List Nat) :
+    DynamicAbi.externalCalldataSize calldata = 4 + calldata.length * 32 := by
+  simp [DynamicAbi.externalCalldataSize, Nat.mul_comm]
+
+/-- EVM word subtraction `sub(b, a)` agrees with `Nat` subtraction when it does
+not underflow. -/
+private theorem evm_sub_mod_of_le {a b : Nat} (hab : a ≤ b)
+    (hb : b < Compiler.Constants.evmModulus) :
+    (Compiler.Constants.evmModulus + b - a) % Compiler.Constants.evmModulus = b - a := by
+  have hrw : Compiler.Constants.evmModulus + b - a =
+      Compiler.Constants.evmModulus + (b - a) := by omega
+  rw [hrw, Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
+
+private theorem absOffset_ne_length (name : String) :
+    s!"{name}_abs_offset" ≠ s!"{name}_length" := by
+  show name ++ "_abs_offset" ≠ name ++ "_length"
+  exact append_right_ne_of_length_ne name (by decide)
+
+/-- `let n := calldataload(offset)` binds the calldata word at a literal offset. -/
+private theorem exec_let_calldataload_lit (f : Nat) (state : IRState) (n : String)
+    (offset value : Nat)
+    (h : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata offset =
+      value) :
+    execIRStmt (f + 1) state
+        (YulStmt.let_ n (YulExpr.call "calldataload" [YulExpr.lit offset])) =
+      .continue (state.setVar n value) := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, h]
+
+/-- `let n := calldataload(m)` binds the calldata word at the offset held in `m`. -/
+private theorem exec_let_calldataload_ident (f : Nat) (state : IRState) (n m : String)
+    (offset value : Nat) (hget : state.getVar m = some offset)
+    (h : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata offset =
+      value) :
+    execIRStmt (f + 1) state
+        (YulStmt.let_ n (YulExpr.call "calldataload" [YulExpr.ident m])) =
+      .continue (state.setVar n value) := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, h]
+
+/-- `if lt(n, bound) { revert }` is a no-op once `n` holds a word `≥ bound`. -/
+private theorem exec_revertIfLtLit_noop (f : Nat) (state : IRState) (n : String)
+    (value bound : Nat) (hget : state.getVar n = some value)
+    (hvalue : value < Compiler.Constants.evmModulus) (hbound : bound ≤ value) :
+    execIRStmt (f + 1) state
+        (YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident n, YulExpr.lit bound])
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+      .continue state := by
+  have hnot : ¬ value % Compiler.Constants.evmModulus <
+      bound % Compiler.Constants.evmModulus := by
+    rw [Nat.mod_eq_of_lt hvalue, Nat.mod_eq_of_lt (by omega)]; omega
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hnot]
+
+/-- `let n := add(base, m)` binds `base + m` when the sum fits in a word. -/
+private theorem exec_let_add_lit_ident (f : Nat) (state : IRState) (n m : String)
+    (base value : Nat) (hget : state.getVar m = some value)
+    (hlt : base + value < Compiler.Constants.evmModulus) :
+    execIRStmt (f + 1) state
+        (YulStmt.let_ n (YulExpr.call "add" [YulExpr.lit base, YulExpr.ident m])) =
+      .continue (state.setVar n (base + value)) := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    Nat.mod_eq_of_lt hlt]
+
+/-- `let n := add(m, 32)` binds `m + 32` when the sum fits in a word. -/
+private theorem exec_let_add_ident_32 (f : Nat) (state : IRState) (n m : String)
+    (value : Nat) (hget : state.getVar m = some value)
+    (hlt : value + 32 < Compiler.Constants.evmModulus) :
+    execIRStmt (f + 1) state
+        (YulStmt.let_ n (YulExpr.call "add" [YulExpr.ident m, YulExpr.lit 32])) =
+      .continue (state.setVar n (value + 32)) := by
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    Nat.mod_eq_of_lt hlt]
+
+/-- `let n := m` copies the value held in `m`. -/
+private theorem exec_let_ident (f : Nat) (state : IRState) (n m : String) (value : Nat)
+    (hget : state.getVar m = some value) :
+    execIRStmt (f + 1) state (YulStmt.let_ n (YulExpr.ident m)) =
+      .continue (state.setVar n value) := by
+  simp [execIRStmt, evalIRExpr, hget]
+
+/-- `if gt(n, sub(calldatasize(), 32)) { revert }` is a no-op once `n` holds an
+offset leaving room for one more word of calldata. -/
+private theorem exec_revertIfGtSizeSub32_noop (f : Nat) (state : IRState) (n : String)
+    (value : Nat) (hget : state.getVar n = some value)
+    (hsize : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hbound : value + 32 ≤ 4 + state.calldata.length * 32) :
+    execIRStmt (f + 1) state
+        (YulStmt.if_ (YulExpr.call "gt"
+          [ YulExpr.ident n
+          , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
+          [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
+      .continue state := by
+  have hEvm : (32 : Nat) < Compiler.Constants.evmModulus := by omega
+  have hnot : ¬ (4 + state.calldata.length * 32 - 32) % Compiler.Constants.evmModulus <
+      value % Compiler.Constants.evmModulus := by
+    rw [Nat.mod_eq_of_lt (show 4 + state.calldata.length * 32 - 32 <
+        Compiler.Constants.evmModulus by omega), Nat.mod_eq_of_lt (by omega)]
+    omega
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    Nat.mod_eq_of_lt hsize, Nat.mod_eq_of_lt hEvm, evm_sub_mod_of_le (a := 32) (by omega) hsize,
+    hnot]
+
+/-- `let n := sub(calldatasize(), m)` binds the calldata remaining after `m`. -/
+private theorem exec_let_sub_calldatasize_ident (f : Nat) (state : IRState) (n m : String)
+    (calldata : List Nat) (value : Nat) (hcd : state.calldata = calldata)
+    (hget : state.getVar m = some value)
+    (hsize : 4 + calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hle : value ≤ 4 + calldata.length * 32) :
+    execIRStmt (f + 1) state
+        (YulStmt.let_ n (YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.ident m])) =
+      .continue (state.setVar n (4 + calldata.length * 32 - value)) := by
+  have hlt : value < Compiler.Constants.evmModulus := by omega
+  simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget, hcd,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    Nat.mod_eq_of_lt hsize, Nat.mod_eq_of_lt hlt, evm_sub_mod_of_le hle hsize]
+
+/-- The first two loader statements: load the head word, then check that it
+clears the head area. -/
+private theorem exec_offsetLoad_then (state : IRState) (tail : List YulStmt) (name : String)
+    (headSize headOffset relativeOffset k : Nat)
+    (hro : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
+      headOffset = relativeOffset)
+    (hroLt : relativeOffset < Compiler.Constants.evmModulus)
+    (hheadBound : headSize ≤ relativeOffset) :
+    execIRStmts (k + 3) state
+        (YulStmt.let_ s!"{name}_offset" (YulExpr.call "calldataload" [YulExpr.lit headOffset]) ::
+          YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident s!"{name}_offset", YulExpr.lit headSize])
+            [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] :: tail) =
+      execIRStmts (k + 1) (state.setVar s!"{name}_offset" relativeOffset) tail := by
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _
+      (exec_let_calldataload_lit (k + 1) state _ _ _ hro),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _
+      (exec_revertIfLtLit_noop k _ _ _ _ (getVar_setVar_self _ _ _) hroLt hheadBound)]
+
+/-- The third and fourth loader statements: compute the absolute offset, then
+check that one word of calldata remains past it. -/
+private theorem exec_absOffset_then (state : IRState) (tail : List YulStmt) (name : String)
+    (baseOffset relativeOffset k : Nat)
+    (hget : state.getVar s!"{name}_offset" = some relativeOffset)
+    (hsize : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (htailBound : baseOffset + relativeOffset + 32 ≤ 4 + state.calldata.length * 32) :
+    execIRStmts (k + 3) state
+        (YulStmt.let_ s!"{name}_abs_offset"
+            (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident s!"{name}_offset"]) ::
+          YulStmt.if_ (YulExpr.call "gt"
+            [ YulExpr.ident s!"{name}_abs_offset"
+            , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
+            [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] :: tail) =
+      execIRStmts (k + 1)
+        (state.setVar s!"{name}_abs_offset" (baseOffset + relativeOffset)) tail := by
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_let_add_lit_ident (k + 1) state
+      s!"{name}_abs_offset" _ baseOffset _ hget (by omega)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_revertIfGtSizeSub32_noop k
+      (state.setVar s!"{name}_abs_offset" (baseOffset + relativeOffset)) _ _
+      (getVar_setVar_self _ _ _) hsize htailBound)]
+
+/-- The fifth to seventh loader statements: load the length word, then bind the
+tail start and the calldata remaining after it. -/
+private theorem exec_lengthTail_then (state : IRState) (tail : List YulStmt) (name : String)
+    (calldata : List Nat) (absOffset length k : Nat) (hcd : state.calldata = calldata)
+    (hget : state.getVar s!"{name}_abs_offset" = some absOffset)
+    (hsize : 4 + calldata.length * 32 < Compiler.Constants.evmModulus)
+    (htailBound : absOffset + 32 ≤ 4 + calldata.length * 32)
+    (hlenWord : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
+      absOffset = length) :
+    execIRStmts (k + 4) state
+        (YulStmt.let_ s!"{name}_length"
+            (YulExpr.call "calldataload" [YulExpr.ident s!"{name}_abs_offset"]) ::
+          YulStmt.let_ s!"{name}_tail_head_end"
+            (YulExpr.call "add" [YulExpr.ident s!"{name}_abs_offset", YulExpr.lit 32]) ::
+          YulStmt.let_ s!"{name}_tail_remaining" (YulExpr.call "sub"
+            [YulExpr.call "calldatasize" [], YulExpr.ident s!"{name}_tail_head_end"]) :: tail) =
+      execIRStmts (k + 1) (((state.setVar s!"{name}_length" length).setVar
+        s!"{name}_tail_head_end" (absOffset + 32)).setVar s!"{name}_tail_remaining"
+          (4 + calldata.length * 32 - (absOffset + 32))) tail := by
+  have hget' : (state.setVar s!"{name}_length" length).getVar s!"{name}_abs_offset" =
+      some absOffset := by rw [getVar_setVar_of_ne _ _ _ _ (absOffset_ne_length name), hget]
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _
+      (exec_let_calldataload_ident (k + 2) state _ _ _ _ hget hlenWord),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _
+      (exec_let_add_ident_32 (k + 1) _ s!"{name}_tail_head_end" _ _ hget' (by omega)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (exec_let_sub_calldatasize_ident k
+      ((state.setVar s!"{name}_length" length).setVar s!"{name}_tail_head_end" (absOffset + 32))
+      s!"{name}_tail_remaining" _ calldata _ hcd (getVar_setVar_self _ _ _) hsize htailBound)]
+
+/-- The first seven statements of a length-prefixed loader run straight through
+to `lengthPrefixedLoaderState`, leaving the payload guard and the data pointer. -/
+private theorem exec_lengthPrefixedLoaderStmts_prefix
+    (state : IRState) (rest : List YulStmt) (name : String)
+    (headSize baseOffset headOffset relativeOffset length k : Nat) (payloadGuard : YulStmt)
+    (hsize : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hro : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
+      headOffset = relativeOffset)
+    (hheadBound : headSize ≤ relativeOffset)
+    (htailBound : baseOffset + relativeOffset + 32 ≤ 4 + state.calldata.length * 32)
+    (hlenWord : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
+      (baseOffset + relativeOffset) = length) :
+    execIRStmts (k + 8) state
+        (lengthPrefixedLoaderStmts (fun pos => YulExpr.call "calldataload" [pos])
+          (YulExpr.call "calldatasize" []) headSize baseOffset name headOffset payloadGuard
+          ++ rest) =
+      execIRStmts (k + 1)
+        (lengthPrefixedLoaderState state name (4 + state.calldata.length * 32) baseOffset
+          relativeOffset length)
+        (payloadGuard ::
+          YulStmt.let_ s!"{name}_data_offset" (YulExpr.ident s!"{name}_tail_head_end") ::
+            rest) := by
+  simp only [lengthPrefixedLoaderStmts, lengthPrefixedLoaderState, List.cons_append,
+    List.nil_append]
+  rw [exec_offsetLoad_then state _ name headSize headOffset relativeOffset (k + 5) hro
+      (by omega) hheadBound,
+    exec_absOffset_then _ _ name baseOffset relativeOffset (k + 3) (getVar_setVar_self _ _ _)
+      hsize htailBound, exec_lengthTail_then _ _ name state.calldata _ length k]
+  all_goals first | rfl | assumption | exact getVar_setVar_self _ _ _
+
+private theorem getVar_lengthPrefixedLoaderState_tailHeadEnd (state : IRState) (name : String)
+    (calldataSize baseOffset relativeOffset length : Nat) :
+    (lengthPrefixedLoaderState state name calldataSize baseOffset relativeOffset length).getVar
+      s!"{name}_tail_head_end" = some (baseOffset + relativeOffset + 32) := by
+  rw [lengthPrefixedLoaderState,
+    getVar_setVar_of_ne _ _ _ _ (tailHeadEnd_ne_tailRemaining name), getVar_setVar_self]
+
 /-- Executing the nine statements the compiler emits for a length-prefixed
 dynamic external parameter binds exactly the six values the ABI model assigns to
 it, and never reverts, whenever the calldata satisfies the model's decoding side
@@ -264,13 +497,11 @@ length-prefixed type; `bytes`/`string` and `T[]` differ only in what they
 compare the length against (verity#2085). -/
 theorem exec_lengthPrefixedLoaderStmts_then
     (state : IRState) (rest : List YulStmt) (name : String)
-    (headSize baseOffset headOffset relativeOffset length extraFuel : Nat)
-    (payloadGuard : YulStmt)
+    (headSize baseOffset headOffset relativeOffset length extraFuel : Nat) (payloadGuard : YulStmt)
     (hcalldataSize :
       DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus)
     (hhead : DynamicAbi.externalWordAt? state.selector state.calldata headOffset =
-      some relativeOffset)
-    (hheadBound : headSize ≤ relativeOffset)
+      some relativeOffset) (hheadBound : headSize ≤ relativeOffset)
     (htailBound :
       baseOffset + relativeOffset + 32 ≤ DynamicAbi.externalCalldataSize state.calldata)
     (hlength :
@@ -291,175 +522,36 @@ theorem exec_lengthPrefixedLoaderStmts_then
         (ParamLoading.applyBindingsToIRState state
           (bytesParamBindings name (DynamicAbi.externalCalldataSize state.calldata)
             baseOffset relativeOffset length)) rest := by
-  have hcsz : DynamicAbi.externalCalldataSize state.calldata =
-      4 + state.calldata.length * 32 := by
-    simp [DynamicAbi.externalCalldataSize, Nat.mul_comm]
-  rw [hcsz] at hcalldataSize htailBound hguard ⊢
-  simp only [lengthPrefixedLoaderState] at hguard
-  have hro : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
-      headOffset = relativeOffset := externalWordAt?_eq_calldataloadWord hhead
-  have hlenWord : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
-      (baseOffset + relativeOffset) = length := externalWordAt?_eq_calldataloadWord hlength
-  have hEvm : (32 : Nat) < Compiler.Constants.evmModulus := by omega
-  have hroLt : relativeOffset < Compiler.Constants.evmModulus := by omega
-  have hHeadSizeLt : headSize < Compiler.Constants.evmModulus := by omega
-  have hAbsLt : baseOffset + relativeOffset < Compiler.Constants.evmModulus := by omega
-  have hTheLt : baseOffset + relativeOffset + 32 < Compiler.Constants.evmModulus := by omega
-  have hSizeLt : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus := hcalldataSize
-  -- `calldatasize() - 32` and `calldatasize() - {name}_tail_head_end` in EVM word arithmetic
-  have hSub32 : (Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) - 32) %
-      Compiler.Constants.evmModulus = 4 + state.calldata.length * 32 - 32 := by
-    have hrw : Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) - 32 =
-        Compiler.Constants.evmModulus + (4 + state.calldata.length * 32 - 32) := by omega
-    rw [hrw, Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-  have hSubTail : (Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) -
-      (baseOffset + relativeOffset + 32)) % Compiler.Constants.evmModulus =
-      4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32) := by
-    have hrw : Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) -
-        (baseOffset + relativeOffset + 32) =
-        Compiler.Constants.evmModulus +
-          (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32)) := by omega
-    rw [hrw, Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-  -- Abbreviations for the six generated locals and the intermediate IR states.
-  set nOffset := s!"{name}_offset" with hnOffset
-  set nAbs := s!"{name}_abs_offset" with hnAbs
-  set nLength := s!"{name}_length" with hnLength
-  set nTailHeadEnd := s!"{name}_tail_head_end" with hnTailHeadEnd
-  set nTailRemaining := s!"{name}_tail_remaining" with hnTailRemaining
-  set nDataOffset := s!"{name}_data_offset" with hnDataOffset
-  have hLenNeThe : nLength ≠ nTailHeadEnd := length_ne_tailHeadEnd name
-  have hLenNeTr : nLength ≠ nTailRemaining := length_ne_tailRemaining name
-  have hTheNeTr : nTailHeadEnd ≠ nTailRemaining := tailHeadEnd_ne_tailRemaining name
-  -- Statement 1: `let {name}_offset := calldataload(headOffset)`
-  have h1 : ∀ f : Nat, execIRStmt (f + 1) state
-      (YulStmt.let_ nOffset (YulExpr.call "calldataload" [YulExpr.lit headOffset])) =
-      .continue (state.setVar nOffset relativeOffset) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hro]
-  -- Statement 2: `if lt({name}_offset, headSize) { revert }` — never taken
-  have h2 : ∀ f : Nat, execIRStmt (f + 1) (state.setVar nOffset relativeOffset)
-      (YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident nOffset, YulExpr.lit headSize])
-        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-      .continue (state.setVar nOffset relativeOffset) := by
-    intro f
-    have hnot : ¬ relativeOffset % Compiler.Constants.evmModulus <
-        headSize % Compiler.Constants.evmModulus := by
-      rw [Nat.mod_eq_of_lt hroLt, Nat.mod_eq_of_lt hHeadSizeLt]; omega
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hnot]
-  -- Statement 3: `let {name}_abs_offset := add(baseOffset, {name}_offset)`
-  have h3 : ∀ f : Nat, execIRStmt (f + 1) (state.setVar nOffset relativeOffset)
-      (YulStmt.let_ nAbs
-        (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident nOffset])) =
-      .continue ((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hAbsLt]
-  -- Statement 4: `if gt({name}_abs_offset, sub(calldatasize(), 32)) { revert }` — never taken
-  have h4 : ∀ f : Nat, execIRStmt (f + 1)
-      ((state.setVar nOffset relativeOffset).setVar nAbs (baseOffset + relativeOffset))
-      (YulStmt.if_ (YulExpr.call "gt"
-        [ YulExpr.ident nAbs
-        , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
-        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-      .continue ((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)) := by
-    intro f
-    have hnot : ¬ (4 + state.calldata.length * 32 - 32) % Compiler.Constants.evmModulus <
-        (baseOffset + relativeOffset) % Compiler.Constants.evmModulus := by
-      rw [Nat.mod_eq_of_lt (show 4 + state.calldata.length * 32 - 32 <
-          Compiler.Constants.evmModulus by omega), Nat.mod_eq_of_lt hAbsLt]
-      omega
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hSizeLt, Nat.mod_eq_of_lt hEvm, hSub32, hnot]
-  -- Statement 5: `let {name}_length := calldataload({name}_abs_offset)`
-  have h5 : ∀ f : Nat, execIRStmt (f + 1)
-      ((state.setVar nOffset relativeOffset).setVar nAbs (baseOffset + relativeOffset))
-      (YulStmt.let_ nLength (YulExpr.call "calldataload" [YulExpr.ident nAbs])) =
-      .continue (((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hlenWord]
-  -- Statement 6: `let {name}_tail_head_end := add({name}_abs_offset, 32)`
-  have h6 : ∀ f : Nat, execIRStmt (f + 1)
-      (((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length)
-      (YulStmt.let_ nTailHeadEnd
-        (YulExpr.call "add" [YulExpr.ident nAbs, YulExpr.lit 32])) =
-      .continue ((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32)) := by
-    intro f
-    have hget : ((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length)).getVar nAbs =
-        some (baseOffset + relativeOffset) := by
-      rw [getVar_setVar_of_ne _ _ _ _ (by
-        rw [hnAbs, hnLength]
-        show name ++ "_abs_offset" ≠ name ++ "_length"
-        exact append_right_ne_of_length_ne name (by decide)), getVar_setVar_self]
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hget,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hTheLt]
-  -- Statement 7: `let {name}_tail_remaining := sub(calldatasize(), {name}_tail_head_end)`
-  have h7 : ∀ f : Nat, execIRStmt (f + 1)
-      ((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32))
-      (YulStmt.let_ nTailRemaining
-        (YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.ident nTailHeadEnd])) =
-      .continue (((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32)).setVar nTailRemaining
-            (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32))) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hSizeLt, Nat.mod_eq_of_lt hTheLt, hSubTail]
-  -- Statement 8: the type-specific payload guard — never taken, by `hguard`.
-  -- Statement 9: `let {name}_data_offset := {name}_tail_head_end`
-  have h9 : ∀ f : Nat, execIRStmt (f + 1)
-      (((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32)).setVar nTailRemaining
-            (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32)))
-      (YulStmt.let_ nDataOffset (YulExpr.ident nTailHeadEnd)) =
-      .continue ((((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32)).setVar nTailRemaining
-            (4 + state.calldata.length * 32 - (baseOffset + relativeOffset + 32))).setVar
-              nDataOffset (baseOffset + relativeOffset + 32)) := by
-    intro f
-    have hget : (((((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nLength length).setVar nTailHeadEnd
-          (baseOffset + relativeOffset + 32)).setVar nTailRemaining
-            (4 + state.calldata.length * 32 -
-              (baseOffset + relativeOffset + 32))).getVar nTailHeadEnd =
-        some (baseOffset + relativeOffset + 32) := by
-      rw [getVar_setVar_of_ne _ _ _ _ hTheNeTr, getVar_setVar_self]
-    simp [execIRStmt, evalIRExpr, hget]
-  simp only [lengthPrefixedLoaderStmts, bytesParamBindings,
-    ParamLoading.applyBindingsToIRState, List.cons_append, List.nil_append]
-  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 8)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 7)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 6)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 5)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h5 (rest.length + extraFuel + 4)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h6 (rest.length + extraFuel + 3)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h7 (rest.length + extraFuel + 2)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (hguard (rest.length + extraFuel + 1)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h9 (rest.length + extraFuel))]
+  rw [externalCalldataSize_eq] at hcalldataSize htailBound hguard ⊢
+  rw [exec_lengthPrefixedLoaderStmts_prefix _ _ _ _ _ _ _ _ _ _ hcalldataSize
+      (externalWordAt?_eq_calldataloadWord hhead) hheadBound htailBound
+      (externalWordAt?_eq_calldataloadWord hlength),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (hguard _)]
+  exact execIRStmts_succ_cons_of_continue _ _ _ _ _
+    (exec_let_ident _ _ _ _ _ (getVar_lengthPrefixedLoaderState_tailHeadEnd _ _ _ _ _ _))
+
+private theorem getVar_lengthPrefixedLoaderState_length (state : IRState) (name : String)
+    (calldataSize baseOffset relativeOffset length : Nat) :
+    (lengthPrefixedLoaderState state name calldataSize baseOffset relativeOffset length).getVar
+      s!"{name}_length" = some length := by
+  rw [lengthPrefixedLoaderState,
+    getVar_setVar_of_ne _ _ _ _ (length_ne_tailRemaining name),
+    getVar_setVar_of_ne _ _ _ _ (length_ne_tailHeadEnd name), getVar_setVar_self]
+
+/-- `bytesPayloadGuard` is a no-op once the length fits in the remaining calldata. -/
+private theorem exec_bytesPayloadGuard_noop_of_getVar (f : Nat) (state : IRState)
+    (name : String) (length remaining : Nat)
+    (hlen : state.getVar s!"{name}_length" = some length)
+    (hrem : state.getVar s!"{name}_tail_remaining" = some remaining)
+    (hremLt : remaining < Compiler.Constants.evmModulus) (hbound : length ≤ remaining) :
+    execIRStmt (f + 1) state (bytesPayloadGuard name) = .continue state := by
+  have hnot : ¬ remaining % Compiler.Constants.evmModulus <
+      length % Compiler.Constants.evmModulus := by
+    rw [Nat.mod_eq_of_lt (show length < Compiler.Constants.evmModulus by omega),
+      Nat.mod_eq_of_lt hremLt]; omega
+  simp [bytesPayloadGuard, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hlen, hrem,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hnot]
 
 /-- The `bytes`/`string` payload guard never reverts when the model's payload
 bound holds: the length word is at most the calldata remaining after it. -/
@@ -478,25 +570,9 @@ private theorem exec_bytesPayloadGuard_noop
         (bytesPayloadGuard name) =
       .continue (lengthPrefixedLoaderState state name
         (DynamicAbi.externalCalldataSize state.calldata) baseOffset relativeOffset length) := by
-  set calldataSize := DynamicAbi.externalCalldataSize state.calldata with hsize
-  have hLengthLt : length < Compiler.Constants.evmModulus := by omega
-  have hTrLt :
-      calldataSize - (baseOffset + relativeOffset + 32) < Compiler.Constants.evmModulus := by
-    omega
-  have hgetLength :
-      (lengthPrefixedLoaderState state name calldataSize baseOffset relativeOffset
-        length).getVar s!"{name}_length" = some length := by
-    rw [lengthPrefixedLoaderState,
-      getVar_setVar_of_ne _ _ _ _ (length_ne_tailRemaining name),
-      getVar_setVar_of_ne _ _ _ _ (length_ne_tailHeadEnd name), getVar_setVar_self]
-  simp only [lengthPrefixedLoaderState] at hgetLength
-  have hnot : ¬ (calldataSize - (baseOffset + relativeOffset + 32)) %
-      Compiler.Constants.evmModulus < length % Compiler.Constants.evmModulus := by
-    rw [Nat.mod_eq_of_lt hLengthLt, Nat.mod_eq_of_lt hTrLt]; omega
-  simp [bytesPayloadGuard, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hgetLength,
-    lengthPrefixedLoaderState, getVar_setVar_self,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hnot]
+  exact exec_bytesPayloadGuard_noop_of_getVar f _ name length _
+    (getVar_lengthPrefixedLoaderState_length _ _ _ _ _ _) (getVar_setVar_self _ _ _)
+    (by omega) hpayloadBound
 
 /-- Executing the nine statements the compiler emits for a `bytes` external
 parameter binds exactly the six values the ABI model assigns to it, and never
@@ -524,11 +600,42 @@ theorem exec_bytesLoaderStmts_then
         (ParamLoading.applyBindingsToIRState state
           (bytesParamBindings name (DynamicAbi.externalCalldataSize state.calldata)
             baseOffset relativeOffset length)) rest :=
-  exec_lengthPrefixedLoaderStmts_then state rest name headSize baseOffset headOffset
-    relativeOffset length extraFuel (bytesPayloadGuard name) hcalldataSize hhead hheadBound
-    htailBound hlength
-    (exec_bytesPayloadGuard_noop state name baseOffset relativeOffset length hcalldataSize
-      hpayloadBound)
+  exec_lengthPrefixedLoaderStmts_then state rest name headSize baseOffset headOffset _ _
+    extraFuel _ hcalldataSize hhead hheadBound htailBound hlength
+    (exec_bytesPayloadGuard_noop _ _ _ _ _ hcalldataSize hpayloadBound)
+
+/-- The `div` comparison in `arrayPayloadGuard` never fires within the bound. -/
+private theorem array_guard_not_lt {remaining stride length : Nat}
+    (hstride : stride < Compiler.Constants.evmModulus)
+    (hremLt : remaining < Compiler.Constants.evmModulus) (hbound : length ≤ remaining / stride) :
+    ¬ (remaining % Compiler.Constants.evmModulus / (stride % Compiler.Constants.evmModulus)) %
+      Compiler.Constants.evmModulus < length % Compiler.Constants.evmModulus := by
+  have hquotLt : remaining / stride < Compiler.Constants.evmModulus :=
+    lt_of_le_of_lt (Nat.div_le_self _ _) hremLt
+  rw [Nat.mod_eq_of_lt hstride, Nat.mod_eq_of_lt hremLt, Nat.mod_eq_of_lt hquotLt,
+    Nat.mod_eq_of_lt (show length < Compiler.Constants.evmModulus by omega)]
+  omega
+
+/-- `arrayPayloadGuard` is a no-op once the element count fits in the remaining
+calldata at one `dynamicArrayElementStrideWords` stride per element. -/
+private theorem exec_arrayPayloadGuard_noop_of_getVar (f : Nat) (state : IRState)
+    (name : String) (elemTy : ParamType) (length remaining : Nat)
+    (hlen : state.getVar s!"{name}_length" = some length)
+    (hrem : state.getVar s!"{name}_tail_remaining" = some remaining)
+    (hstride : 32 * dynamicArrayElementStrideWords elemTy < Compiler.Constants.evmModulus)
+    (hremLt : remaining < Compiler.Constants.evmModulus)
+    (hbound : length ≤ remaining / (32 * dynamicArrayElementStrideWords elemTy)) :
+    execIRStmt (f + 1) state (arrayPayloadGuard name elemTy) = .continue state := by
+  have hstridePos : 0 < 32 * dynamicArrayElementStrideWords elemTy := by
+    have := dynamicArrayElementStrideWords_pos elemTy
+    omega
+  have hstrideNe : ¬ 32 * dynamicArrayElementStrideWords elemTy %
+      Compiler.Constants.evmModulus = 0 := by
+    rw [Nat.mod_eq_of_lt hstride]; omega
+  simp [arrayPayloadGuard, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hlen, hrem,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
+    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
+    hstrideNe, array_guard_not_lt hstride hremLt hbound]
 
 /-- The `T[]` payload guard never reverts when the model's element-count bound
 holds. The emitted `div` agrees with `Nat` division because the stride literal
@@ -552,47 +659,9 @@ private theorem exec_arrayPayloadGuard_noop
         (arrayPayloadGuard name elemTy) =
       .continue (lengthPrefixedLoaderState state name
         (DynamicAbi.externalCalldataSize state.calldata) baseOffset relativeOffset length) := by
-  set calldataSize := DynamicAbi.externalCalldataSize state.calldata with hsize
-  have hstridePos : 0 < 32 * dynamicArrayElementStrideWords elemTy := by
-    have := dynamicArrayElementStrideWords_pos elemTy
-    omega
-  have hTrLt :
-      calldataSize - (baseOffset + relativeOffset + 32) < Compiler.Constants.evmModulus := by
-    omega
-  have hquotLe :
-      (calldataSize - (baseOffset + relativeOffset + 32)) /
-          (32 * dynamicArrayElementStrideWords elemTy) ≤
-        calldataSize - (baseOffset + relativeOffset + 32) := Nat.div_le_self _ _
-  have hLengthLt : length < Compiler.Constants.evmModulus := by omega
-  have hgetLength :
-      (lengthPrefixedLoaderState state name calldataSize baseOffset relativeOffset
-        length).getVar s!"{name}_length" = some length := by
-    rw [lengthPrefixedLoaderState,
-      getVar_setVar_of_ne _ _ _ _ (length_ne_tailRemaining name),
-      getVar_setVar_of_ne _ _ _ _ (length_ne_tailHeadEnd name), getVar_setVar_self]
-  simp only [lengthPrefixedLoaderState] at hgetLength
-  have hstrideMod : 32 * dynamicArrayElementStrideWords elemTy %
-      Compiler.Constants.evmModulus = 32 * dynamicArrayElementStrideWords elemTy :=
-    Nat.mod_eq_of_lt hstride
-  have hstrideNe : ¬ 32 * dynamicArrayElementStrideWords elemTy %
-      Compiler.Constants.evmModulus = 0 := by
-    rw [hstrideMod]; omega
-  have hquotLt :
-      (calldataSize - (baseOffset + relativeOffset + 32)) /
-        (32 * dynamicArrayElementStrideWords elemTy) < Compiler.Constants.evmModulus := by
-    omega
-  have hnot : ¬ ((calldataSize - (baseOffset + relativeOffset + 32)) %
-      Compiler.Constants.evmModulus /
-      (32 * dynamicArrayElementStrideWords elemTy % Compiler.Constants.evmModulus)) %
-      Compiler.Constants.evmModulus < length % Compiler.Constants.evmModulus := by
-    rw [hstrideMod, Nat.mod_eq_of_lt hTrLt, Nat.mod_eq_of_lt hquotLt,
-      Nat.mod_eq_of_lt hLengthLt]
-    omega
-  simp [arrayPayloadGuard, execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hgetLength,
-    lengthPrefixedLoaderState, getVar_setVar_self,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-    hstrideNe, hnot]
+  exact exec_arrayPayloadGuard_noop_of_getVar f _ name elemTy length _
+    (getVar_lengthPrefixedLoaderState_length _ _ _ _ _ _) (getVar_setVar_self _ _ _) hstride
+    (by omega) hpayloadBound
 
 /-- Executing the nine statements the compiler emits for a `T[]` external
 parameter binds exactly the six values the ABI model assigns to it, and never
@@ -623,11 +692,9 @@ theorem exec_arrayLoaderStmts_then
         (ParamLoading.applyBindingsToIRState state
           (bytesParamBindings name (DynamicAbi.externalCalldataSize state.calldata)
             baseOffset relativeOffset length)) rest :=
-  exec_lengthPrefixedLoaderStmts_then state rest name headSize baseOffset headOffset
-    relativeOffset length extraFuel (arrayPayloadGuard name elemTy) hcalldataSize hhead
-    hheadBound htailBound hlength
-    (exec_arrayPayloadGuard_noop state name elemTy baseOffset relativeOffset length
-      hcalldataSize hstride hpayloadBound)
+  exec_lengthPrefixedLoaderStmts_then state rest name headSize baseOffset headOffset _ _
+    extraFuel _ hcalldataSize hhead hheadBound htailBound hlength
+    (exec_arrayPayloadGuard_noop _ _ _ _ _ _ hcalldataSize hstride hpayloadBound)
 
 /-- The bindings `DynamicAbi.bindExternalParam` produces for a dynamic composite
 with no length word, as an `IRState` update. -/
@@ -657,90 +724,16 @@ theorem exec_dynamicCompositeLoaderStmts_then
       execIRStmts (rest.length + extraFuel + 1)
         (ParamLoading.applyBindingsToIRState state
           (dynamicCompositeParamBindings name baseOffset relativeOffset)) rest := by
-  have hcsz : DynamicAbi.externalCalldataSize state.calldata =
-      4 + state.calldata.length * 32 := by
-    simp [DynamicAbi.externalCalldataSize, Nat.mul_comm]
-  rw [hcsz] at hcalldataSize htailBound
-  have hro : Compiler.Proofs.YulGeneration.calldataloadWord state.selector state.calldata
-      headOffset = relativeOffset := externalWordAt?_eq_calldataloadWord hhead
-  have hEvm : (32 : Nat) < Compiler.Constants.evmModulus := by omega
-  have hroLt : relativeOffset < Compiler.Constants.evmModulus := by omega
-  have hHeadSizeLt : headSize < Compiler.Constants.evmModulus := by omega
-  have hAbsLt : baseOffset + relativeOffset < Compiler.Constants.evmModulus := by omega
-  have hSizeLt : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus := hcalldataSize
-  have hSub32 : (Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) - 32) %
-      Compiler.Constants.evmModulus = 4 + state.calldata.length * 32 - 32 := by
-    have hrw : Compiler.Constants.evmModulus + (4 + state.calldata.length * 32) - 32 =
-        Compiler.Constants.evmModulus + (4 + state.calldata.length * 32 - 32) := by omega
-    rw [hrw, Nat.add_mod_left, Nat.mod_eq_of_lt (by omega)]
-  set nOffset := s!"{name}_offset" with hnOffset
-  set nAbs := s!"{name}_abs_offset" with hnAbs
-  set nDataOffset := s!"{name}_data_offset" with hnDataOffset
-  -- Statement 1: `let {name}_offset := calldataload(headOffset)`
-  have h1 : ∀ f : Nat, execIRStmt (f + 1) state
-      (YulStmt.let_ nOffset (YulExpr.call "calldataload" [YulExpr.lit headOffset])) =
-      .continue (state.setVar nOffset relativeOffset) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hro]
-  -- Statement 2: `if lt({name}_offset, headSize) { revert }` — never taken
-  have h2 : ∀ f : Nat, execIRStmt (f + 1) (state.setVar nOffset relativeOffset)
-      (YulStmt.if_ (YulExpr.call "lt" [YulExpr.ident nOffset, YulExpr.lit headSize])
-        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-      .continue (state.setVar nOffset relativeOffset) := by
-    intro f
-    have hnot : ¬ relativeOffset % Compiler.Constants.evmModulus <
-        headSize % Compiler.Constants.evmModulus := by
-      rw [Nat.mod_eq_of_lt hroLt, Nat.mod_eq_of_lt hHeadSizeLt]; omega
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean, hnot]
-  -- Statement 3: `let {name}_abs_offset := add(baseOffset, {name}_offset)`
-  have h3 : ∀ f : Nat, execIRStmt (f + 1) (state.setVar nOffset relativeOffset)
-      (YulStmt.let_ nAbs
-        (YulExpr.call "add" [YulExpr.lit baseOffset, YulExpr.ident nOffset])) =
-      .continue ((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hAbsLt]
-  -- Statement 4: `if gt({name}_abs_offset, sub(calldatasize(), 32)) { revert }` — never taken
-  have h4 : ∀ f : Nat, execIRStmt (f + 1)
-      ((state.setVar nOffset relativeOffset).setVar nAbs (baseOffset + relativeOffset))
-      (YulStmt.if_ (YulExpr.call "gt"
-        [ YulExpr.ident nAbs
-        , YulExpr.call "sub" [YulExpr.call "calldatasize" [], YulExpr.lit 32] ])
-        [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-      .continue ((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)) := by
-    intro f
-    have hnot : ¬ (4 + state.calldata.length * 32 - 32) % Compiler.Constants.evmModulus <
-        (baseOffset + relativeOffset) % Compiler.Constants.evmModulus := by
-      rw [Nat.mod_eq_of_lt (show 4 + state.calldata.length * 32 - 32 <
-          Compiler.Constants.evmModulus by omega), Nat.mod_eq_of_lt hAbsLt]
-      omega
-    simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, getVar_setVar_self,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-      Compiler.Proofs.YulGeneration.Backends.evalBuiltinCallViaEvmYulLean,
-      Nat.mod_eq_of_lt hSizeLt, Nat.mod_eq_of_lt hEvm, hSub32, hnot]
-  -- Statement 5: `let {name}_data_offset := {name}_abs_offset`
-  have h5 : ∀ f : Nat, execIRStmt (f + 1)
-      ((state.setVar nOffset relativeOffset).setVar nAbs (baseOffset + relativeOffset))
-      (YulStmt.let_ nDataOffset (YulExpr.ident nAbs)) =
-      .continue (((state.setVar nOffset relativeOffset).setVar nAbs
-        (baseOffset + relativeOffset)).setVar nDataOffset (baseOffset + relativeOffset)) := by
-    intro f
-    simp [execIRStmt, evalIRExpr, getVar_setVar_self]
+  rw [externalCalldataSize_eq] at hcalldataSize htailBound
   simp only [dynamicCompositeLoaderStmts, dynamicCompositeParamBindings,
     ParamLoading.applyBindingsToIRState, List.cons_append, List.nil_append]
-  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 4)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 3)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 2)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 1)),
-    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h5 (rest.length + extraFuel))]
+  rw [exec_offsetLoad_then state _ name headSize headOffset relativeOffset
+      (rest.length + extraFuel + 3) (externalWordAt?_eq_calldataloadWord hhead) (by omega)
+      hheadBound,
+    exec_absOffset_then _ _ name baseOffset relativeOffset (rest.length + extraFuel + 1)
+      (getVar_setVar_self _ _ _) hcalldataSize htailBound]
+  exact execIRStmts_succ_cons_of_continue _ _ _ _ _
+    (exec_let_ident _ _ _ _ _ (getVar_setVar_self _ _ _))
 
 /-! ### Lifting the single-parameter refinement over parameter lists -/
 
@@ -822,6 +815,20 @@ theorem applyBindingsToIRState_append (state : IRState) (xs ys : List (String ×
     (dynamicCompositeLoaderStmts loadWord sizeExpr headSize baseOffset name headOffset).length =
       5 := rfl
 
+/-- Running the loader emitted for one external parameter `name : ty` at head
+slot `idx` in front of `rest` reaches the state extended with `here`. -/
+private def ExecSingleParamLoad (state : IRState) (rest : List YulStmt)
+    (headSize baseOffset : Nat) (name : String) (ty : ParamType) (idx extraFuel : Nat)
+    (here : List (String × Nat)) : Prop :=
+  execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+      (YulExpr.call "calldatasize" []) headSize baseOffset name ty
+      (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
+    (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
+      (YulExpr.call "calldatasize" []) headSize baseOffset name ty
+      (4 + 32 * idx) ++ rest) =
+    execIRStmts (rest.length + extraFuel + 1)
+      (ParamLoading.applyBindingsToIRState state here) rest
+
 /-- The bytes-like half of the per-parameter composition, phrased over the two
 facts `bytes` and `string` share: the emitted block is the length-prefixed
 loader, and the binder assigned it the `bytes` bindings. -/
@@ -836,18 +843,11 @@ private theorem exec_bytesLikeParamLoad_then
         (YulExpr.call "calldatasize" []) headSize baseOffset name (4 + 32 * idx))
     (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
       (4 + 32 * idx) { name := name, ty := ParamType.bytes } = some here) :
-    execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
-      (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx) ++ rest) =
-      execIRStmts (rest.length + extraFuel + 1)
-        (ParamLoading.applyBindingsToIRState state here) rest := by
+    ExecSingleParamLoad state rest headSize baseOffset name ty idx extraFuel here := by
   obtain ⟨relativeOffset, length, hhead, hheadBound, htailBound, hlength,
     hpayloadBound, hhere⟩ := DynamicAbi.bindExternalParam_bytes_eq_some_inv hbind
   subst hhere
-  rw [hstmts]
+  rw [ExecSingleParamLoad, hstmts]
   have hexec := exec_bytesLoaderStmts_then state rest name headSize baseOffset
     (4 + 32 * idx) relativeOffset length extraFuel hcalldataSize hhead hheadBound
     htailBound hlength hpayloadBound
@@ -867,18 +867,11 @@ private theorem exec_arrayParamLoad_then
         (YulExpr.call "calldatasize" []) headSize baseOffset name elemTy (4 + 32 * idx))
     (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
       (4 + 32 * idx) { name := name, ty := ParamType.array elemTy } = some here) :
-    execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
-      (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx) ++ rest) =
-      execIRStmts (rest.length + extraFuel + 1)
-        (ParamLoading.applyBindingsToIRState state here) rest := by
+    ExecSingleParamLoad state rest headSize baseOffset name ty idx extraFuel here := by
   obtain ⟨relativeOffset, length, hhead, hheadBound, htailBound, hlength,
     hpayloadBound, hhere⟩ := DynamicAbi.bindExternalParam_array_eq_some_inv hbind
   subst hhere
-  rw [hstmts]
+  rw [ExecSingleParamLoad, hstmts]
   have hexec := exec_arrayLoaderStmts_then state rest name elemTy headSize baseOffset
     (4 + 32 * idx) relativeOffset length extraFuel hcalldataSize hstride hhead hheadBound
     htailBound hlength hpayloadBound
@@ -900,22 +893,76 @@ private theorem exec_dynamicCompositeParamLoad_then
         (YulExpr.call "calldatasize" []) headSize baseOffset name (4 + 32 * idx))
     (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
       (4 + 32 * idx) { name := name, ty := ty } = some here) :
-    execIRStmts ((genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx)).length + rest.length + extraFuel + 1) state
-      (genSingleParamLoad (fun pos => YulExpr.call "calldataload" [pos])
-        (YulExpr.call "calldatasize" []) headSize baseOffset name ty
-        (4 + 32 * idx) ++ rest) =
-      execIRStmts (rest.length + extraFuel + 1)
-        (ParamLoading.applyBindingsToIRState state here) rest := by
+    ExecSingleParamLoad state rest headSize baseOffset name ty idx extraFuel here := by
   obtain ⟨relativeOffset, hhead, hheadBound, htailBound, hhere⟩ :=
     DynamicAbi.bindExternalParam_dynamicComposite_eq_some_inv hdynamic hnotLengthPrefixed hbind
   subst hhere
-  rw [hstmts]
+  rw [ExecSingleParamLoad, hstmts]
   have hexec := exec_dynamicCompositeLoaderStmts_then state rest name headSize baseOffset
     (4 + 32 * idx) relativeOffset extraFuel hcalldataSize hhead hheadBound htailBound
   simpa [dynamicCompositeParamBindings, Nat.add_comm, Nat.add_left_comm,
     Nat.add_assoc] using hexec
+
+/-- The non-scalar cases of the per-parameter composition: `bytes`, `string`,
+`T[]`, and the two dynamic-composite shapes. -/
+private theorem exec_dynamicParamLoad_then
+    (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
+    (name : String) (ty : ParamType) (idx extraFuel : Nat) (here : List (String × Nat))
+    (hbase : ¬ (baseOffset == 0) = true)
+    (hcalldataSize :
+      DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus)
+    (hdyn : ty = ParamType.bytes ∨ ty = ParamType.string ∨
+      (∃ elemTy, ty = ParamType.array elemTy ∧ ExternalArrayStrideFitsWord elemTy) ∨
+      (∃ elemTy n, ty = ParamType.fixedArray elemTy n ∧ isDynamicParamType elemTy = true) ∨
+      (∃ elemTys, ty = ParamType.tuple elemTys ∧ isDynamicParamTypeList elemTys = true))
+    (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
+      (4 + 32 * idx) { name := name, ty := ty } = some here) :
+    ExecSingleParamLoad state rest headSize baseOffset name ty idx extraFuel here := by
+  rcases hdyn with rfl | rfl | ⟨elemTy, rfl, hstride⟩ | ⟨elemTy, n, rfl, hdynE⟩ | ⟨tys, rfl, hdynL⟩
+  · exact exec_bytesLikeParamLoad_then state rest headSize baseOffset name _ idx extraFuel
+      here hcalldataSize (genSingleParamLoad_bytes _ _ _ _ _ _ hbase) hbind
+  · rw [DynamicAbi.bindExternalParam_string_eq_bytes] at hbind
+    exact exec_bytesLikeParamLoad_then state rest headSize baseOffset name _ idx extraFuel
+      here hcalldataSize (genSingleParamLoad_string _ _ _ _ _ _ hbase) hbind
+  · exact exec_arrayParamLoad_then state rest headSize baseOffset name _ elemTy idx extraFuel
+      here hcalldataSize hstride (genSingleParamLoad_array _ _ _ _ _ _ _ hbase) hbind
+  · exact exec_dynamicCompositeParamLoad_then state rest headSize baseOffset name _ idx
+      extraFuel here hcalldataSize (by simpa [isDynamicParamType] using hdynE) rfl
+      (genSingleParamLoad_dynamicFixedArray _ _ _ _ _ _ _ _ hbase hdynE) hbind
+  · exact exec_dynamicCompositeParamLoad_then state rest headSize baseOffset name _ idx
+      extraFuel here hcalldataSize (by simpa [isDynamicParamType] using hdynL) rfl
+      (genSingleParamLoad_dynamicTuple _ _ _ _ _ _ _ hbase hdynL) hbind
+
+/-- The head word the external binder decodes is the scalar loader's aligned word. -/
+private theorem decode_getD_of_externalWordAt {ty : ParamType} {selector idx word value : Nat}
+    {calldata : List Nat}
+    (hword : DynamicAbi.externalWordAt? selector calldata (4 + 32 * idx) = some word)
+    (hdecode : DynamicAbi.decodeSupportedParamWord ty word = some value) :
+    SourceSemantics.decodeSupportedParamWord ty (calldata.getD idx 0) = some value := by
+  have hwordEq : word = calldata.getD idx 0 % Compiler.Constants.evmModulus := by
+    have := externalWordAt?_eq_calldataloadWord hword
+    rw [ParamLoading.calldataloadWord_aligned] at this
+    exact this.symm
+  rw [← decodeSupportedParamWord_mod, ← hwordEq,
+    SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi]
+  exact hdecode
+
+/-- The scalar case of the per-parameter composition. -/
+private theorem exec_scalarParamLoad_then
+    (state : IRState) (rest : List YulStmt) (headSize baseOffset : Nat)
+    (param : Param) (idx extraFuel : Nat) (here : List (String × Nat))
+    (hscalar : SupportedExternalScalarParamType param.ty)
+    (hbind : DynamicAbi.bindExternalParam state.selector state.calldata headSize baseOffset
+      (4 + 32 * idx) param = some here) :
+    ExecSingleParamLoad state rest headSize baseOffset param.name param.ty idx extraFuel
+      here := by
+  obtain ⟨word, value, hword, hdecode, hhere⟩ :=
+    DynamicAbi.bindExternalParam_scalar_eq_some_inv (decode_total_of_scalar hscalar) hbind
+  subst hhere
+  rw [ExecSingleParamLoad, genSingleParamLoad_scalar _ _ _ _ _ _ _ hscalar]
+  simpa [ParamLoading.applyBindingsToIRState] using
+    ParamLoading.exec_genScalarLoad_supported_then state rest param.name param.ty idx value
+      extraFuel hscalar (decode_getD_of_externalWordAt hword hdecode)
 
 /-- Executing the statements emitted for one supported external parameter lands
 on exactly the bindings `DynamicAbi.bindExternalParam` assigns to it. This is
@@ -939,59 +986,101 @@ theorem exec_genSingleParamLoad_external_then
         (4 + 32 * idx) ++ rest) =
       execIRStmts (rest.length + extraFuel + 1)
         (ParamLoading.applyBindingsToIRState state here) rest := by
-  rcases supportedExternalParamType_cases hsupported with
-    hscalar | hbytes | hstring | ⟨elemTy, harray, hstride⟩ |
-      ⟨elemTy, n, hfixed, hdynElem⟩ | ⟨elemTys, htuple, hdynList⟩
-  · obtain ⟨word, value, hword, hdecode, hhere⟩ :=
-      DynamicAbi.bindExternalParam_scalar_eq_some_inv (decode_total_of_scalar hscalar) hbind
-    have hwordEq : word = state.calldata.getD idx 0 % Compiler.Constants.evmModulus := by
-      have := externalWordAt?_eq_calldataloadWord hword
-      rw [ParamLoading.calldataloadWord_aligned] at this
-      exact this.symm
-    have hdecode' :
-        SourceSemantics.decodeSupportedParamWord param.ty (state.calldata.getD idx 0) =
-          some value := by
-      rw [← decodeSupportedParamWord_mod, ← hwordEq,
-        SourceSemantics.decodeSupportedParamWord_eq_dynamicAbi]
-      exact hdecode
-    subst hhere
-    rw [genSingleParamLoad_scalar _ _ _ _ _ _ _ hscalar]
-    simpa [ParamLoading.applyBindingsToIRState] using
-      ParamLoading.exec_genScalarLoad_supported_then state rest param.name param.ty idx value
-        extraFuel hscalar hdecode'
-  · have hparam : param = { name := param.name, ty := ParamType.bytes } := by
-      cases param
-      simp_all
-    rw [hparam] at hbind
-    exact exec_bytesLikeParamLoad_then state rest headSize baseOffset param.name param.ty idx
-      extraFuel here hcalldataSize (by rw [hbytes]; exact genSingleParamLoad_bytes _ _ _ _ _ _ hbase)
-      hbind
-  · have hparam : param = { name := param.name, ty := ParamType.string } := by
-      cases param
-      simp_all
-    rw [hparam, DynamicAbi.bindExternalParam_string_eq_bytes] at hbind
-    exact exec_bytesLikeParamLoad_then state rest headSize baseOffset param.name param.ty idx
-      extraFuel here hcalldataSize
-      (by rw [hstring]; exact genSingleParamLoad_string _ _ _ _ _ _ hbase) hbind
-  · have hparam : param = { name := param.name, ty := ParamType.array elemTy } := by
-      cases param
-      simp_all
-    rw [hparam] at hbind
-    exact exec_arrayParamLoad_then state rest headSize baseOffset param.name param.ty elemTy idx
-      extraFuel here hcalldataSize hstride
-      (by rw [harray]; exact genSingleParamLoad_array _ _ _ _ _ _ _ hbase) hbind
-  · have hparam : param = { name := param.name, ty := param.ty } := rfl
-    exact exec_dynamicCompositeParamLoad_then state rest headSize baseOffset param.name param.ty
-      idx extraFuel here hcalldataSize (by rw [hfixed]; simpa [isDynamicParamType] using hdynElem)
-      (by rw [hfixed]; rfl)
-      (by rw [hfixed]; exact genSingleParamLoad_dynamicFixedArray _ _ _ _ _ _ _ _ hbase hdynElem)
-      (by rw [← hparam]; exact hbind)
-  · have hparam : param = { name := param.name, ty := param.ty } := rfl
-    exact exec_dynamicCompositeParamLoad_then state rest headSize baseOffset param.name param.ty
-      idx extraFuel here hcalldataSize (by rw [htuple]; simpa [isDynamicParamType] using hdynList)
-      (by rw [htuple]; rfl)
-      (by rw [htuple]; exact genSingleParamLoad_dynamicTuple _ _ _ _ _ _ _ hbase hdynList)
-      (by rw [← hparam]; exact hbind)
+  rcases supportedExternalParamType_cases hsupported with hscalar | hdyn
+  · exact exec_scalarParamLoad_then state rest headSize baseOffset param idx extraFuel here
+      hscalar hbind
+  · exact exec_dynamicParamLoad_then state rest headSize baseOffset param.name param.ty idx
+      extraFuel here hbase hcalldataSize hdyn hbind
+
+/-- The statement of `exec_genParamLoadBodyFrom_external_then` for a fixed
+parameter list, as the induction motive over that list. -/
+private def ExecParamLoadBodyFrom (headSize baseOffset : Nat) (params : List Param) : Prop :=
+  ∀ (state : IRState) (rest : List YulStmt) (idx extraFuel : Nat)
+    (bindings : List (String × Nat)),
+    DynamicAbi.externalCalldataSize state.calldata < Compiler.Constants.evmModulus →
+    (∀ param ∈ params, SupportedExternalParamType param.ty) →
+    DynamicAbi.bindExternalParamsFrom state.selector state.calldata headSize baseOffset
+      params (4 + 32 * idx) = some bindings →
+    execIRStmts ((genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx)).length +
+        rest.length + extraFuel + 1) state
+      (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) headSize baseOffset params (4 + 32 * idx) ++ rest) =
+      execIRStmts (rest.length + extraFuel + 1)
+        (ParamLoading.applyBindingsToIRState state bindings) rest
+
+private theorem exec_paramLoadBodyFrom_nil (headSize baseOffset : Nat) :
+    ExecParamLoadBodyFrom headSize baseOffset [] := by
+  intro state rest idx extraFuel bindings _ _ hbind
+  simp only [DynamicAbi.bindExternalParamsFrom, Option.some.injEq] at hbind
+  subst hbind
+  simp [Compiler.CompilationModel.genParamLoadBodyFrom, ParamLoading.applyBindingsToIRState]
+
+/-- A supported parameter occupies exactly one head word. -/
+private theorem headOffset_succ_of_supported {ty : ParamType}
+    (hsupported : SupportedExternalParamType ty) (idx : Nat) :
+    4 + 32 * idx + paramHeadSize ty = 4 + 32 * (idx + 1) := by
+  rw [supportedExternalParamType_headSize_eq_32 hsupported]; ring
+
+/-- Inverting a successful binder run over a non-empty parameter list. -/
+private theorem bindExternalParamsFrom_cons_eq_some {selector headSize baseOffset idx : Nat}
+    {calldata : List Nat} {param : Param} {params : List Param}
+    {bindings : List (String × Nat)}
+    (hoffset : 4 + 32 * idx + paramHeadSize param.ty = 4 + 32 * (idx + 1))
+    (hbind : DynamicAbi.bindExternalParamsFrom selector calldata headSize baseOffset
+      (param :: params) (4 + 32 * idx) = some bindings) :
+    ∃ here there, DynamicAbi.bindExternalParam selector calldata headSize baseOffset
+        (4 + 32 * idx) param = some here ∧
+      DynamicAbi.bindExternalParamsFrom selector calldata headSize baseOffset params
+        (4 + 32 * (idx + 1)) = some there ∧ bindings = here ++ there := by
+  cases hhere : DynamicAbi.bindExternalParam selector calldata headSize baseOffset
+      (4 + 32 * idx) param with
+  | none =>
+      rw [DynamicAbi.bindExternalParamsFrom, hhere] at hbind
+      simp at hbind
+  | some here =>
+      cases hthere : DynamicAbi.bindExternalParamsFrom selector calldata headSize baseOffset
+          params (4 + 32 * (idx + 1)) with
+      | none =>
+          rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
+          simp at hbind
+      | some there =>
+          rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
+          simp only [Option.bind_eq_bind, Option.bind, Option.some.injEq] at hbind
+          exact ⟨here, there, rfl, rfl, hbind.symm⟩
+
+/-- Sequencing two blocks whose fuel budgets are each phrased over their own
+length and the code that follows them. -/
+private theorem execIRStmts_append_trans (first second rest : List YulStmt) (extraFuel : Nat)
+    (state mid : IRState) (result : IRExecResult)
+    (hfirst : execIRStmts (first.length + (second ++ rest).length + extraFuel + 1) state
+        (first ++ (second ++ rest)) =
+      execIRStmts ((second ++ rest).length + extraFuel + 1) mid (second ++ rest))
+    (hsecond : execIRStmts (second.length + rest.length + extraFuel + 1) mid
+        (second ++ rest) = result) :
+    execIRStmts ((first ++ second).length + rest.length + extraFuel + 1) state
+        (first ++ second ++ rest) = result := by
+  have hfuel : (first ++ second).length + rest.length + extraFuel + 1 =
+      first.length + (second ++ rest).length + extraFuel + 1 := by
+    simp only [List.length_append]; omega
+  rw [hfuel, List.append_assoc, hfirst]
+  simpa only [List.length_append, Nat.add_assoc] using hsecond
+
+private theorem exec_paramLoadBodyFrom_cons (headSize baseOffset : Nat)
+    (hbase : ¬ (baseOffset == 0) = true) (param : Param) (restParams : List Param)
+    (ih : ExecParamLoadBodyFrom headSize baseOffset restParams) :
+    ExecParamLoadBodyFrom headSize baseOffset (param :: restParams) := by
+  intro state rest idx extraFuel bindings hcalldataSize hsupported hbind
+  have hparam : SupportedExternalParamType param.ty := hsupported param (by simp)
+  obtain ⟨here, there, hhere, hthere, rfl⟩ :=
+    bindExternalParamsFrom_cons_eq_some (headOffset_succ_of_supported hparam idx) hbind
+  rw [Compiler.CompilationModel.genParamLoadBodyFrom, headOffset_succ_of_supported hparam idx,
+    applyBindingsToIRState_append]
+  exact execIRStmts_append_trans _ _ _ _ _ _ _
+    (exec_genSingleParamLoad_external_then state _ headSize baseOffset param idx extraFuel
+      here hbase hcalldataSize hparam hhere)
+    (ih _ rest (idx + 1) extraFuel there (by simpa using hcalldataSize)
+      (fun next hnext => hsupported next (by simp [hnext])) (by simpa using hthere))
 
 /-- The parameter-list lift: the whole emitted calldata-decoding block executes
 to exactly the bindings the dispatcher's external ABI binder computes, for any
@@ -1013,74 +1102,9 @@ theorem exec_genParamLoadBodyFrom_external_then
         execIRStmts (rest.length + extraFuel + 1)
           (ParamLoading.applyBindingsToIRState state bindings) rest := by
   induction params with
-  | nil =>
-      intro state rest idx extraFuel bindings _ _ hbind
-      simp only [DynamicAbi.bindExternalParamsFrom, Option.some.injEq] at hbind
-      subst hbind
-      simp [Compiler.CompilationModel.genParamLoadBodyFrom,
-        ParamLoading.applyBindingsToIRState]
+  | nil => exact exec_paramLoadBodyFrom_nil headSize baseOffset
   | cons param restParams ih =>
-      intro state rest idx extraFuel bindings hcalldataSize hsupported hbind
-      have hparamSupported : SupportedExternalParamType param.ty := hsupported param (by simp)
-      have hrestSupported : ∀ next ∈ restParams, SupportedExternalParamType next.ty := by
-        intro next hnext
-        exact hsupported next (by simp [hnext])
-      have hhead32 : paramHeadSize param.ty = 32 :=
-        supportedExternalParamType_headSize_eq_32 hparamSupported
-      have hoffset : 4 + 32 * idx + paramHeadSize param.ty = 4 + 32 * (idx + 1) := by
-        rw [hhead32]; ring
-      cases hhere : DynamicAbi.bindExternalParam state.selector state.calldata headSize
-          baseOffset (4 + 32 * idx) param with
-      | none =>
-          rw [DynamicAbi.bindExternalParamsFrom, hhere] at hbind
-          simp at hbind
-      | some here =>
-          cases hthere : DynamicAbi.bindExternalParamsFrom state.selector state.calldata
-              headSize baseOffset restParams (4 + 32 * (idx + 1)) with
-          | none =>
-              rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
-              simp at hbind
-          | some there =>
-              rw [DynamicAbi.bindExternalParamsFrom, hhere, hoffset, hthere] at hbind
-              simp only [Option.bind_eq_bind, Option.bind, Option.some.injEq] at hbind
-              subst hbind
-              set loadWordC : YulExpr → YulExpr :=
-                fun pos => YulExpr.call "calldataload" [pos] with hloadWordC
-              set sizeExprC : YulExpr := YulExpr.call "calldatasize" [] with hsizeExprC
-              set single :=
-                genSingleParamLoad loadWordC sizeExprC headSize baseOffset param.name
-                  param.ty (4 + 32 * idx) with hsingle
-              set genRest :=
-                genParamLoadBodyFrom loadWordC sizeExprC headSize baseOffset restParams
-                  (4 + 32 * (idx + 1)) with hgenRest
-              have hgen :
-                  genParamLoadBodyFrom loadWordC sizeExprC headSize baseOffset
-                      (param :: restParams) (4 + 32 * idx) = single ++ genRest := by
-                rw [Compiler.CompilationModel.genParamLoadBodyFrom, hsingle, hgenRest,
-                  hoffset]
-              have hstate' :
-                  (ParamLoading.applyBindingsToIRState state here).calldata = state.calldata :=
-                applyBindingsToIRState_calldata state here
-              have hstate'sel :
-                  (ParamLoading.applyBindingsToIRState state here).selector = state.selector :=
-                applyBindingsToIRState_selector state here
-              have hstep :=
-                exec_genSingleParamLoad_external_then state (genRest ++ rest) headSize
-                  baseOffset param idx extraFuel here hbase hcalldataSize hparamSupported hhere
-              have hih :=
-                ih (ParamLoading.applyBindingsToIRState state here) rest (idx + 1) extraFuel
-                  there (by rw [hstate']; exact hcalldataSize) hrestSupported
-                  (by rw [hstate', hstate'sel]; exact hthere)
-              have hfuel :
-                  (single ++ genRest).length + rest.length + extraFuel + 1 =
-                    single.length + (genRest ++ rest).length + extraFuel + 1 := by
-                simp [List.length_append]
-                omega
-              rw [hgen, List.append_assoc, hfuel, hstep, applyBindingsToIRState_append]
-              rw [show (genRest ++ rest).length + extraFuel + 1 =
-                  genRest.length + rest.length + extraFuel + 1 by
-                simp [List.length_append]]
-              exact hih
+      exact exec_paramLoadBodyFrom_cons headSize baseOffset hbase param restParams ih
 
 /-! ### End-to-end: the emitted entrypoint prologue implements `bindExternalParams` -/
 
@@ -1166,6 +1190,49 @@ private theorem scalars_of_bindSupportedParams :
                   · exact scalar_of_decode hdecode
                   · exact ih hrest next hmem
 
+/-- The emitted parameter-list body, run on its own, reaches the bindings the
+external binder computes from the head offset `4`. -/
+private theorem exec_paramLoadBody_of_bindFrom (state : IRState) (params : List Param)
+    (bindings : List (String × Nat))
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hfrom : DynamicAbi.bindExternalParamsFrom state.selector state.calldata
+      (32 * params.length) 4 params 4 = some bindings) :
+    execIRStmts ((genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4).length + 1) state
+      (genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+        (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4) =
+      .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+  have := exec_genParamLoadBodyFrom_external_then (headSize := 32 * params.length)
+    (baseOffset := 4) (by decide) params state [] 0 0 bindings
+    (by simpa [DynamicAbi.externalCalldataSize, Nat.mul_comm] using hcalldataSizeFits)
+    hsupported (by simpa using hfrom)
+  simpa [execIRStmts] using this
+
+/-- The dynamic branch of `exec_genParamLoads_external`: the binder fell
+through to the external ABI decoder, so the minimum-size guard is followed by
+the full parameter-list lift. -/
+private theorem exec_genParamLoads_external_of_bindFrom
+    (state : IRState) (params : List Param) (bindings : List (String × Nat))
+    (hsupported : ∀ param ∈ params, SupportedExternalParamType param.ty)
+    (hcalldataSizeFits : 4 + state.calldata.length * 32 < Compiler.Constants.evmModulus)
+    (hlen : params.length ≤ state.calldata.length)
+    (hfrom : DynamicAbi.bindExternalParamsFrom state.selector state.calldata
+      (paramHeadSizeList (params.map (·.ty))) 4 params 4 = some bindings) :
+    execIRStmts ((genParamLoads params).length + 1) state (genParamLoads params) =
+      .continue (ParamLoading.applyBindingsToIRState state bindings) := by
+  rw [paramHeadSizeList_eq params hsupported] at hfrom
+  have hbodyExec :=
+    exec_paramLoadBody_of_bindFrom state params bindings hsupported hcalldataSizeFits hfrom
+  set body :=
+    genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
+      (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4 with hbody
+  have hstep := execIRStmts_succ_cons_of_continue _ _ _ _ body
+    (exec_minInputSizeCheck_noop body.length state (32 * params.length) hcalldataSizeFits
+      (by omega))
+  simpa [Compiler.CompilationModel.genParamLoads, Compiler.CompilationModel.genParamLoadsFrom,
+    headSizeFoldl_eq params hsupported, hbody] using hstep.trans hbodyExec
+
 /-- End-to-end refinement for the generated entrypoint prologue: whatever
 bindings the dispatcher's external ABI binder produces, executing the emitted
 calldata-decoding block reaches exactly that variable environment — for any
@@ -1185,59 +1252,18 @@ theorem exec_genParamLoads_external
     by_contra hcon
     rw [DynamicAbi.bindExternalParams, if_neg hcon] at hbind
     cases hbind
+  rw [DynamicAbi.bindExternalParams, if_pos hlen,
+    ← SourceSemantics.bindSupportedParams_eq_dynamicAbi] at hbind
   cases hsup : SourceSemantics.bindSupportedParams params state.calldata with
   | some scalarBindings =>
-      have hscalarTys : ∀ param ∈ params, SupportedExternalScalarParamType param.ty :=
-        scalars_of_bindSupportedParams hsup
-      have heq : scalarBindings = bindings := by
-        rw [DynamicAbi.bindExternalParams, if_pos hlen,
-          ← SourceSemantics.bindSupportedParams_eq_dynamicAbi, hsup] at hbind
-        exact Option.some.inj hbind
-      subst heq
-      exact ParamLoading.exec_genParamLoads_supported state params scalarBindings hscalarTys
-        hcalldataSizeFits hsup
+      rw [hsup] at hbind
+      cases Option.some.inj hbind
+      exact ParamLoading.exec_genParamLoads_supported state params _
+        (scalars_of_bindSupportedParams hsup) hcalldataSizeFits hsup
   | none =>
-      have hfrom :
-          DynamicAbi.bindExternalParamsFrom state.selector state.calldata
-            (paramHeadSizeList (params.map (·.ty))) 4 params 4 = some bindings := by
-        rw [DynamicAbi.bindExternalParams, if_pos hlen,
-          ← SourceSemantics.bindSupportedParams_eq_dynamicAbi, hsup] at hbind
-        exact hbind
-      have hHeadSize : paramHeadSizeList (params.map (·.ty)) = 32 * params.length :=
-        paramHeadSizeList_eq params hsupported
-      have hFoldl : (params.map (fun p => paramHeadSize p.ty)).foldl (· + ·) 0 =
-          32 * params.length := headSizeFoldl_eq params hsupported
-      rw [hHeadSize] at hfrom
-      set body :=
-        genParamLoadBodyFrom (fun pos => YulExpr.call "calldataload" [pos])
-          (YulExpr.call "calldatasize" []) (32 * params.length) 4 params 4 with hbody
-      have hbodyExec :
-          execIRStmts (body.length + 1) state body =
-            .continue (ParamLoading.applyBindingsToIRState state bindings) := by
-        have := exec_genParamLoadBodyFrom_external_then (headSize := 32 * params.length)
-          (baseOffset := 4) (by decide) params state [] 0 0 bindings
-          (by simpa [DynamicAbi.externalCalldataSize, Nat.mul_comm] using hcalldataSizeFits)
-          hsupported (by simpa using hfrom)
-        simpa [hbody, execIRStmts] using this
-      have hguard :
-          execIRStmt (body.length + 1) state
-            (YulStmt.if_ (YulExpr.call "lt"
-              [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-              [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])]) =
-            .continue state :=
-        exec_minInputSizeCheck_noop body.length state (32 * params.length)
-          hcalldataSizeFits (by omega)
-      have hstep :
-          execIRStmts (body.length + 2) state
-            (YulStmt.if_ (YulExpr.call "lt"
-              [YulExpr.call "calldatasize" [], YulExpr.lit (4 + 32 * params.length)])
-              [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] ::
-              body) =
-            execIRStmts (body.length + 1) state body := by
-        simp [execIRStmts, hguard]
-      simpa [Compiler.CompilationModel.genParamLoads,
-        Compiler.CompilationModel.genParamLoadsFrom, hFoldl, hbody] using
-        hstep.trans hbodyExec
+      rw [hsup] at hbind
+      exact exec_genParamLoads_external_of_bindFrom state params bindings hsupported
+        hcalldataSizeFits hlen hbind
 
 end DynamicParamLoading
 

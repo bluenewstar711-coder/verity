@@ -3183,9 +3183,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_legacyCompatible
   Compiler.Proofs.IRGeneration.Dispatch.runtimeContractOfFunctions_disjoint
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions
+  -- Compiler.Proofs.IRGeneration.Dispatch.interpretFunction_reverted_of_standard_bind_none  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions
+  -- Compiler.Proofs.IRGeneration.Dispatch.interpretFunctionWithHelpers_reverted_of_standard_bind_none  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithHelpersWithInternals_correct_of_compiled_functions
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions_with_helper_rich_support
+  -- Compiler.Proofs.IRGeneration.Dispatch.legacy_function_correct_of_supportedSourceFunctionSemantics  -- private
   Compiler.Proofs.IRGeneration.Dispatch.interpretContract_correct_of_compiled_functions_with_helper_proofs
   Compiler.Proofs.IRGeneration.Dispatch.interpretContractWithInternals_correct_of_compiled_functions_with_helper_proofs
   -- Compiler.Proofs.IRGeneration.Dispatch.legacy_function_correct_of_supportedSourceFunctionSemanticsExceptMappingWrites  -- private
@@ -3218,9 +3221,24 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.interpretFunctionWithHelpers_eq_reverted_of_bind_none
   Compiler.Proofs.IRGeneration.interpretContract_eq_interpretContractWith
   Compiler.Proofs.IRGeneration.interpretContractWithHelpers_eq_interpretContractWith
+  -- Compiler.Proofs.IRGeneration.reverted_matches_revertedIRResult  -- private
+  -- Compiler.Proofs.IRGeneration.dispatch_selected_arity_matches  -- private
+  -- Compiler.Proofs.IRGeneration.dispatch_selected_matches  -- private
+  -- Compiler.Proofs.IRGeneration.mem_selectorDispatchedFunctions_of_find_pair  -- private
+  -- Compiler.Proofs.IRGeneration.interpretContractWith_of_find_pair  -- private
+  -- Compiler.Proofs.IRGeneration.interpretContractWith_of_find_none  -- private
+  -- Compiler.Proofs.IRGeneration.dispatch_find_pair_matches  -- private
+  -- Compiler.Proofs.IRGeneration.dispatch_find_none_matches  -- private
   Compiler.Proofs.IRGeneration.find_function_some_of_forall₂_generic
   Compiler.Proofs.IRGeneration.find_function_none_of_forall₂_generic
+  -- Compiler.Proofs.IRGeneration.selector_eq_of_meta  -- private
+  -- Compiler.Proofs.IRGeneration.interpretContractWith_matches_of_lookup  -- private
+  -- Compiler.Proofs.IRGeneration.dispatch_hit_of_external  -- private
+  -- Compiler.Proofs.IRGeneration.bindExternalParams_some_of_supported  -- private
+  -- Compiler.Proofs.IRGeneration.bindSupportedParams_some_of_bindExternalParams_some  -- private
+  -- Compiler.Proofs.IRGeneration.bindSupportedParams_none_of_bindExternalParams_none  -- private
   Compiler.Proofs.IRGeneration.interpretContractWith_correct_generic_external
+  -- Compiler.Proofs.IRGeneration.dispatch_hit_of_scalar  -- private
   Compiler.Proofs.IRGeneration.interpretContractWith_correct_generic
   Compiler.Proofs.IRGeneration.interpretContractWith_correct_of_functions_generic
   Compiler.Proofs.IRGeneration.interpretContract_correct_of_functions_generic
@@ -3253,9 +3271,29 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_dynamicFixedArray
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.calldataloadWord_eq  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.externalWordAt?_eq_calldataloadWord  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.externalCalldataSize_eq  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.evm_sub_mod_of_le  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.absOffset_ne_length  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_calldataload_lit  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_calldataload_ident  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_revertIfLtLit_noop  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_add_lit_ident  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_add_ident_32  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_ident  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_revertIfGtSizeSub32_noop  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_let_sub_calldatasize_ident  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_offsetLoad_then  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_absOffset_then  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_lengthTail_then  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_lengthPrefixedLoaderStmts_prefix  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.getVar_lengthPrefixedLoaderState_tailHeadEnd  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_lengthPrefixedLoaderStmts_then
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.getVar_lengthPrefixedLoaderState_length  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesPayloadGuard_noop_of_getVar  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesPayloadGuard_noop  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesLoaderStmts_then
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.array_guard_not_lt  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_arrayPayloadGuard_noop_of_getVar  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_arrayPayloadGuard_noop  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_arrayLoaderStmts_then
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_dynamicCompositeLoaderStmts_then
@@ -3272,7 +3310,15 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_bytesLikeParamLoad_then  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_arrayParamLoad_then  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_dynamicCompositeParamLoad_then  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_dynamicParamLoad_then  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.decode_getD_of_externalWordAt  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_scalarParamLoad_then  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genSingleParamLoad_external_then
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_paramLoadBodyFrom_nil  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.headOffset_succ_of_supported  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.bindExternalParamsFrom_cons_eq_some  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.execIRStmts_append_trans  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_paramLoadBodyFrom_cons  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoadBodyFrom_external_then
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.headSizeFoldl_go  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.headSizeFoldl_eq  -- private
@@ -3280,6 +3326,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_minInputSizeCheck_noop  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.scalar_of_decode  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.scalars_of_bindSupportedParams  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_paramLoadBody_of_bindFrom  -- private
+  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoads_external_of_bindFrom  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoads_external
 
   -- Compiler/Proofs/IRGeneration/EmptyRevert.lean
@@ -5910,19 +5958,35 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmt_exprStmt_no_halt
   Compiler.Proofs.IRGeneration.spliceLockRelease_atomic
   Compiler.Proofs.IRGeneration.execIRStmt_atomic_no_halt
+  -- Compiler.Proofs.IRGeneration.stmtsFuelBound_cons_le  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_cons_succ_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_cons_of_head  -- private
+  -- Compiler.Proofs.IRGeneration.spliceLockReleaseList_cons_atomic  -- private
+  -- Compiler.Proofs.IRGeneration.headSim_atomic  -- private
   Compiler.Proofs.IRGeneration.spliced_cons_atomic
   Compiler.Proofs.IRGeneration.spliced_cons_stop
   Compiler.Proofs.IRGeneration.spliced_cons_return
+  -- Compiler.Proofs.IRGeneration.headSim_if  -- private
   Compiler.Proofs.IRGeneration.spliced_cons_if
+  -- Compiler.Proofs.IRGeneration.headSim_block  -- private
   Compiler.Proofs.IRGeneration.spliced_cons_block
   Compiler.Proofs.IRGeneration.find?_spliceCases
   Compiler.Proofs.IRGeneration.spliced_case_bound_le
   Compiler.Proofs.IRGeneration.SpliceSimCases.mem
+  -- Compiler.Proofs.IRGeneration.spliced_switch_case_bounds  -- private
+  -- Compiler.Proofs.IRGeneration.spliced_switch_dflt_bounds  -- private
+  -- Compiler.Proofs.IRGeneration.spliced_switch_dflt_exec  -- private
+  -- Compiler.Proofs.IRGeneration.headSim_switch  -- private
+  -- Compiler.Proofs.IRGeneration.spliced_cons_switch_sim  -- private
   Compiler.Proofs.IRGeneration.spliced_cons_switch
+  -- Compiler.Proofs.IRGeneration.spliced_cons_leaf  -- private
+  -- Compiler.Proofs.IRGeneration.spliced_cons_exprStmt  -- private
+  -- Compiler.Proofs.IRGeneration.spliced_nil  -- private
   Compiler.Proofs.IRGeneration.execIRStmts_spliced
   Compiler.Proofs.IRGeneration.execIRStmts_splicedCases
   Compiler.Proofs.IRGeneration.execIRStmts_splicedDflt
   Compiler.Proofs.IRGeneration.execIRStmts_append_halt
+  -- Compiler.Proofs.IRGeneration.execIRStmts_append_lockRelease_continue  -- private
   Compiler.Proofs.IRGeneration.execIRStmts_applyLockReleaseOnExits_fallthrough
   Compiler.Proofs.IRGeneration.execIRStmt_modeledHalt_no_continue
   Compiler.Proofs.IRGeneration.execIRStmts_last_halt_no_continue
@@ -8844,4 +8908,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8120 theorems/lemmas (5562 public, 2558 private, 0 sorry'd)
+-- Total: 8184 theorems/lemmas (5562 public, 2622 private, 0 sorry'd)
