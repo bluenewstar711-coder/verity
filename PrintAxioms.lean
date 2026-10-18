@@ -5897,6 +5897,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.IRGeneration.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
+  -- Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_step  -- private
+  -- Compiler.Proofs.IRGeneration.compileStmtList_eventsErrorsAgnostic_step  -- private
   -- Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_aux  -- private
   Compiler.Proofs.IRGeneration.compileStmt_eventsErrorsAgnostic_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.compileStmtList_eventsErrorsAgnostic_of_contractSurfaceClosed
@@ -5910,6 +5912,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.helperCallNames_nodup
   Compiler.Proofs.IRGeneration.exprHelperCallNames_nodup
   -- Compiler.Proofs.IRGeneration.matchAdtBranchesExprSubsetInternal_aux  -- private
+  -- Compiler.Proofs.IRGeneration.stmtExprHelperCallNames_subset_stmtInternalHelperCallNames_aux  -- private
   -- Compiler.Proofs.IRGeneration.stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames  -- private
   -- Compiler.Proofs.IRGeneration.matchAdtBranchesExprHelperCallNames_subset_internalHelperCallNames  -- private
   Compiler.Proofs.IRGeneration.stmtExprHelperCallNames_subset_stmtInternalHelperCallNames
@@ -5939,26 +5942,15 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListCompileCore_internalHelperCallNames_nil  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_internalHelperCallNames_nil  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_letStorageField_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_letStorageAddrField_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_assignStorageField_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_assignStorageAddrField_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setStorageAddrSingleSlot_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_mstoreSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_tstoreSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_calldatacopySingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_returndataCopyEmptySingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingUintSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingChainSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingWordSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setStructMemberSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMapping2Single_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMapping2WordSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setMappingPackedWordSingle_helperSurfaceClosed  -- private
-  -- Compiler.Proofs.IRGeneration.supportedStmtList_setStructMember2Single_helperSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.requireLiteralGuardFamilyClause_toStmt_eq_require  -- private
+  -- Compiler.Proofs.IRGeneration.SupportedStmtList.induction_of_leaf  -- private
+  -- Compiler.Proofs.IRGeneration.boolFold_append_eq_false  -- private
+  -- Compiler.Proofs.IRGeneration.SupportedStmtList.boolFold_eq_false  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_helperSurfaceClosed  -- private
   Compiler.Proofs.IRGeneration.SupportedStmtList.helperSurfaceClosed
   -- Compiler.Proofs.IRGeneration.exprListInternalHelperCallNames_literals  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_internalHelperCallNames_nil  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListInternalHelperCallNames_append  -- private
   Compiler.Proofs.IRGeneration.SupportedStmtList.internalHelperCallNames_nil
   Compiler.Proofs.IRGeneration.SupportedBodyInterface.helperCallNames_nil
   Compiler.Proofs.IRGeneration.SupportedBodyInterfaceExceptMappingWrites.helperCallNames_nil
@@ -5987,6 +5979,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedRuntimeHelperTableInterface.compiledOfCall_sourceWitness
   -- Compiler.Proofs.IRGeneration.exprTouchesUnsupportedCallSurface_eq_featureOr  -- private
   -- Compiler.Proofs.IRGeneration.exprListTouchesUnsupportedCallSurface_eq_featureOr  -- private
+  -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedCallSurface_eq_featureOr_aux  -- private
+  -- Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux  -- private
   -- Compiler.Proofs.IRGeneration.stmtOrListTouchesUnsupportedCallSurface_eq_featureOr  -- private
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedCallSurface_eq_featureOr  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedCallSurface_eq_featureOr
@@ -6004,6 +5998,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_featureClosed
   Compiler.Proofs.IRGeneration.exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   -- Compiler.Proofs.IRGeneration.exprListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed  -- private
+  -- Compiler.Proofs.IRGeneration.forEach_count_eq_literal_of_contractSurfaceClosed  -- private
   Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceWithEventsClosed
@@ -6025,11 +6020,11 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_usesStorageArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListCompileCore_usesDynamicBytesEq_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_usesDynamicBytesEq_false  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListUsesArrayElement_append  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListUsesStorageArrayElement_append  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListUsesDynamicBytesEq_append  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_usesArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_usesArrayElement_false  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_usesStorageArrayElement_false  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_usesStorageArrayElement_false  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_usesDynamicBytesEq_false  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_usesDynamicBytesEq_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListUsesArrayElement_eq_any  -- private
   -- Compiler.Proofs.IRGeneration.stmtListUsesStorageArrayElement_eq_any  -- private
@@ -6043,9 +6038,9 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.stmtListCompileCore_usesParamDynamicHeadWord_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_usesMulDiv512_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListTerminalCore_usesParamDynamicHeadWord_false  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListUsesMulDiv512_append  -- private
-  -- Compiler.Proofs.IRGeneration.stmtListUsesParamDynamicHeadWord_append  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_usesMulDiv512_false  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_usesMulDiv512_false  -- private
+  -- Compiler.Proofs.IRGeneration.supportedLeafStmt_usesParamDynamicHeadWord_false  -- private
   -- Compiler.Proofs.IRGeneration.supportedStmtList_usesParamDynamicHeadWord_false  -- private
   -- Compiler.Proofs.IRGeneration.stmtListUsesMulDiv512_eq_any  -- private
   -- Compiler.Proofs.IRGeneration.stmtListUsesParamDynamicHeadWord_eq_any  -- private
@@ -8753,4 +8748,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8029 theorems/lemmas (5562 public, 2467 private, 0 sorry'd)
+-- Total: 8024 theorems/lemmas (5562 public, 2462 private, 0 sorry'd)

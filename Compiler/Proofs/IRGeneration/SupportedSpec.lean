@@ -2337,6 +2337,68 @@ theorem stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
         | succ k => exact Bool.noConfusion hsurface
       all_goals exact Bool.noConfusion hsurface
 
+/-- Statement-level catalog agnosticism of `compileStmt` for statements of size below `n`. -/
+private def CompileStmtCatalogAgnosticBelow (n : Nat) (fields : List Field)
+    (events : List EventDef) (errors : List ErrorDef) : Prop :=
+  ∀ (stmt : Stmt) (scope : List String),
+    sizeOf stmt < n →
+    stmtTouchesUnsupportedContractSurface stmt = false →
+    CompilationModel.compileStmt fields events errors .calldata [] false scope [] stmt [] =
+      CompilationModel.compileStmt fields [] [] .calldata [] false scope [] stmt []
+
+/-- List-level catalog agnosticism of `compileStmtList` for lists of size below `n`. -/
+private def CompileStmtListCatalogAgnosticBelow (n : Nat) (fields : List Field)
+    (events : List EventDef) (errors : List ErrorDef) : Prop :=
+  ∀ (stmts : List Stmt) (scope : List String),
+    sizeOf stmts < n →
+    stmtListTouchesUnsupportedContractSurface stmts = false →
+    CompilationModel.compileStmtList fields events errors .calldata [] false scope [] stmts [] =
+      CompilationModel.compileStmtList fields [] [] .calldata [] false scope [] stmts []
+
+private theorem compileStmt_eventsErrorsAgnostic_step
+    {n : Nat} {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    (ih : CompileStmtListCatalogAgnosticBelow n fields events errors) :
+    CompileStmtCatalogAgnosticBelow (n + 1) fields events errors := by
+  intro stmt scope hlt hsurface
+  cases stmt with
+  | ite cond thenBranch elseBranch =>
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        compileStmtListWithFork_cancun_eq_compileStmtList,
+        ih thenBranch scope (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.1.2,
+        ih elseBranch scope (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.2]
+  | forEach varName count body =>
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+        compileStmtListWithFork_cancun_eq_compileStmtList,
+        ih body (CompilationModel.forEachBodyScope scope varName count body)
+          (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
+          (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed hsurface)]
+  | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
+  | require | «return» | mstore | tstore | calldatacopy | returndataCopy
+  | revertEmpty | revertReturndata | stop =>
+      simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
+  | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+
+private theorem compileStmtList_eventsErrorsAgnostic_step
+    {n : Nat} {fields : List Field} {events : List EventDef} {errors : List ErrorDef}
+    (ihStmt : CompileStmtCatalogAgnosticBelow n fields events errors)
+    (ihList : CompileStmtListCatalogAgnosticBelow n fields events errors) :
+    CompileStmtListCatalogAgnosticBelow (n + 1) fields events errors := by
+  intro stmts scope hlt hsurface
+  cases stmts with
+  | nil => simp only [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork]
+  | cons s ss =>
+      simp only [stmtListTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+      simp only [CompilationModel.compileStmtList,
+        CompilationModel.compileStmtListWithFork, bind, Except.bind]
+      rw [compileStmtWithFork_cancun_eq_compileStmt,
+        ihStmt s scope (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
+        compileStmtListWithFork_cancun_eq_compileStmtList,
+        ihList ss (collectStmtBindNames s ++ scope)
+          (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
+      simp only [compileStmtWithFork_cancun_eq_compileStmt,
+        compileStmtListWithFork_cancun_eq_compileStmtList]
+
 /-- `compileStmt` consults `events` only in the `.emit` arm and `errors` only in
 the `.requireError`/`.revertError` arms, all of which the plain contract-surface
 gate excludes. Surface-closed statements therefore compile identically under any
@@ -2362,56 +2424,8 @@ private theorem compileStmt_eventsErrorsAgnostic_aux
       exact ⟨fun _ _ hlt => absurd hlt (Nat.not_lt_zero _),
         fun _ _ hlt => absurd hlt (Nat.not_lt_zero _)⟩
   | succ n ih =>
-      constructor
-      · intro stmt scope hlt hsurface
-        cases stmt with
-        | ite cond thenBranch elseBranch =>
-            simp only [stmtTouchesUnsupportedContractSurface,
-              Bool.or_eq_false_iff] at hsurface
-            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-              compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 thenBranch scope
-                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.1.2,
-              ih.2 elseBranch scope
-                (by simp [Stmt.ite.sizeOf_spec] at hlt; omega) hsurface.2]
-        | forEach varName count body =>
-            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
-              compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 body (CompilationModel.forEachBodyScope scope varName count body)
-                (by simp [Stmt.forEach.sizeOf_spec] at hlt; omega)
-                (stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
-                  hsurface)]
-        | forEachSetBit _ _ _ =>
-            simp [stmtTouchesUnsupportedContractSurface] at hsurface
-        | letVar | assignVar | setStorage | setStorageAddr | setImmutable | setStorageWord
-        | require | «return» | mstore | tstore | calldatacopy | returndataCopy
-        | revertEmpty | revertReturndata | stop =>
-            simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork]
-        | setMapping | setMappingWord | setMappingPackedWord | setMapping2
-        | setMapping2Word | setMappingUint | setMappingChain | setStructMember
-        | setStructMember2 | storageArrayPush | storageArrayPop
-        | setStorageArrayElement | requireError | revertError | returnValues
-        | returnArray | returnBytes | returnStorageWords | returnCodeData
-        | emit | internalCall
-        | internalCallAssign | rawLog | externalCallBind | ecm
-        | tryExternalCallBind | unsafeBlock | unsafeYul | matchAdt | panicCode | panic =>
-            simp [stmtTouchesUnsupportedContractSurface] at hsurface
-      · intro stmts scope hlt hsurface
-        cases stmts with
-        | nil => simp only [CompilationModel.compileStmtList, CompilationModel.compileStmtListWithFork]
-        | cons s ss =>
-            simp only [stmtListTouchesUnsupportedContractSurface,
-              Bool.or_eq_false_iff] at hsurface
-            simp only [CompilationModel.compileStmtList,
-              CompilationModel.compileStmtListWithFork, bind, Except.bind]
-            rw [compileStmtWithFork_cancun_eq_compileStmt,
-              ih.1 s scope
-                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.1,
-              compileStmtListWithFork_cancun_eq_compileStmtList,
-              ih.2 ss (collectStmtBindNames s ++ scope)
-                (by simp [List.cons.sizeOf_spec] at hlt; omega) hsurface.2]
-            simp only [compileStmtWithFork_cancun_eq_compileStmt,
-              compileStmtListWithFork_cancun_eq_compileStmtList]
+      exact ⟨compileStmt_eventsErrorsAgnostic_step ih.2,
+        compileStmtList_eventsErrorsAgnostic_step ih.1 ih.2⟩
 
 /-- Surface-closed statements compile identically under any event/error
 catalog. -/
@@ -2787,6 +2801,35 @@ private theorem matchAdtBranchesExprSubsetInternal_aux
     · exact Or.inr (ih hrest)
 
 mutual
+private theorem stmtExprHelperCallNames_subset_stmtInternalHelperCallNames_aux
+    (stmt : Stmt)
+    {calleeName : String}
+    (hstmt : calleeName ∈ stmtExprHelperCallNames stmt) :
+    calleeName ∈ stmtInternalHelperCallNames stmt := by
+  cases stmt with
+  | ite cond thenBranch elseBranch =>
+      simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
+      exact hstmt.imp (Or.imp id
+        (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames thenBranch))
+        (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames elseBranch)
+  | forEach var count body | forEachSetBit var count body =>
+      simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
+      exact hstmt.imp id (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body)
+  | internalCall _ _ | internalCallAssign _ _ _ =>
+      simp [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_cons] at hstmt ⊢
+      exact Or.inr hstmt
+  | unsafeBlock reason body =>
+      simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames] at hstmt ⊢
+      exact stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body hstmt
+  | matchAdt adtName scrutinee branches =>
+      simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames] at hstmt ⊢
+      exact matchAdtBranchesExprHelperCallNames_subset_internalHelperCallNames branches hstmt
+  | _ =>
+      all_goals
+        simpa [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append,
+          or_left_comm, or_assoc] using hstmt
+termination_by sizeOf stmt
+
 private theorem stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames
     (stmts : List Stmt)
     {calleeName : String}
@@ -2796,45 +2839,10 @@ private theorem stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNam
   | [] =>
       simpa [stmtListExprHelperCallNames, stmtListInternalHelperCallNames] using hmem
   | stmt :: rest =>
-      simp only [stmtListExprHelperCallNames, stmtListInternalHelperCallNames, List.mem_append] at hmem ⊢
+      simp only [stmtListExprHelperCallNames, stmtListInternalHelperCallNames,
+        List.mem_append] at hmem ⊢
       rcases hmem with hstmt | hrest
-      · left
-        cases stmt with
-        | ite cond thenBranch elseBranch =>
-            simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
-            rcases hstmt with (hcond | hthen) | helse
-            · exact Or.inl (Or.inl hcond)
-            · exact Or.inl <| Or.inr <|
-                stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames thenBranch hthen
-            · exact Or.inr <|
-                stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames elseBranch helse
-        | forEach var count body | forEachSetBit var count body =>
-            simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
-            rcases hstmt with hcount | hbody
-            · exact Or.inl hcount
-            · exact Or.inr <|
-                stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body hbody
-        | internalCall calleeName args =>
-            simp [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_cons] at hstmt ⊢
-            exact Or.inr hstmt
-        | internalCallAssign names calleeName args =>
-            simp [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_cons] at hstmt ⊢
-            exact Or.inr hstmt
-        | requireError cond errorName args =>
-            simp [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append] at hstmt ⊢
-            exact hstmt
-        | revertError errorName args =>
-            simpa [stmtExprHelperCallNames, stmtInternalHelperCallNames] using hstmt
-        | unsafeBlock reason body =>
-            simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames] at hstmt ⊢
-            exact stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames body hstmt
-        | matchAdt adtName scrutinee branches =>
-            simp only [stmtExprHelperCallNames, stmtInternalHelperCallNames] at hstmt ⊢
-            exact matchAdtBranchesExprHelperCallNames_subset_internalHelperCallNames branches hstmt
-        | _ =>
-            all_goals
-              simpa [stmtExprHelperCallNames, stmtInternalHelperCallNames, List.mem_append,
-                or_left_comm, or_assoc] using hstmt
+      · exact Or.inl (stmtExprHelperCallNames_subset_stmtInternalHelperCallNames_aux stmt hstmt)
       · exact Or.inr (stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames rest hrest)
 termination_by sizeOf stmts
 
@@ -3870,287 +3878,216 @@ private theorem stmtListTerminalCore_helperSurfaceClosed
     (hterminal : FunctionBody.StmtListTerminalCore scope stmts) :
     stmtListTouchesUnsupportedHelperSurface stmts = false := by
   induction hterminal with
-  | letVar hvalue _ _ ih
-    | assignVar hvalue _ _ ih =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hvalue,
-        ih,
-        Bool.or_false, Bool.false_or]
-  | require_ hcond _ _ ih =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hcond,
-        ih,
-        Bool.or_false, Bool.false_or]
+  | letVar hvalue _ _ ih | assignVar hvalue _ _ ih | require_ hvalue _ _ ih =>
+      simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
+        exprCompileCore_helperSurfaceClosed hvalue, ih, Bool.or_false, Bool.false_or]
   | return_ hvalue _ hrest =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
+      simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
         exprCompileCore_helperSurfaceClosed hvalue,
-        stmtListCompileCore_helperSurfaceClosed hrest,
-        Bool.or_false, Bool.false_or]
+        stmtListCompileCore_helperSurfaceClosed hrest, Bool.or_false, Bool.false_or]
   | stop hrest =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        stmtListCompileCore_helperSurfaceClosed hrest,
-        Bool.or_false, Bool.false_or]
+      simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
+        stmtListCompileCore_helperSurfaceClosed hrest, Bool.or_false, Bool.false_or]
   | ite hcond _ hthen helse hrest ihThen ihElse =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hcond,
-        ihThen, ihElse,
-        stmtListCompileCore_helperSurfaceClosed hrest,
-        Bool.or_false, Bool.false_or]
-  | mstore hoffset _ hvalue _ _ ih =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
+      simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
+        exprCompileCore_helperSurfaceClosed hcond, ihThen, ihElse,
+        stmtListCompileCore_helperSurfaceClosed hrest, Bool.or_false, Bool.false_or]
+  | mstore hoffset _ hvalue _ _ ih | tstore hoffset _ hvalue _ _ ih =>
+      simp only [stmtListTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedHelperSurface,
         exprCompileCore_helperSurfaceClosed hoffset,
-        exprCompileCore_helperSurfaceClosed hvalue,
-        ih,
-        Bool.or_false, Bool.false_or]
-  | tstore hoffset _ hvalue _ _ ih =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hoffset,
-        exprCompileCore_helperSurfaceClosed hvalue,
-        ih,
-        Bool.or_false, Bool.false_or]
+        exprCompileCore_helperSurfaceClosed hvalue, ih, Bool.or_false, Bool.false_or]
 
-private theorem supportedStmtList_letStorageField_helperSurfaceClosed
-    {tmp fieldName : String} :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.letVar tmp (Expr.storage fieldName)] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-        Bool.or_false, Bool.false_or]
+/-- Single-statement leaves of `SupportedStmtList`: the constructors whose
+conclusion is a one-statement list without a nested statement body. Only the
+`ExprCompileCore` facts about the expression operands are retained, which is all
+the syntactic closure properties below need. -/
+private inductive SupportedLeafStmt : Stmt → Prop
+  | setStorage {fieldName : String} {value : Expr} :
+      FunctionBody.ExprCompileCore value → SupportedLeafStmt (.setStorage fieldName value)
+  | setStorageAddr {fieldName : String} {value : Expr} :
+      FunctionBody.ExprCompileCore value → SupportedLeafStmt (.setStorageAddr fieldName value)
+  | setImmutable {name : String} {value : Expr} :
+      FunctionBody.ExprCompileCore value → SupportedLeafStmt (.setImmutable name value)
+  | mstore {offset value : Expr} :
+      FunctionBody.ExprCompileCore offset → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.mstore offset value)
+  | tstore {offset value : Expr} :
+      FunctionBody.ExprCompileCore offset → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.tstore offset value)
+  | calldatacopy {destOffset sourceOffset size : Expr} :
+      FunctionBody.ExprCompileCore destOffset → FunctionBody.ExprCompileCore sourceOffset →
+      FunctionBody.ExprCompileCore size →
+      SupportedLeafStmt (.calldatacopy destOffset sourceOffset size)
+  | returndataCopyEmpty {destOffset : Expr} :
+      FunctionBody.ExprCompileCore destOffset →
+      SupportedLeafStmt (.returndataCopy destOffset (.literal 0) (.literal 0))
+  | revertEmpty : SupportedLeafStmt .revertEmpty
+  | revertReturndata : SupportedLeafStmt .revertReturndata
+  | letStorage {tmp fieldName : String} :
+      SupportedLeafStmt (.letVar tmp (.storage fieldName))
+  | letStorageAddr {tmp fieldName : String} :
+      SupportedLeafStmt (.letVar tmp (.storageAddr fieldName))
+  | assignStorage {name fieldName : String} :
+      SupportedLeafStmt (.assignVar name (.storage fieldName))
+  | assignStorageAddr {name fieldName : String} :
+      SupportedLeafStmt (.assignVar name (.storageAddr fieldName))
+  | emit {eventName : String} {args : List Expr} :
+      (∀ arg ∈ args, FunctionBody.ExprCompileCore arg) →
+      SupportedLeafStmt (.emit eventName args)
+  | ecm {mod : Compiler.ECM.ExternalCallModule} {args : List Expr} :
+      (∀ arg ∈ args, FunctionBody.ExprCompileCore arg) → SupportedLeafStmt (.ecm mod args)
+  | letMapping {tmp fieldName : String} {key : Expr} :
+      FunctionBody.ExprCompileCore key →
+      SupportedLeafStmt (.letVar tmp (.mapping fieldName key))
+  | letMappingWord {tmp fieldName : String} {key : Expr} {wordOffset : Nat} :
+      FunctionBody.ExprCompileCore key →
+      SupportedLeafStmt (.letVar tmp (.mappingWord fieldName key wordOffset))
+  | letMappingUint {tmp fieldName : String} {key : Expr} :
+      FunctionBody.ExprCompileCore key →
+      SupportedLeafStmt (.letVar tmp (.mappingUint fieldName key))
+  | letMappingPackedWord {tmp fieldName : String} {key : Expr} {wordOffset : Nat}
+      {packed : PackedBits} :
+      FunctionBody.ExprCompileCore key →
+      SupportedLeafStmt (.letVar tmp (.mappingPackedWord fieldName key wordOffset packed))
+  | letStructMember {tmp fieldName memberName : String} {key : Expr} :
+      FunctionBody.ExprCompileCore key →
+      SupportedLeafStmt (.letVar tmp (.structMember fieldName key memberName))
+  | letMapping2 {tmp fieldName : String} {key1 key2 : Expr} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      SupportedLeafStmt (.letVar tmp (.mapping2 fieldName key1 key2))
+  | letMapping2Word {tmp fieldName : String} {key1 key2 : Expr} {wordOffset : Nat} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      SupportedLeafStmt (.letVar tmp (.mapping2Word fieldName key1 key2 wordOffset))
+  | letStructMember2 {tmp fieldName memberName : String} {key1 key2 : Expr} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      SupportedLeafStmt (.letVar tmp (.structMember2 fieldName key1 key2 memberName))
+  | setMappingUint {fieldName : String} {key value : Expr} :
+      FunctionBody.ExprCompileCore key → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMappingUint fieldName key value)
+  | setMappingChain {fieldName : String} {keys : List Expr} {value : Expr} :
+      (∀ key ∈ keys, FunctionBody.ExprCompileCore key) → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMappingChain fieldName keys value)
+  | setMapping {fieldName : String} {key value : Expr} :
+      FunctionBody.ExprCompileCore key → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMapping fieldName key value)
+  | setMappingWord {fieldName : String} {key value : Expr} {wordOffset : Nat} :
+      FunctionBody.ExprCompileCore key → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMappingWord fieldName key wordOffset value)
+  | setMappingPackedWord {fieldName : String} {key value : Expr} {wordOffset : Nat}
+      {packed : PackedBits} :
+      FunctionBody.ExprCompileCore key → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMappingPackedWord fieldName key wordOffset packed value)
+  | setStructMember {fieldName memberName : String} {key value : Expr} :
+      FunctionBody.ExprCompileCore key → FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setStructMember fieldName key memberName value)
+  | setMapping2 {fieldName : String} {key1 key2 value : Expr} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMapping2 fieldName key1 key2 value)
+  | setMapping2Word {fieldName : String} {key1 key2 value : Expr} {wordOffset : Nat} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setMapping2Word fieldName key1 key2 wordOffset value)
+  | setStructMember2 {fieldName memberName : String} {key1 key2 value : Expr} :
+      FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
+      FunctionBody.ExprCompileCore value →
+      SupportedLeafStmt (.setStructMember2 fieldName key1 key2 memberName value)
+  | forEachEmpty {varName : String} (n : Nat) :
+      SupportedLeafStmt (.forEach varName (.literal n) [])
+  | require {cond : Expr} {message : String} :
+      FunctionBody.ExprCompileCore cond → SupportedLeafStmt (.require cond message)
 
-private theorem supportedStmtList_letStorageAddrField_helperSurfaceClosed
-    {tmp fieldName : String} :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.letVar tmp (Expr.storageAddr fieldName)] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-        Bool.or_false, Bool.false_or]
+open Verity.Core.Free in
+/-- A unified `require` guard-family clause encodes a `require` whose guard is a
+compile-core expression over literals. -/
+private theorem requireLiteralGuardFamilyClause_toStmt_eq_require
+    (clause : RequireLiteralGuardFamilyClause) :
+    ∃ cond, clause.toStmt = Stmt.require cond clause.message ∧
+      FunctionBody.ExprCompileCore cond := by
+  rcases clause with ⟨family, n, m, p, q, message⟩
+  cases family with
+  | binary op => cases op <;> exact ⟨_, rfl, by repeat constructor⟩
+  | andEqLt | orEqLt => exact ⟨_, rfl, by repeat constructor⟩
 
-private theorem supportedStmtList_assignStorageField_helperSurfaceClosed
-    {name fieldName : String} :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.assignVar name (Expr.storage fieldName)] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-        Bool.or_false, Bool.false_or]
+/-- Generic induction principle for `SupportedStmtList`: an append-closed
+statement-list property holds on every supported list once it holds on the
+compile-core and terminal-core lists, the single-statement leaves, literal-zero
+`forEach` loops, and terminal `ite` heads. -/
+private theorem SupportedStmtList.induction_of_leaf
+    {P : List Stmt → Prop}
+    (hCore : ∀ {scope stmts}, FunctionBody.StmtListCompileCore scope stmts → P stmts)
+    (hTerminal : ∀ {scope stmts}, FunctionBody.StmtListTerminalCore scope stmts → P stmts)
+    (hLeaf : ∀ {stmt}, SupportedLeafStmt stmt → P [stmt])
+    (hForEach : ∀ {varName body}, P body → P [Stmt.forEach varName (.literal 0) body])
+    (hIte : ∀ {scope cond thenBranch elseBranch}, FunctionBody.ExprCompileCore cond →
+      FunctionBody.StmtListTerminalCore scope thenBranch →
+      FunctionBody.StmtListTerminalCore scope elseBranch →
+      P [Stmt.ite cond thenBranch elseBranch])
+    (hAppend : ∀ {xs ys}, P xs → P ys → P (xs ++ ys))
+    {fields : List Field} {scope : List String} {stmts : List Stmt}
+    (h : SupportedStmtList fields scope stmts) : P stmts := by
+  induction h with
+  | compileCore hcore => exact hCore hcore
+  | terminalCore hterminal => exact hTerminal hterminal
+  | forEachLiteralBounded _ _ ih => exact hForEach ih
+  | requireClause clause _ ih =>
+      obtain ⟨cond, hstmt, hcond⟩ := requireLiteralGuardFamilyClause_toStmt_eq_require clause
+      rw [hstmt]
+      exact hAppend (xs := [_]) (hLeaf (.require hcond)) ih
+  | iteTerminal hcond _ hthen helse => exact hIte hcond hthen helse
+  | append _ _ ihPfx ihSfx => exact hAppend ihPfx ihSfx
+  | _ => exact hLeaf (by constructor <;> assumption)
 
-private theorem supportedStmtList_assignStorageAddrField_helperSurfaceClosed
-    {name fieldName : String} :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.assignVar name (Expr.storageAddr fieldName)] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-        Bool.or_false, Bool.false_or]
+/-- A statement-list Boolean fold `listF` built from `stmtF` with `||` vanishes on
+an append when it vanishes on both halves. -/
+private theorem boolFold_append_eq_false
+    {listF : List Stmt → Bool} {stmtF : Stmt → Bool}
+    (hnil : listF [] = false) (hcons : ∀ s ss, listF (s :: ss) = (stmtF s || listF ss))
+    {xs ys : List Stmt} (hxs : listF xs = false) (hys : listF ys = false) :
+    listF (xs ++ ys) = false := by
+  induction xs with
+  | nil => simpa using hys
+  | cons x xs ih =>
+      rw [hcons, Bool.or_eq_false_iff] at hxs
+      rw [List.cons_append, hcons, hxs.1, ih hxs.2, Bool.or_false]
 
-private theorem supportedStmtList_setStorageAddrSingleSlot_helperSurfaceClosed
-    {fieldName : String}
-    {value : Expr}
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setStorageAddr fieldName value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
+/-- Specialization of `SupportedStmtList.induction_of_leaf` to `||`-folds over
+statements: such a fold is `false` on every supported list once `stmtF` is
+`false` on the leaves, `forEach` heads and terminal `ite` heads. -/
+private theorem SupportedStmtList.boolFold_eq_false
+    {listF : List Stmt → Bool} {stmtF : Stmt → Bool}
+    (hnil : listF [] = false) (hcons : ∀ s ss, listF (s :: ss) = (stmtF s || listF ss))
+    (hCore : ∀ {scope stmts}, FunctionBody.StmtListCompileCore scope stmts → listF stmts = false)
+    (hTerminal : ∀ {scope stmts},
+      FunctionBody.StmtListTerminalCore scope stmts → listF stmts = false)
+    (hLeaf : ∀ {stmt}, SupportedLeafStmt stmt → stmtF stmt = false)
+    (hForEach : ∀ {varName body},
+      listF body = false → stmtF (Stmt.forEach varName (.literal 0) body) = false)
+    (hIte : ∀ {scope cond thenBranch elseBranch}, FunctionBody.ExprCompileCore cond →
+      FunctionBody.StmtListTerminalCore scope thenBranch →
+      FunctionBody.StmtListTerminalCore scope elseBranch →
+      stmtF (Stmt.ite cond thenBranch elseBranch) = false)
+    {fields : List Field} {scope : List String} {stmts : List Stmt}
+    (h : SupportedStmtList fields scope stmts) : listF stmts = false := by
+  have hsingle : ∀ {s}, stmtF s = false → listF [s] = false := fun hs => by
+    rw [hcons, hs, hnil, Bool.or_false]
+  exact SupportedStmtList.induction_of_leaf hCore hTerminal (hsingle <| hLeaf ·)
+    (hsingle <| hForEach ·) (fun hc ht he => hsingle (hIte hc ht he))
+    (boolFold_append_eq_false hnil hcons) h
 
-private theorem supportedStmtList_mstoreSingle_helperSurfaceClosed
-    {offset value : Expr}
-    (hoffset : FunctionBody.ExprCompileCore offset)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.mstore offset value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hoffset,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_tstoreSingle_helperSurfaceClosed
-    {offset value : Expr}
-    (hoffset : FunctionBody.ExprCompileCore offset)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.tstore offset value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hoffset,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_calldatacopySingle_helperSurfaceClosed
-    {destOffset sourceOffset size : Expr}
-    (hdest : FunctionBody.ExprCompileCore destOffset)
-    (hsource : FunctionBody.ExprCompileCore sourceOffset)
-    (hsize : FunctionBody.ExprCompileCore size) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.calldatacopy destOffset sourceOffset size] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hdest,
-    exprCompileCore_helperSurfaceClosed hsource,
-    exprCompileCore_helperSurfaceClosed hsize,
-    Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_returndataCopyEmptySingle_helperSurfaceClosed
-    {destOffset : Expr}
-    (hdest : FunctionBody.ExprCompileCore destOffset) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.returndataCopy destOffset (Expr.literal 0) (Expr.literal 0)] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hdest,
-    Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMappingUintSingle_helperSurfaceClosed
-    {fieldName : String}
-    {key value : Expr}
-    (hkey : FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMappingUint fieldName key value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMappingChainSingle_helperSurfaceClosed
-    {fieldName : String}
-    {keys : List Expr}
-    {value : Expr}
-    (hkeys : ∀ key ∈ keys, FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMappingChain fieldName keys value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprListCompileCore_helperSurfaceClosed hkeys,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMappingSingle_helperSurfaceClosed
-    {fieldName : String}
-    {key value : Expr}
-    (hkey : FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMapping fieldName key value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMappingWordSingle_helperSurfaceClosed
-    {fieldName : String}
-    {key value : Expr}
-    {wordOffset : Nat}
-    (hkey : FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMappingWord fieldName key wordOffset value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setStructMemberSingle_helperSurfaceClosed
-    {fieldName memberName : String}
-    {key value : Expr}
-    (hkey : FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setStructMember fieldName key memberName value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMapping2Single_helperSurfaceClosed
-    {fieldName : String}
-    {key1 key2 value : Expr}
-    (hkey1 : FunctionBody.ExprCompileCore key1)
-    (hkey2 : FunctionBody.ExprCompileCore key2)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMapping2 fieldName key1 key2 value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey1,
-    exprCompileCore_helperSurfaceClosed hkey2,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMapping2WordSingle_helperSurfaceClosed
-    {fieldName : String}
-    {key1 key2 value : Expr}
-    {wordOffset : Nat}
-    (hkey1 : FunctionBody.ExprCompileCore key1)
-    (hkey2 : FunctionBody.ExprCompileCore key2)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMapping2Word fieldName key1 key2 wordOffset value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey1,
-    exprCompileCore_helperSurfaceClosed hkey2,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setMappingPackedWordSingle_helperSurfaceClosed
-    {fieldName : String}
-    {key value : Expr}
-    {wordOffset : Nat}
-    {packed : PackedBits}
-    (hkey : FunctionBody.ExprCompileCore key)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setMappingPackedWord fieldName key wordOffset packed value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-
-private theorem supportedStmtList_setStructMember2Single_helperSurfaceClosed
-    {fieldName memberName : String}
-    {key1 key2 value : Expr}
-    (hkey1 : FunctionBody.ExprCompileCore key1)
-    (hkey2 : FunctionBody.ExprCompileCore key2)
-    (hvalue : FunctionBody.ExprCompileCore value) :
-    stmtListTouchesUnsupportedHelperSurface
-      [Stmt.setStructMember2 fieldName key1 key2 memberName value] = false := by
-  simp only [stmtListTouchesUnsupportedHelperSurface,
-    stmtTouchesUnsupportedHelperSurface,
-    exprTouchesUnsupportedHelperSurface,
-    exprCompileCore_helperSurfaceClosed hkey1,
-    exprCompileCore_helperSurfaceClosed hkey2,
-    exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
+private theorem supportedLeafStmt_helperSurfaceClosed
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtTouchesUnsupportedHelperSurface stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtTouchesUnsupportedHelperSurface] using
+        exprListCompileCore_helperSurfaceClosed hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtTouchesUnsupportedHelperSurface, exprListCompileCore_helperSurfaceClosed hkeys,
+        exprCompileCore_helperSurfaceClosed hvalue]
+  | _ =>
+      simp_all [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface,
+        stmtListTouchesUnsupportedHelperSurface, exprCompileCore_helperSurfaceClosed]
 
 open Verity.Core.Free in
 theorem SupportedStmtList.helperSurfaceClosed
@@ -4159,133 +4096,16 @@ theorem SupportedStmtList.helperSurfaceClosed
     {stmts : List Stmt}
     (hSupported : SupportedStmtList fields scope stmts) :
     stmtListTouchesUnsupportedHelperSurface stmts = false := by
-  induction hSupported with
-  | compileCore hcore => exact stmtListCompileCore_helperSurfaceClosed hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_helperSurfaceClosed hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      exact supportedStmtList_setStorageAddrSingleSlot_helperSurfaceClosed hvalue
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hvalue,
-        Bool.or_false, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      exact supportedStmtList_mstoreSingle_helperSurfaceClosed hoffset hvalue
-  | tstoreSingle hoffset _ hvalue _ =>
-      exact supportedStmtList_tstoreSingle_helperSurfaceClosed hoffset hvalue
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      exact supportedStmtList_calldatacopySingle_helperSurfaceClosed hdest hsource hsize
-  | returndataCopyEmptySingle hdest _ =>
-      exact supportedStmtList_returndataCopyEmptySingle_helperSurfaceClosed hdest
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface]
-  | letStorageField _ _ =>
-      exact supportedStmtList_letStorageField_helperSurfaceClosed
-  | letStorageAddrField _ _ =>
-      exact supportedStmtList_letStorageAddrField_helperSurfaceClosed
-  | assignStorageField _ _ =>
-      exact supportedStmtList_assignStorageField_helperSurfaceClosed
-  | assignStorageAddrField _ _ =>
-      exact supportedStmtList_assignStorageAddrField_helperSurfaceClosed
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface]
-        using exprListCompileCore_helperSurfaceClosed hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface]
-        using exprListCompileCore_helperSurfaceClosed hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hkey,
-        Bool.or_false, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hkey,
-        Bool.or_false, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hkey1,
-        exprCompileCore_helperSurfaceClosed hkey2,
-        Bool.or_false, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      exact supportedStmtList_setMappingUintSingle_helperSurfaceClosed hkey hvalue
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      exact supportedStmtList_setMappingChainSingle_helperSurfaceClosed hkeys hvalue
-  | setMappingSingle hkey _ hvalue _ _ =>
-      exact supportedStmtList_setMappingSingle_helperSurfaceClosed hkey hvalue
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      exact supportedStmtList_setMappingWordSingle_helperSurfaceClosed hkey hvalue
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      exact supportedStmtList_setMappingPackedWordSingle_helperSurfaceClosed hkey hvalue
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      exact supportedStmtList_setStructMemberSingle_helperSurfaceClosed hkey hvalue
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      exact supportedStmtList_setMapping2Single_helperSurfaceClosed hkey1 hkey2 hvalue
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      exact supportedStmtList_setMapping2WordSingle_helperSurfaceClosed hkey1 hkey2 hvalue
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      exact supportedStmtList_setStructMember2Single_helperSurfaceClosed hkey1 hkey2 hvalue
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface]
-  | requireClause clause _ ih =>
-      simp [stmtListTouchesUnsupportedHelperSurface]
-      constructor
-      · cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface]
-          | andEqLt =>
-              simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface]
-          | orEqLt =>
-              simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface]
-      · exact ih
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedHelperSurface,
-        exprCompileCore_helperSurfaceClosed hcond,
-        stmtListTerminalCore_helperSurfaceClosed hthen,
-        stmtListTerminalCore_helperSurfaceClosed helse,
-        Bool.or_false, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      suffices h : ∀ (xs ys : List Stmt),
-          stmtListTouchesUnsupportedHelperSurface xs = false →
-          stmtListTouchesUnsupportedHelperSurface ys = false →
-          stmtListTouchesUnsupportedHelperSurface (xs ++ ys) = false from
-        h pfx sfx ihPfx ihSfx
-      intro xs ys hxs hys
-      induction xs with
-      | nil => simpa
-      | cons x xs' ihx =>
-          simp only [List.cons_append, stmtListTouchesUnsupportedHelperSurface]
-          simp only [stmtListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hxs
-          simp [hxs.1, ihx hxs.2]
-
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtTouchesUnsupportedHelperSurface)
+    (by simp [stmtListTouchesUnsupportedHelperSurface])
+    (fun _ _ => by simp [stmtListTouchesUnsupportedHelperSurface])
+    stmtListCompileCore_helperSurfaceClosed stmtListTerminalCore_helperSurfaceClosed
+    supportedLeafStmt_helperSurfaceClosed (fun hbody => ?_) (fun hcond hthen helse => ?_)
+    hSupported
+  · simpa [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface] using hbody
+  · simp only [stmtTouchesUnsupportedHelperSurface, exprCompileCore_helperSurfaceClosed hcond,
+      stmtListTerminalCore_helperSurfaceClosed hthen,
+      stmtListTerminalCore_helperSurfaceClosed helse, Bool.or_false]
 
 private theorem exprListInternalHelperCallNames_literals
     (xs : List Nat) :
@@ -4295,6 +4115,28 @@ private theorem exprListInternalHelperCallNames_literals
   | cons x xs ih =>
       simp [List.map, exprListInternalHelperCallNames, exprInternalHelperCallNames, ih]
 
+private theorem supportedLeafStmt_internalHelperCallNames_nil
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtInternalHelperCallNames stmt = [] := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtInternalHelperCallNames] using
+        exprListCompileCore_internalHelperCallNames_nil hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtInternalHelperCallNames, exprListCompileCore_internalHelperCallNames_nil hkeys,
+        exprCompileCore_internalHelperCallNames_nil hvalue]
+  | _ =>
+      simp_all [stmtInternalHelperCallNames, exprInternalHelperCallNames,
+        stmtListInternalHelperCallNames, exprCompileCore_internalHelperCallNames_nil]
+
+private theorem stmtListInternalHelperCallNames_append
+    (xs ys : List Stmt) :
+    stmtListInternalHelperCallNames (xs ++ ys) =
+      stmtListInternalHelperCallNames xs ++ stmtListInternalHelperCallNames ys := by
+  induction xs with
+  | nil => simp [stmtListInternalHelperCallNames]
+  | cons x xs ih => simp [stmtListInternalHelperCallNames, ih]
+
 open Verity.Core.Free in
 theorem SupportedStmtList.internalHelperCallNames_nil
     {fields : List Field}
@@ -4302,199 +4144,20 @@ theorem SupportedStmtList.internalHelperCallNames_nil
     {stmts : List Stmt}
     (hSupported : SupportedStmtList fields scope stmts) :
     stmtListInternalHelperCallNames stmts = [] := by
-  induction hSupported with
-  | compileCore hcore => exact stmtListCompileCore_internalHelperCallNames_nil hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_internalHelperCallNames_nil hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hoffset,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hoffset,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hdest,
-        exprCompileCore_internalHelperCallNames_nil hsource,
-        exprCompileCore_internalHelperCallNames_nil hsize,
-        List.nil_append, List.append_nil]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hdest,
-        exprInternalHelperCallNames]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
-  | letStorageField _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        List.nil_append, List.append_nil]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        List.nil_append, List.append_nil]
-  | assignStorageField _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        List.nil_append, List.append_nil]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        List.nil_append, List.append_nil]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
-        using exprListCompileCore_internalHelperCallNames_nil hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
-        using exprListCompileCore_internalHelperCallNames_nil hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        List.nil_append, List.append_nil]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        List.nil_append, List.append_nil]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey1,
-        exprCompileCore_internalHelperCallNames_nil hkey2,
-        List.nil_append, List.append_nil]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprListCompileCore_internalHelperCallNames_nil hkeys,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey1,
-        exprCompileCore_internalHelperCallNames_nil hkey2,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey1,
-        exprCompileCore_internalHelperCallNames_nil hkey2,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hkey1,
-        exprCompileCore_internalHelperCallNames_nil hkey2,
-        exprCompileCore_internalHelperCallNames_nil hvalue,
-        List.nil_append, List.append_nil]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprInternalHelperCallNames] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
-        exprInternalHelperCallNames]
-  | requireClause clause _ ih =>
-      simp [stmtListInternalHelperCallNames]
-      constructor
-      · cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtInternalHelperCallNames, exprInternalHelperCallNames]
-          | andEqLt =>
-              simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtInternalHelperCallNames, exprInternalHelperCallNames]
-          | orEqLt =>
-              simp [RequireLiteralGuardFamilyClause.toStmt,
-                stmtInternalHelperCallNames, exprInternalHelperCallNames]
-      · exact ih
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListInternalHelperCallNames,
-        stmtInternalHelperCallNames,
-        exprCompileCore_internalHelperCallNames_nil hcond,
-        stmtListTerminalCore_internalHelperCallNames_nil hthen,
-        stmtListTerminalCore_internalHelperCallNames_nil helse,
-        List.nil_append, List.append_nil]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      suffices h : ∀ (xs ys : List Stmt),
-          stmtListInternalHelperCallNames xs = [] →
-          stmtListInternalHelperCallNames ys = [] →
-          stmtListInternalHelperCallNames (xs ++ ys) = [] from
-        h pfx sfx ihPfx ihSfx
-      intro xs ys hxs hys
-      induction xs with
-      | nil => simpa
-      | cons x xs' ihx =>
-          simp only [List.cons_append, stmtListInternalHelperCallNames]
-          have : stmtInternalHelperCallNames x ++ stmtListInternalHelperCallNames xs' = [] := by
-            simpa [stmtListInternalHelperCallNames] using hxs
-          have hx : stmtInternalHelperCallNames x = [] := List.append_eq_nil_iff.mp this |>.1
-          have hxs' : stmtListInternalHelperCallNames xs' = [] := List.append_eq_nil_iff.mp this |>.2
-          simp [hx, ihx hxs']
+  refine SupportedStmtList.induction_of_leaf (P := (stmtListInternalHelperCallNames · = []))
+    stmtListCompileCore_internalHelperCallNames_nil
+    stmtListTerminalCore_internalHelperCallNames_nil
+    (fun h => by simp [stmtListInternalHelperCallNames,
+      supportedLeafStmt_internalHelperCallNames_nil h])
+    (fun hbody => ?_) (fun hcond hthen helse => ?_)
+    (fun hxs hys => by rw [stmtListInternalHelperCallNames_append, hxs, hys, List.nil_append])
+    hSupported
+  · simpa [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
+      exprInternalHelperCallNames] using hbody
+  · simp only [stmtListInternalHelperCallNames, stmtInternalHelperCallNames,
+      exprCompileCore_internalHelperCallNames_nil hcond,
+      stmtListTerminalCore_internalHelperCallNames_nil hthen,
+      stmtListTerminalCore_internalHelperCallNames_nil helse, List.nil_append, List.append_nil]
 
 
 theorem SupportedBodyInterface.helperCallNames_nil
@@ -4515,134 +4178,23 @@ mutual
       (hsurface : exprTouchesUnsupportedHelperSurface expr = false) :
       exprTouchesInternalHelperSurface expr = false := by
     cases expr with
-    | internalCall _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | mappingChain _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | intrinsic _ _ _ _ => simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
-    | chainid | msgValue | selfBalance
-    | blockTimestamp | blockNumber | localVar _ | storage _ | storageAddr _
-    | constructorArg _ | blobbasefee | calldatasize | returndataSize
-    | arrayLength _ | memoryArrayLength _ | storageArrayLength _ | dynamicBytesEq _ _
-    | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
-    | paramDynamicMemberLength _ _
-    | paramDynamicMemberDataOffset _ _ =>
-        simp [exprTouchesInternalHelperSurface]
     | externalCall name args =>
         -- Only the reserved two-operand `exp` builtin lane recurses; every other
         -- `externalCall` shape is still uniformly outside the helper surface.
-        cases args with
-        | nil => simp [exprTouchesInternalHelperSurface]
-        | cons base tl =>
-          cases tl with
-          | nil => simp [exprTouchesInternalHelperSurface]
-          | cons exponent tl' =>
-            cases tl' with
-            | cons _ _ => simp [exprTouchesInternalHelperSurface]
-            | nil =>
-              by_cases hname : name = builtinExpName
-              · subst hname
-                simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true,
-                  Bool.or_eq_false_iff] at hsurface
-                simp [exprTouchesInternalHelperSurface,
-                  exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-                  exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-              · simp [exprTouchesInternalHelperSurface, hname]
-    | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
-        simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        simp only [exprTouchesInternalHelperSurface]
-        exact exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface
-    | keccak256 a b =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        have ⟨ha, hb⟩ := Bool.or_eq_false_iff.mp hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | call g t v io is oo os =>
-        simp [exprTouchesInternalHelperSurface]
-    | staticcall g t io is oo os | delegatecall g t io is oo os =>
-        simp [exprTouchesInternalHelperSurface]
-    | add a b | sub a b | mul a b | div a b | mod a b
-    | eq a b | ge a b | gt a b | lt a b | le a b
-    | logicalAnd a b | logicalOr a b =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        have ⟨ha, hb⟩ := Bool.or_eq_false_iff.mp hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | sdiv a b | smod a b | bitAnd a b | bitOr a b | bitXor a b
-    | sgt a b | slt a b | min a b | max a b | wMulDown a b | wDivUp a b =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        have ⟨ha, hb⟩ := Bool.or_eq_false_iff.mp hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | shl a b | shr a b | sar a b | byte a b | signextend a b =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        have ⟨ha, hb⟩ := Bool.or_eq_false_iff.mp hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | bitNot a | logicalNot a =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | mapping _ b | mappingUint _ b | memoryArrayElement _ b
-    | arrayElementWord _ b _ _
-    | arrayElementDynamicWord _ b _
-    | storageArrayElement _ b
-    | mappingWord _ b _ | mappingPackedWord _ b _ _ | structMember _ b _ =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | arrayElement _ _ =>
-        simp [exprTouchesUnsupportedHelperSurface] at hsurface
-    | paramDynamicMemberElement _ _ b =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | arrayElementDynamicDataOffset _ b
-    | arrayElementDynamicMemberLength _ b _
-    | arrayElementDynamicMemberDataOffset _ b _ =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | arrayElementDynamicMemberElement _ a _ b =>
+        rcases args with _ | ⟨base, _ | ⟨exponent, _ | ⟨_, _⟩⟩⟩
+        all_goals try simp [exprTouchesInternalHelperSurface]
+        by_cases hname : name = builtinExpName
+        · subst hname
+          simp only [exprTouchesUnsupportedHelperSurface, beq_self_eq_true, if_true,
+            Bool.or_eq_false_iff] at hsurface
+          simp [exprTouchesInternalHelperSurface,
+            exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
+            exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+        · simp [exprTouchesInternalHelperSurface, hname]
+    | _ =>
         simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | mapping2 _ a b | mapping2Word _ a b _ | structMember2 _ a b _ =>
-        simp only [exprTouchesUnsupportedHelperSurface] at hsurface
-        have ⟨ha, hb⟩ := Bool.or_eq_false_iff.mp hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | ceilDiv a b =>
-        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        have ⟨ha, hb⟩ := hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed ha,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hb]
-    | mulDivDown a b c | mulDivUp a b c
-    | mulDiv512Down a b c | mulDiv512Up a b c =>
-        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | ite c t e =>
-        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | forkIfAtLeast _ thenExpr elseExpr =>
-        simp only [exprTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [exprTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
+        simp_all [exprTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed]
 
   theorem exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {exprs : List Expr}
@@ -4661,54 +4213,13 @@ end
 -- its own mutual block. Both blocks recurse structurally over the nested
 -- `Expr`/`Stmt` inductives: well-founded `termination_by sizeOf` recursion
 -- here cost over 200 000 heartbeats in generated termination proofs alone.
+
 mutual
   theorem stmtTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {stmt : Stmt}
       (hsurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
       stmtTouchesInternalHelperSurface stmt = false := by
     cases stmt with
-    | letVar _ value | assignVar _ value | setStorage _ value
-    | setStorageAddr _ value | setImmutable _ value | setStorageWord _ _ value | storageArrayPush _ value =>
-        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | setMapping _ key value | setMappingWord _ key _ value
-    | setMappingPackedWord _ key _ _ value | setMappingUint _ key value
-    | setStructMember _ key _ value =>
-        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | setMappingChain _ keys value =>
-        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | setMapping2 _ key1 key2 value | setMapping2Word _ key1 key2 _ value
-    | setStructMember2 _ key1 key2 _ value =>
-        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff, Bool.or_assoc] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2.2]
-    | setStorageArrayElement _ index value | mstore index value | tstore index value =>
-        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | calldatacopy destOffset sourceOffset size
-    | returndataCopy destOffset sourceOffset size =>
-        simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.1,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1.2,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | require cond _ | «return» cond =>
-        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | internalCall _ _ | internalCallAssign _ _ _ =>
-        simp [stmtTouchesUnsupportedHelperSurface] at hsurface
     | ite cond thenBranch elseBranch =>
         simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         simp [stmtTouchesInternalHelperSurface,
@@ -4720,26 +4231,11 @@ mutual
         simp [stmtTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _ =>
-        simp [stmtTouchesUnsupportedHelperSurface] at hsurface
-    | returnCodeData pointer =>
-        simp [stmtTouchesUnsupportedHelperSurface] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | requireError cond _ args =>
+    | _ =>
         simp only [stmtTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
-          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-    | revertError _ args =>
-        simp only [stmtTouchesUnsupportedHelperSurface] at hsurface
-        simp [stmtTouchesInternalHelperSurface,
-          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface]
-    | stop | revertEmpty | revertReturndata
-    | externalCallBind _ _ _ | tryExternalCallBind _ _ _ _ | ecm _ _ | storageArrayPop _
-    | returnValues _ | returnArray _ | returnBytes _
-    | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ | panic _ =>
-        simp [stmtTouchesInternalHelperSurface]
+        simp_all [stmtTouchesInternalHelperSurface,
+          exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed,
+          exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed]
 
   theorem stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {stmts : List Stmt}
@@ -4996,173 +4492,27 @@ private theorem exprTouchesUnsupportedCallSurface_eq_featureOr
         exprTouchesUnsupportedForeignSurface expr ||
         exprTouchesUnsupportedLowLevelSurface expr) := by
   cases expr with
-  | literal _ | param _ | immutable _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | selfBalance | blockTimestamp | blockNumber
-  | localVar _ | storage _ | storageAddr _
-  | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
-  | paramDynamicMemberLength _ _
-  | paramDynamicMemberDataOffset _ _
-  | constructorArg _ | blobbasefee | calldatasize | returndataSize =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | internalCall _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
   | externalCall name args =>
       -- All four predicates recurse identically on the reserved `exp` builtin
       -- lane, so the decomposition holds there by associativity/commutativity.
-      cases args with
-      | nil =>
-          simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-            exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      | cons base tl =>
-        cases tl with
-        | nil =>
-            simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-              exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-        | cons exponent tl' =>
-          cases tl' with
-          | cons _ _ =>
-              simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-          | nil =>
-            by_cases hname : name = builtinExpName
-            · subst hname
-              simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
-                beq_self_eq_true, if_true]
-              rw [exprTouchesUnsupportedCallSurface_eq_featureOr base,
-                exprTouchesUnsupportedCallSurface_eq_featureOr exponent]
-              cases exprTouchesUnsupportedHelperSurface base <;>
-                cases exprTouchesUnsupportedForeignSurface base <;>
-                cases exprTouchesUnsupportedLowLevelSurface base <;>
-                cases exprTouchesUnsupportedHelperSurface exponent <;>
-                cases exprTouchesUnsupportedForeignSurface exponent <;>
-                cases exprTouchesUnsupportedLowLevelSurface exponent <;> rfl
-            · simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-                exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
-                hname]
-  | intrinsic _ _ _ _ =>
+      rcases args with _ | ⟨base, _ | ⟨exponent, _ | ⟨_, _⟩⟩⟩
+      all_goals try simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
+      by_cases hname : name = builtinExpName
+      · subst hname
+        simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+          exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
+          beq_self_eq_true, if_true]
+        rw [exprTouchesUnsupportedCallSurface_eq_featureOr base,
+          exprTouchesUnsupportedCallSurface_eq_featureOr exponent]
+        simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+      · simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
+          exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface, hname]
+  | _ =>
       simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | arrayLength _
-  | memoryArrayLength _
-  | storageArrayLength _ | dynamicBytesEq _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr a
-  | keccak256 a b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | add a b | sub a b | mul a b
-  | div a b | mod a b
-  | sdiv a b | smod a b
-  | bitAnd a b | bitOr a b | bitXor a b
-  | eq a b | ge a b | gt a b
-  | sgt a b | lt a b | slt a b
-  | le a b
-  | logicalAnd a b | logicalOr a b
-  | min a b | max a b | wMulDown a b | wDivUp a b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | bitNot a | logicalNot a =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr a
-  | paramDynamicMemberElement _ _ b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr b
-  | mapping _ b | mappingUint _ b | memoryArrayElement _ b
-  | arrayElementWord _ b _ _
-  | storageArrayElement _ b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr b
-  | arrayElement _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | arrayElementDynamicWord _ b _ =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr b
-  | arrayElementDynamicDataOffset _ b
-  | arrayElementDynamicMemberLength _ b _
-  | arrayElementDynamicMemberDataOffset _ b _ =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr b
-  | arrayElementDynamicMemberElement _ a _ b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | mappingWord _ a _ | mappingPackedWord _ a _ _
-  | structMember _ a _ =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      exact exprTouchesUnsupportedCallSurface_eq_featureOr a
-  | mappingChain _ _ =>
-      simp [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr cond,
-          exprTouchesUnsupportedCallSurface_eq_featureOr thenVal,
-          exprTouchesUnsupportedCallSurface_eq_featureOr elseVal]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr thenExpr,
-          exprTouchesUnsupportedCallSurface_eq_featureOr elseExpr]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | mapping2 _ a b | mapping2Word _ a b _
-  | structMember2 _ a b _ =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | ceilDiv a b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | mulDivDown a b c | mulDivUp a b c
-  | mulDiv512Down a b c | mulDiv512Up a b c =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b,
-          exprTouchesUnsupportedCallSurface_eq_featureOr c]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | shl a b | shr a b | sar a b | byte a b | signextend a b =>
-      simp only [exprTouchesUnsupportedCallSurface, exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface]
-      rw [exprTouchesUnsupportedCallSurface_eq_featureOr a,
-          exprTouchesUnsupportedCallSurface_eq_featureOr b]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
+        exprTouchesUnsupportedForeignSurface, exprTouchesUnsupportedLowLevelSurface,
+        exprTouchesUnsupportedCallSurface_eq_featureOr,
+        Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
 
 private theorem exprListTouchesUnsupportedCallSurface_eq_featureOr
     (exprs : List Expr) :
@@ -5178,6 +4528,53 @@ private theorem exprListTouchesUnsupportedCallSurface_eq_featureOr
       rw [exprTouchesUnsupportedCallSurface_eq_featureOr, ih]
       simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
 
+mutual
+  private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr_aux
+      (stmt : Stmt) :
+      stmtTouchesUnsupportedCallSurface stmt =
+        (stmtTouchesUnsupportedHelperSurface stmt ||
+          stmtTouchesUnsupportedForeignSurface stmt ||
+          stmtTouchesUnsupportedLowLevelSurface stmt) := by
+    cases stmt with
+    | ite cond thenBranch elseBranch =>
+        simp only [stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedHelperSurface,
+          stmtTouchesUnsupportedForeignSurface, stmtTouchesUnsupportedLowLevelSurface]
+        rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+          stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux thenBranch,
+          stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux elseBranch]
+        simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+    | forEach _ count body | forEachSetBit _ count body =>
+        simp only [stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedHelperSurface,
+          stmtTouchesUnsupportedForeignSurface, stmtTouchesUnsupportedLowLevelSurface]
+        rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
+          stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux body]
+        simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+    | _ =>
+        simp [stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedHelperSurface,
+          stmtTouchesUnsupportedForeignSurface, stmtTouchesUnsupportedLowLevelSurface,
+          exprTouchesUnsupportedCallSurface_eq_featureOr,
+          exprListTouchesUnsupportedCallSurface_eq_featureOr,
+          Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+
+  private theorem stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux
+      (stmts : List Stmt) :
+      stmtListTouchesUnsupportedCallSurface stmts =
+        (stmtListTouchesUnsupportedHelperSurface stmts ||
+          stmtListTouchesUnsupportedForeignSurface stmts ||
+          stmtListTouchesUnsupportedLowLevelSurface stmts) := by
+    cases stmts with
+    | nil =>
+        simp [stmtListTouchesUnsupportedCallSurface, stmtListTouchesUnsupportedHelperSurface,
+          stmtListTouchesUnsupportedForeignSurface, stmtListTouchesUnsupportedLowLevelSurface]
+    | cons stmt rest =>
+        simp only [stmtListTouchesUnsupportedCallSurface, stmtListTouchesUnsupportedHelperSurface,
+          stmtListTouchesUnsupportedForeignSurface, stmtListTouchesUnsupportedLowLevelSurface,
+          List.any_cons]
+        rw [stmtTouchesUnsupportedCallSurface_eq_featureOr_aux stmt,
+          stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux rest]
+        simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
+end
+
 private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
     (target : Sum Stmt (List Stmt)) →
       match target with
@@ -5191,77 +4588,8 @@ private theorem stmtOrListTouchesUnsupportedCallSurface_eq_featureOr :
             (stmtListTouchesUnsupportedHelperSurface stmts ||
               stmtListTouchesUnsupportedForeignSurface stmts ||
               stmtListTouchesUnsupportedLowLevelSurface stmts)
-  | .inl stmt => by
-      cases stmt with
-      | ite cond thenBranch elseBranch =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
-              stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr thenBranch),
-              stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr elseBranch)]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | forEach _ count body | forEachSetBit _ count body =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
-              stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr body)]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | setMappingChain _ keys value =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr,
-              exprTouchesUnsupportedCallSurface_eq_featureOr value]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | requireError cond _ args =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprTouchesUnsupportedCallSurface_eq_featureOr,
-              exprListTouchesUnsupportedCallSurface_eq_featureOr args]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | revertError _ args =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | emit _ args =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | externalCallBind _ _ args | tryExternalCallBind _ _ _ args =>
-          simp only [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface]
-          rw [exprListTouchesUnsupportedCallSurface_eq_featureOr args]
-          simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-      | _ =>
-          all_goals simp [stmtTouchesUnsupportedCallSurface,
-            stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedForeignSurface,
-            stmtTouchesUnsupportedLowLevelSurface,
-            exprTouchesUnsupportedCallSurface_eq_featureOr,
-            Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-  | .inr [] => by
-      simp [stmtListTouchesUnsupportedCallSurface, stmtListTouchesUnsupportedHelperSurface,
-        stmtListTouchesUnsupportedForeignSurface, stmtListTouchesUnsupportedLowLevelSurface]
-  | .inr (stmt :: rest) => by
-      simp only [stmtListTouchesUnsupportedCallSurface, stmtListTouchesUnsupportedHelperSurface,
-        stmtListTouchesUnsupportedForeignSurface, stmtListTouchesUnsupportedLowLevelSurface,
-        List.any_cons]
-      rw [stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inl stmt),
-          stmtOrListTouchesUnsupportedCallSurface_eq_featureOr (.inr rest)]
-      simp [Bool.or_assoc, Bool.or_left_comm, Bool.or_comm]
-termination_by target => sizeOf target
-decreasing_by
-  all_goals
-    simp_wf
-    try simp [Stmt.ite.sizeOf_spec, Stmt.forEach.sizeOf_spec, List.cons.sizeOf_spec] at *
-    try omega
+  | .inl stmt => stmtTouchesUnsupportedCallSurface_eq_featureOr_aux stmt
+  | .inr stmts => stmtListTouchesUnsupportedCallSurface_eq_featureOr_aux stmts
 
 private theorem stmtTouchesUnsupportedCallSurface_eq_featureOr
     (stmt : Stmt) :
@@ -5287,150 +4615,23 @@ private theorem exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (hcalls : exprTouchesUnsupportedCallSurface expr = false) :
     exprTouchesUnsupportedContractSurface expr = false := by
   cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
-  | calldatasize | returndataSize =>
-      simp [exprTouchesUnsupportedContractSurface]
-  | immutable _ =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | selfBalance =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | storage _ | storageAddr _ =>
-      cases hstate
-  | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
-  | paramDynamicMemberLength _ _
-  | paramDynamicMemberDataOffset _ _ | paramDynamicMemberElement _ _ _ =>
-      cases hcore
-  | memoryArrayLength _ | storageArrayLength _ =>
-      cases hcore
-  | arrayLength _ | dynamicBytesEq _ _ =>
-      cases hcalls
-  | keccak256 offset size =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
-          offset hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed
-          size hcore.2 hstate.2 hcalls.2]
-  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp only [exprTouchesUnsupportedStateSurface] at hstate
-      simp only [exprTouchesUnsupportedCallSurface] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed a hcore hstate hcalls]
-  | add lhs rhs | sub lhs rhs | mul lhs rhs
-  | div lhs rhs | mod lhs rhs
-  | eq lhs rhs | ge lhs rhs | gt lhs rhs
-  | lt lhs rhs | le lhs rhs
-  | logicalAnd lhs rhs | logicalOr lhs rhs
-  | shl lhs rhs | shr lhs rhs | slt lhs rhs | sgt lhs rhs
-  | sdiv lhs rhs | smod lhs rhs | sar lhs rhs | byte lhs rhs | signextend lhs rhs =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed lhs hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed rhs hcore.2 hstate.2 hcalls.2]
-  | bitAnd lhs rhs | bitOr lhs rhs | bitXor lhs rhs =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed lhs hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed rhs hcore.2 hstate.2 hcalls.2]
-  | bitNot a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp only [exprTouchesUnsupportedStateSurface] at hstate
-      simp only [exprTouchesUnsupportedCallSurface] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed a hcore hstate hcalls]
-  | min lhs rhs | max lhs rhs | ceilDiv lhs rhs =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed lhs hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed rhs hcore.2 hstate.2 hcalls.2]
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond hcore.1.1 hstate.1.1 hcalls.1.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed thenVal hcore.1.2 hstate.1.2 hcalls.1.2,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed elseVal hcore.2 hstate.2 hcalls.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | wMulDown lhs rhs | wDivUp lhs rhs =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed lhs hcore.1 hstate.1 hcalls.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed rhs hcore.2 hstate.2 hcalls.2]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [exprTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed a hcore.1.1 hstate.1.1 hcalls.1.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed b hcore.1.2 hstate.1.2 hcalls.1.2,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed c hcore.2 hstate.2 hcalls.2]
-  | mulDiv512Down _ _ _ | mulDiv512Up _ _ _ =>
-      simp [exprTouchesUnsupportedCoreSurface] at hcore
-  | logicalNot a =>
-      simp only [exprTouchesUnsupportedCoreSurface] at hcore
-      simp only [exprTouchesUnsupportedStateSurface] at hstate
-      simp only [exprTouchesUnsupportedCallSurface] at hcalls
-      simp [exprTouchesUnsupportedContractSurface,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed a hcore hstate hcalls]
-  | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
-      cases hcore
-  | intrinsic _ _ _ _ =>
-      cases hcore
-  | mapping _ _ | mappingWord _ _ _ | mappingPackedWord _ _ _ _
-  | mapping2 _ _ _ | mapping2Word _ _ _ _ | mappingUint _ _
-  | mappingChain _ _ | structMember _ _ _ | structMember2 _ _ _ _
-  | memoryArrayElement _ _ | arrayElementWord _ _ _ _
-  | arrayElementDynamicWord _ _ _
-  | arrayElementDynamicDataOffset _ _
-  | arrayElementDynamicMemberLength _ _ _
-  | arrayElementDynamicMemberDataOffset _ _ _
-  | arrayElementDynamicMemberElement _ _ _ _
-  | storageArrayElement _ _
-  | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
-  | internalCall _ _ =>
-      cases hcore
   | externalCall name args =>
-      cases args with
-      | nil => cases hcore
-      | cons base tl =>
-        cases tl with
-        | nil => cases hcore
-        | cons exponent tl' =>
-          cases tl' with
-          | cons _ _ => cases hcore
-          | nil =>
-            by_cases hname : name = builtinExpName
-            · subst hname
-              simp only [exprTouchesUnsupportedCoreSurface, beq_self_eq_true, if_true,
-                Bool.or_eq_false_iff] at hcore
-              simp only [exprTouchesUnsupportedStateSurface, beq_self_eq_true, if_true,
-                Bool.or_eq_false_iff] at hstate
-              simp only [exprTouchesUnsupportedCallSurface, beq_self_eq_true, if_true,
-                Bool.or_eq_false_iff] at hcalls
-              simp [exprTouchesUnsupportedContractSurface,
-                exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed base
-                  hcore.1 hstate.1 hcalls.1,
-                exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed exponent
-                  hcore.2 hstate.2 hcalls.2]
-            · simp [exprTouchesUnsupportedCoreSurface, hname] at hcore
-  | arrayElement _ index =>
-      cases hcalls
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
+      rcases args with _ | ⟨base, _ | ⟨exponent, _ | ⟨_, _⟩⟩⟩
+      all_goals try simp [exprTouchesUnsupportedCoreSurface] at hcore
+      by_cases hname : name = builtinExpName
+      · subst hname
+        simp only [exprTouchesUnsupportedCoreSurface, exprTouchesUnsupportedStateSurface,
+          exprTouchesUnsupportedCallSurface, beq_self_eq_true, if_true,
+          Bool.or_eq_false_iff] at hcore hstate hcalls
+        simp_all [exprTouchesUnsupportedContractSurface,
+          exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed]
+      · simp [exprTouchesUnsupportedCoreSurface, hname] at hcore
+  | _ =>
+      simp only [exprTouchesUnsupportedCoreSurface, exprTouchesUnsupportedStateSurface,
+        exprTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcore hstate hcalls
+      simp_all [exprTouchesUnsupportedContractSurface,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed]
+
 
 private theorem exprListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (exprs : List Expr)
@@ -5583,91 +4784,23 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
     (heffects : stmtTouchesUnsupportedEffectSurface stmt = false) :
     stmtTouchesUnsupportedContractSurface stmt = false := by
   cases stmt with
-  | letVar _ value | assignVar _ value | setStorage _ value =>
-      simp only [stmtTouchesUnsupportedContractSurface]
-      exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
-        (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore)
-        (by simpa [stmtTouchesUnsupportedStateSurface] using hstate)
-        (by simpa [stmtTouchesUnsupportedCallSurface] using hcalls)
-  | setStorageAddr _ value =>
-      simp only [stmtTouchesUnsupportedContractSurface]
-      exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
-        (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore)
-        (by simpa [stmtTouchesUnsupportedStateSurface] using hstate)
-        (by simpa [stmtTouchesUnsupportedCallSurface] using hcalls)
-  | setImmutable _ _ =>
-      simp [stmtTouchesUnsupportedEffectSurface] at heffects
-  | require cond _ | «return» cond =>
-      simp only [stmtTouchesUnsupportedContractSurface]
-      exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond
-        (by simpa [stmtTouchesUnsupportedCoreSurface] using hcore)
-        (by simpa [stmtTouchesUnsupportedStateSurface] using hstate)
-        (by simpa [stmtTouchesUnsupportedCallSurface] using hcalls)
-  | stop => simp [stmtTouchesUnsupportedContractSurface]
-  | mstore offset value | tstore offset value =>
-      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff]
-      have hcore' :
-          exprTouchesUnsupportedCoreSurface offset = false ∧
-            exprTouchesUnsupportedCoreSurface value = false := by
-        simpa [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] using hcore
-      have hstate' :
-          exprTouchesUnsupportedStateSurface offset = false ∧
-            exprTouchesUnsupportedStateSurface value = false := by
-        simpa [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] using hstate
-      have hcalls' :
-          exprTouchesUnsupportedCallSurface offset = false ∧
-            exprTouchesUnsupportedCallSurface value = false := by
-        simpa [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] using hcalls
-      constructor
-      · exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed offset
-          hcore'.1 hstate'.1 hcalls'.1
-      · exact exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed value
-          hcore'.2 hstate'.2 hcalls'.2
-  | calldatacopy destOffset sourceOffset size
-  | returndataCopy destOffset sourceOffset size =>
-      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff]
-      have hcore' :
-          (exprTouchesUnsupportedCoreSurface destOffset = false ∧
-              exprTouchesUnsupportedCoreSurface sourceOffset = false) ∧
-            exprTouchesUnsupportedCoreSurface size = false := by
-        simpa [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] using hcore
-      have hstate' :
-          (exprTouchesUnsupportedStateSurface destOffset = false ∧
-              exprTouchesUnsupportedStateSurface sourceOffset = false) ∧
-            exprTouchesUnsupportedStateSurface size = false := by
-        simpa [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] using hstate
-      have hcalls' :
-          (exprTouchesUnsupportedCallSurface destOffset = false ∧
-              exprTouchesUnsupportedCallSurface sourceOffset = false) ∧
-            exprTouchesUnsupportedCallSurface size = false := by
-        simpa [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] using hcalls
-      exact ⟨⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed destOffset
-          hcore'.1.1 hstate'.1.1 hcalls'.1.1,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed sourceOffset
-          hcore'.1.2 hstate'.1.2 hcalls'.1.2⟩,
-        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed size
-          hcore'.2 hstate'.2 hcalls'.2⟩
   | ite cond thenBranch elseBranch =>
-      simp only [stmtTouchesUnsupportedCoreSurface, Bool.or_eq_false_iff] at hcore
-      simp only [stmtTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hstate
-      simp only [stmtTouchesUnsupportedCallSurface, Bool.or_eq_false_iff] at hcalls
-      simp only [stmtTouchesUnsupportedEffectSurface, Bool.or_eq_false_iff] at heffects
-      show (exprTouchesUnsupportedContractSurface cond ||
-            stmtListTouchesUnsupportedContractSurface thenBranch ||
-            stmtListTouchesUnsupportedContractSurface elseBranch) = false
-      rw [Bool.or_eq_false_iff, Bool.or_eq_false_iff]
+      simp only [stmtTouchesUnsupportedCoreSurface, stmtTouchesUnsupportedStateSurface,
+        stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedEffectSurface,
+        Bool.or_eq_false_iff] at hcore hstate hcalls heffects
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff]
       exact ⟨⟨exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed cond
           hcore.1.1 hstate.1.1 hcalls.1.1,
         stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           thenBranch hcore.1.2 hstate.1.2 hcalls.1.2 heffects.1⟩,
         stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           elseBranch hcore.2 hstate.2 hcalls.2 heffects.2⟩
-  | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
-  | panic _ => cases heffects
-  | setStorageWord _ _ _ => cases hstate
-  | revertEmpty | revertReturndata => simp [stmtTouchesUnsupportedContractSurface]
   | _ =>
-      all_goals (simp only [stmtTouchesUnsupportedContractSurface]; assumption)
+      simp only [stmtTouchesUnsupportedCoreSurface, stmtTouchesUnsupportedStateSurface,
+        stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedEffectSurface,
+        Bool.or_eq_false_iff] at hcore hstate hcalls heffects
+      simp_all [stmtTouchesUnsupportedContractSurface,
+        exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed]
 termination_by sizeOf stmt
 
 theorem stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
@@ -5859,109 +4992,20 @@ theorem exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     (hsurface : exprTouchesUnsupportedContractSurface expr = false) :
     exprTouchesUnsupportedHelperSurface expr = false := by
   cases expr with
-  | literal _ | param _ | constructorArg _ | localVar _ | caller | contractAddress | txOrigin
-  | chainid | msgValue | blockTimestamp | blockNumber | blobbasefee
-  | calldatasize | returndataSize =>
-      simp [exprTouchesUnsupportedHelperSurface]
-  | immutable _ =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | selfBalance =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | adtConstruct _ _ _ | adtTag _ _ | adtField _ _ _ _ _ =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
   | externalCall name args =>
-      cases args with
-      | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
-      | cons base tl =>
-        cases tl with
-        | nil => simp [exprTouchesUnsupportedContractSurface] at hsurface
-        | cons exponent tl' =>
-          cases tl' with
-          | cons _ _ => simp [exprTouchesUnsupportedContractSurface] at hsurface
-          | nil =>
-            by_cases hname : name = builtinExpName
-            · subst hname
-              simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
-                Bool.or_eq_false_iff] at hsurface
-              simp [exprTouchesUnsupportedHelperSurface,
-                exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-                exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-            · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
-  | storage _ | storageAddr _ | internalCall _ _
-  | arrayLength _ | memoryArrayLength _ | storageArrayLength _
-  | dynamicBytesEq _ _
-  | call _ _ _ _ _ _ _ | staticcall _ _ _ _ _ _ | delegatecall _ _ _ _ _ _
-  | mapping _ _ | mappingWord _ _ _ | mappingPackedWord _ _ _ _
-  | mapping2 _ _ _ | mapping2Word _ _ _ _ | mappingUint _ _
-  | structMember _ _ _ | structMember2 _ _ _ _
-  | arrayElement _ _ | memoryArrayElement _ _ | arrayElementWord _ _ _ _
-  | arrayElementDynamicWord _ _ _
-  | arrayElementDynamicDataOffset _ _
-  | arrayElementDynamicMemberLength _ _ _
-  | arrayElementDynamicMemberDataOffset _ _ _
-  | arrayElementDynamicMemberElement _ _ _ _
-  | paramDynamicHeadWord _ _ | paramDynamicStaticComposite _ _
-  | paramDynamicMemberLength _ _
-  | paramDynamicMemberDataOffset _ _ | paramDynamicMemberElement _ _ _
-  | storageArrayElement _ _
-  | mappingChain _ _ =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | tload a | calldataload a | mload a | extcodesize a | returndataOptionalBoolAt a =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface]
-  | keccak256 offset size =>
+      rcases args with _ | ⟨base, _ | ⟨exponent, _ | ⟨_, _⟩⟩⟩
+      all_goals try simp [exprTouchesUnsupportedContractSurface] at hsurface
+      by_cases hname : name = builtinExpName
+      · subst hname
+        simp only [exprTouchesUnsupportedContractSurface, beq_self_eq_true, if_true,
+          Bool.or_eq_false_iff] at hsurface
+        simp_all [exprTouchesUnsupportedHelperSurface,
+          exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed]
+      · simp [exprTouchesUnsupportedContractSurface, hname] at hsurface
+  | _ =>
       simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | add a b | sub a b | mul a b | div a b | mod a b
-  | eq a b | ge a b | gt a b | lt a b | le a b
-  | logicalAnd a b | logicalOr a b =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | bitAnd a b | bitOr a b | bitXor a b
-  | shl a b | shr a b | slt a b | sgt a b | sdiv a b | smod a b | sar a b
-  | byte a b | signextend a b | min a b | max a b | ceilDiv a b =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | wMulDown a b | wDivUp a b =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | mulDivDown a b c | mulDivUp a b c =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | mulDiv512Down _ _ _ | mulDiv512Up _ _ _ =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | intrinsic _ _ _ _ =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | ite cond thenVal elseVal =>
-      simp only [exprTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | forkIfAtLeast _ thenExpr elseExpr =>
-      simp [exprTouchesUnsupportedContractSurface] at hsurface
-  | bitNot a =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface]
-  | logicalNot a =>
-      simp only [exprTouchesUnsupportedContractSurface] at hsurface
-      simp [exprTouchesUnsupportedHelperSurface,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface]
-termination_by sizeOf expr
-decreasing_by all_goals (subst_vars; simp_wf; try omega)
+      simp_all [exprTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed]
 
 private theorem exprListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     {exprs : List Expr}
@@ -5976,32 +5020,21 @@ private theorem exprListTouchesUnsupportedHelperSurface_eq_false_of_contractSurf
         exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
         ih hsurface.2]
 
+/-- A contract-surface-closed `forEach` head has a literal bound. -/
+private theorem forEach_count_eq_literal_of_contractSurfaceClosed
+    {varName : String} {count : Expr} {body : List Stmt}
+    (hsurface : stmtTouchesUnsupportedContractSurface (.forEach varName count body) = false) :
+    ∃ n, count = .literal n := by
+  cases count with
+  | literal n => exact ⟨n, rfl⟩
+  | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+
 mutual
 theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
     {stmt : Stmt}
     (hsurface : stmtTouchesUnsupportedContractSurface stmt = false) :
     stmtTouchesUnsupportedHelperSurface stmt = false := by
   cases stmt with
-  | letVar _ value | assignVar _ value | setStorage _ value | setStorageAddr _ value
-  | setImmutable _ value
-  | setStorageWord _ _ value
-  | storageArrayPush _ value | require value _ | «return» value =>
-      simp [stmtTouchesUnsupportedHelperSurface, stmtTouchesUnsupportedContractSurface] at hsurface ⊢
-      all_goals exact exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface
-  | mstore offset value | tstore offset value =>
-      simp only [stmtTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface ⊢
-      simp [exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2]
-  | calldatacopy destOffset sourceOffset size
-  | returndataCopy destOffset sourceOffset size =>
-      simp only [stmtTouchesUnsupportedHelperSurface,
-        stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface ⊢
-      exact ⟨⟨exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2⟩,
-        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2⟩
-  | stop =>
-      simp [stmtTouchesUnsupportedHelperSurface]
   | ite cond thenBranch elseBranch =>
       simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
       show (exprTouchesUnsupportedHelperSurface cond ||
@@ -6011,52 +5044,16 @@ theorem stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
       exact ⟨⟨exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.1,
         stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.1.2⟩,
         stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hsurface.2⟩
-  | tryExternalCallBind _ _ _ _ | unsafeBlock _ _ | unsafeYul _ | matchAdt _ _ _
-  | setMapping _ _ _ | setMappingWord _ _ _ _
-  | setMappingPackedWord _ _ _ _ _ | setMapping2 _ _ _ _
-  | setMapping2Word _ _ _ _ _ | setMappingUint _ _ _
-  | setMappingChain _ _ _ | setStructMember _ _ _ _ | setStructMember2 _ _ _ _ _
-  | storageArrayPop _ | setStorageArrayElement _ _ _ | requireError _ _ _
-  | revertError _ _ | returnValues _ | returnArray _ | returnBytes _
-  | returnStorageWords _ | returnCodeData _
-  | emit _ _ | internalCall _ _
-  | internalCallAssign _ _ _ | rawLog _ _ _ | externalCallBind _ _ _ | ecm _ _
-  | forEachSetBit _ _ _ | panicCode _ | panic _ =>
-      cases hsurface
-  | revertEmpty | revertReturndata =>
-      simp [stmtTouchesUnsupportedHelperSurface]
   | forEach varName count body =>
-      cases count with
-      | literal n =>
-          cases n with
-          | zero =>
-            cases body with
-            | nil =>
-                simp [stmtTouchesUnsupportedHelperSurface,
-                  stmtListTouchesUnsupportedHelperSurface,
-                  exprTouchesUnsupportedHelperSurface]
-            | cons stmt rest =>
-                simp only [stmtTouchesUnsupportedContractSurface,
-                  stmtListTouchesUnsupportedContractSurface,
-                  Bool.or_eq_false_iff] at hsurface
-                simp [stmtTouchesUnsupportedHelperSurface,
-                  stmtListTouchesUnsupportedHelperSurface,
-                  exprTouchesUnsupportedHelperSurface,
-                  Bool.or_eq_false_iff]
-                exact ⟨
-                  stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
-                    hsurface.1,
-                  stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
-                    hsurface.2⟩
-          | succ n =>
-              cases body with
-              | nil =>
-                  simp [stmtTouchesUnsupportedHelperSurface,
-                    stmtListTouchesUnsupportedHelperSurface,
-                    exprTouchesUnsupportedHelperSurface]
-              | cons _ _ =>
-                  simp [stmtTouchesUnsupportedContractSurface] at hsurface
-      | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+      have hbody := stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed hsurface
+      obtain ⟨n, rfl⟩ := forEach_count_eq_literal_of_contractSurfaceClosed hsurface
+      simp only [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface,
+        Bool.false_or]
+      exact stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed hbody
+  | _ =>
+      simp only [stmtTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
+      simp_all [stmtTouchesUnsupportedHelperSurface,
+        exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed]
 termination_by sizeOf stmt
 
 theorem stmtListTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed
@@ -6723,426 +5720,101 @@ private theorem stmtListTerminalCore_usesDynamicBytesEq_false
         exprCompileCore_usesDynamicBytesEq_false hoffset,
         exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]; assumption
 
--- Helper for append: stmtListUsesArrayElement distributes over append
-private theorem stmtListUsesArrayElement_append (xs ys : List Stmt) :
-    stmtListUsesArrayElement (xs ++ ys) =
-      (stmtListUsesArrayElement xs || stmtListUsesArrayElement ys) := by
-  induction xs with
-  | nil => simp only [List.nil_append, stmtListUsesArrayElement, Bool.false_or]
-  | cons x xs' ih =>
-      simp only [List.cons_append, stmtListUsesArrayElement, Bool.false_or]
-      rw [ih, Bool.or_assoc]
-
-private theorem stmtListUsesStorageArrayElement_append (xs ys : List Stmt) :
-    stmtListUsesStorageArrayElement (xs ++ ys) =
-      (stmtListUsesStorageArrayElement xs || stmtListUsesStorageArrayElement ys) := by
-  induction xs with
-  | nil => simp only [List.nil_append, stmtListUsesStorageArrayElement, Bool.false_or]
-  | cons x xs' ih =>
-      simp only [List.cons_append, stmtListUsesStorageArrayElement, Bool.false_or]
-      rw [ih, Bool.or_assoc]
-
-private theorem stmtListUsesDynamicBytesEq_append (xs ys : List Stmt) :
-    stmtListUsesDynamicBytesEq (xs ++ ys) =
-      (stmtListUsesDynamicBytesEq xs || stmtListUsesDynamicBytesEq ys) := by
-  induction xs with
-  | nil => simp only [List.nil_append, stmtListUsesDynamicBytesEq, Bool.false_or]
-  | cons x xs' ih =>
-      simp only [List.cons_append, stmtListUsesDynamicBytesEq, Bool.false_or]
-      rw [ih, Bool.or_assoc]
-
 -- SupportedStmtList never uses arrayElement
+private theorem supportedLeafStmt_usesArrayElement_false
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtUsesArrayElement stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtUsesArrayElement] using
+        exprListCompileCore_usesArrayElement_false hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtUsesArrayElement, exprListCompileCore_usesArrayElement_false hkeys,
+        exprCompileCore_usesArrayElement_false hvalue]
+  | _ =>
+      simp_all [stmtUsesArrayElement, exprUsesArrayElement,
+        stmtListUsesArrayElement, exprCompileCore_usesArrayElement_false]
+
 open Verity.Core.Free in
 private theorem supportedStmtList_usesArrayElement_false
     {fields : List Field} {scope : List String} {stmts : List Stmt}
     (h : SupportedStmtList fields scope stmts) :
     stmtListUsesArrayElement stmts = false := by
-  induction h with
-  | compileCore hcore => exact stmtListCompileCore_usesArrayElement_false hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_usesArrayElement_false hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hoffset,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hoffset,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hdest,
-        exprCompileCore_usesArrayElement_false hsource,
-        exprCompileCore_usesArrayElement_false hsize, Bool.false_or, Bool.or_false]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hdest, exprUsesArrayElement]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListUsesArrayElement, stmtUsesArrayElement]
-  | letStorageField _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-  | assignStorageField _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
-        using exprListCompileCore_usesArrayElement_false hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListUsesArrayElement, stmtUsesArrayElement]
-        using exprListCompileCore_usesArrayElement_false hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey1,
-        exprCompileCore_usesArrayElement_false hkey2, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprListCompileCore_usesArrayElement_false hkeys,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey1,
-        exprCompileCore_usesArrayElement_false hkey2,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey1,
-        exprCompileCore_usesArrayElement_false hkey2,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hkey1,
-        exprCompileCore_usesArrayElement_false hkey2,
-        exprCompileCore_usesArrayElement_false hvalue, Bool.false_or]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprUsesArrayElement] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListUsesArrayElement, stmtUsesArrayElement, exprUsesArrayElement]
-  | requireClause clause _ ih =>
-      simp only [stmtListUsesArrayElement, Bool.or_eq_false_iff, Bool.false_or]
-      exact ⟨by cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-          | andEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or]
-          | orEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesArrayElement, exprUsesArrayElement, Bool.false_or], ih⟩
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListUsesArrayElement, stmtUsesArrayElement,
-        exprCompileCore_usesArrayElement_false hcond,
-        stmtListTerminalCore_usesArrayElement_false hthen,
-        stmtListTerminalCore_usesArrayElement_false helse, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      rw [stmtListUsesArrayElement_append, ihPfx, ihSfx]
-      simp
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtUsesArrayElement)
+    (by simp [stmtListUsesArrayElement])
+    (fun _ _ => by simp [stmtListUsesArrayElement])
+    stmtListCompileCore_usesArrayElement_false
+    stmtListTerminalCore_usesArrayElement_false
+    supportedLeafStmt_usesArrayElement_false
+    (fun hbody => ?_) (fun hcond hthen helse => ?_) h
+  · simpa [stmtUsesArrayElement, exprUsesArrayElement] using hbody
+  · simp only [stmtUsesArrayElement, exprCompileCore_usesArrayElement_false hcond,
+      stmtListTerminalCore_usesArrayElement_false hthen,
+      stmtListTerminalCore_usesArrayElement_false helse, Bool.false_or]
 
 -- SupportedStmtList never uses storageArrayElement
+private theorem supportedLeafStmt_usesStorageArrayElement_false
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtUsesStorageArrayElement stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtUsesStorageArrayElement] using
+        exprListCompileCore_usesStorageArrayElement_false hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtUsesStorageArrayElement, exprListCompileCore_usesStorageArrayElement_false hkeys,
+        exprCompileCore_usesStorageArrayElement_false hvalue]
+  | _ =>
+      simp_all [stmtUsesStorageArrayElement, exprUsesStorageArrayElement,
+        stmtListUsesStorageArrayElement, exprCompileCore_usesStorageArrayElement_false]
+
 open Verity.Core.Free in
 private theorem supportedStmtList_usesStorageArrayElement_false
     {fields : List Field} {scope : List String} {stmts : List Stmt}
     (h : SupportedStmtList fields scope stmts) :
     stmtListUsesStorageArrayElement stmts = false := by
-  induction h with
-  | compileCore hcore => exact stmtListCompileCore_usesStorageArrayElement_false hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_usesStorageArrayElement_false hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hoffset,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hoffset,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hdest,
-        exprCompileCore_usesStorageArrayElement_false hsource,
-        exprCompileCore_usesStorageArrayElement_false hsize, Bool.false_or, Bool.or_false]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hdest, exprUsesStorageArrayElement]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
-  | letStorageField _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement, Bool.false_or]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement, Bool.false_or]
-  | assignStorageField _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement, Bool.false_or]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement, Bool.false_or]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
-        using exprListCompileCore_usesStorageArrayElement_false hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement]
-        using exprListCompileCore_usesStorageArrayElement_false hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey1,
-        exprCompileCore_usesStorageArrayElement_false hkey2, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprListCompileCore_usesStorageArrayElement_false hkeys,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey1,
-        exprCompileCore_usesStorageArrayElement_false hkey2,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey1,
-        exprCompileCore_usesStorageArrayElement_false hkey2,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hkey1,
-        exprCompileCore_usesStorageArrayElement_false hkey2,
-        exprCompileCore_usesStorageArrayElement_false hvalue, Bool.false_or]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprUsesStorageArrayElement]
-  | requireClause clause _ ih =>
-      simp only [stmtListUsesStorageArrayElement, Bool.or_eq_false_iff, Bool.false_or]
-      exact ⟨by cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesStorageArrayElement, exprUsesStorageArrayElement, Bool.false_or]
-          | andEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesStorageArrayElement, exprUsesStorageArrayElement, Bool.false_or]
-          | orEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesStorageArrayElement, exprUsesStorageArrayElement, Bool.false_or], ih⟩
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListUsesStorageArrayElement, stmtUsesStorageArrayElement,
-        exprCompileCore_usesStorageArrayElement_false hcond,
-        stmtListTerminalCore_usesStorageArrayElement_false hthen,
-        stmtListTerminalCore_usesStorageArrayElement_false helse, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      rw [stmtListUsesStorageArrayElement_append, ihPfx, ihSfx]
-      simp
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtUsesStorageArrayElement)
+    (by simp [stmtListUsesStorageArrayElement])
+    (fun _ _ => by simp [stmtListUsesStorageArrayElement])
+    stmtListCompileCore_usesStorageArrayElement_false
+    stmtListTerminalCore_usesStorageArrayElement_false
+    supportedLeafStmt_usesStorageArrayElement_false
+    (fun hbody => ?_) (fun hcond hthen helse => ?_) h
+  · simpa [stmtUsesStorageArrayElement, exprUsesStorageArrayElement] using hbody
+  · simp only [stmtUsesStorageArrayElement, exprCompileCore_usesStorageArrayElement_false hcond,
+      stmtListTerminalCore_usesStorageArrayElement_false hthen,
+      stmtListTerminalCore_usesStorageArrayElement_false helse, Bool.false_or]
 
 -- SupportedStmtList never uses dynamicBytesEq
+private theorem supportedLeafStmt_usesDynamicBytesEq_false
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtUsesDynamicBytesEq stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtUsesDynamicBytesEq] using
+        exprListCompileCore_usesDynamicBytesEq_false hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtUsesDynamicBytesEq, exprListCompileCore_usesDynamicBytesEq_false hkeys,
+        exprCompileCore_usesDynamicBytesEq_false hvalue]
+  | _ =>
+      simp_all [stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
+        stmtListUsesDynamicBytesEq, exprCompileCore_usesDynamicBytesEq_false]
+
 open Verity.Core.Free in
 private theorem supportedStmtList_usesDynamicBytesEq_false
     {fields : List Field} {scope : List String} {stmts : List Stmt}
     (h : SupportedStmtList fields scope stmts) :
     stmtListUsesDynamicBytesEq stmts = false := by
-  induction h with
-  | compileCore hcore => exact stmtListCompileCore_usesDynamicBytesEq_false hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_usesDynamicBytesEq_false hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hoffset,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hoffset,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hdest,
-        exprCompileCore_usesDynamicBytesEq_false hsource,
-        exprCompileCore_usesDynamicBytesEq_false hsize, Bool.false_or, Bool.or_false]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hdest, exprUsesDynamicBytesEq]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
-  | letStorageField _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-  | assignStorageField _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
-        using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq]
-        using exprListCompileCore_usesDynamicBytesEq_false hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey1,
-        exprCompileCore_usesDynamicBytesEq_false hkey2, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprListCompileCore_usesDynamicBytesEq_false hkeys,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey1,
-        exprCompileCore_usesDynamicBytesEq_false hkey2,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey1,
-        exprCompileCore_usesDynamicBytesEq_false hkey2,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hkey1,
-        exprCompileCore_usesDynamicBytesEq_false hkey2,
-        exprCompileCore_usesDynamicBytesEq_false hvalue, Bool.false_or]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprUsesDynamicBytesEq]
-  | requireClause clause _ ih =>
-      simp only [stmtListUsesDynamicBytesEq, Bool.or_eq_false_iff, Bool.false_or]
-      exact ⟨by cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-          | andEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or]
-          | orEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq, Bool.false_or], ih⟩
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListUsesDynamicBytesEq, stmtUsesDynamicBytesEq,
-        exprCompileCore_usesDynamicBytesEq_false hcond,
-        stmtListTerminalCore_usesDynamicBytesEq_false hthen,
-        stmtListTerminalCore_usesDynamicBytesEq_false helse, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      rw [stmtListUsesDynamicBytesEq_append, ihPfx, ihSfx]
-      simp
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtUsesDynamicBytesEq)
+    (by simp [stmtListUsesDynamicBytesEq])
+    (fun _ _ => by simp [stmtListUsesDynamicBytesEq])
+    stmtListCompileCore_usesDynamicBytesEq_false
+    stmtListTerminalCore_usesDynamicBytesEq_false
+    supportedLeafStmt_usesDynamicBytesEq_false
+    (fun hbody => ?_) (fun hcond hthen helse => ?_) h
+  · simpa [stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq] using hbody
+  · simp only [stmtUsesDynamicBytesEq, exprCompileCore_usesDynamicBytesEq_false hcond,
+      stmtListTerminalCore_usesDynamicBytesEq_false hthen,
+      stmtListTerminalCore_usesDynamicBytesEq_false helse, Bool.false_or]
 
 -- Bridge: stmtListUsesArrayElement is equivalent to List.any
 private theorem stmtListUsesArrayElement_eq_any (stmts : List Stmt) :
@@ -7394,280 +6066,69 @@ private theorem stmtListTerminalCore_usesParamDynamicHeadWord_false
         exprCompileCore_usesParamDynamicHeadWord_false hoffset,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]; assumption
 
-private theorem stmtListUsesMulDiv512_append (xs ys : List Stmt) :
-    stmtListUsesMulDiv512 (xs ++ ys) =
-      (stmtListUsesMulDiv512 xs || stmtListUsesMulDiv512 ys) := by
-  induction xs with
-  | nil => simp only [List.nil_append, stmtListUsesMulDiv512, Bool.false_or]
-  | cons x xs' ih =>
-      simp only [List.cons_append, stmtListUsesMulDiv512, Bool.false_or]
-      rw [ih, Bool.or_assoc]
-
-private theorem stmtListUsesParamDynamicHeadWord_append (xs ys : List Stmt) :
-    stmtListUsesParamDynamicHeadWord (xs ++ ys) =
-      (stmtListUsesParamDynamicHeadWord xs || stmtListUsesParamDynamicHeadWord ys) := by
-  induction xs with
-  | nil => simp only [List.nil_append, stmtListUsesParamDynamicHeadWord, Bool.false_or]
-  | cons x xs' ih =>
-      simp only [List.cons_append, stmtListUsesParamDynamicHeadWord, Bool.false_or]
-      rw [ih, Bool.or_assoc]
-
 -- SupportedStmtList never uses mulDiv512
+private theorem supportedLeafStmt_usesMulDiv512_false
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtUsesMulDiv512 stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtUsesMulDiv512] using
+        exprListCompileCore_usesMulDiv512_false hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtUsesMulDiv512, exprListCompileCore_usesMulDiv512_false hkeys,
+        exprCompileCore_usesMulDiv512_false hvalue]
+  | _ =>
+      simp_all [stmtUsesMulDiv512, exprUsesMulDiv512,
+        stmtListUsesMulDiv512, exprCompileCore_usesMulDiv512_false]
+
 open Verity.Core.Free in
 private theorem supportedStmtList_usesMulDiv512_false
     {fields : List Field} {scope : List String} {stmts : List Stmt}
     (h : SupportedStmtList fields scope stmts) :
     stmtListUsesMulDiv512 stmts = false := by
-  induction h with
-  | compileCore hcore => exact stmtListCompileCore_usesMulDiv512_false hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_usesMulDiv512_false hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hoffset,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hoffset,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hdest,
-        exprCompileCore_usesMulDiv512_false hsource,
-        exprCompileCore_usesMulDiv512_false hsize, Bool.false_or, Bool.or_false]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hdest, exprUsesMulDiv512]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512]
-  | letStorageField _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-  | assignStorageField _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
-        using exprListCompileCore_usesMulDiv512_false hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512]
-        using exprListCompileCore_usesMulDiv512_false hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey1,
-        exprCompileCore_usesMulDiv512_false hkey2, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprListCompileCore_usesMulDiv512_false hkeys,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey1,
-        exprCompileCore_usesMulDiv512_false hkey2,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey1,
-        exprCompileCore_usesMulDiv512_false hkey2,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hkey1,
-        exprCompileCore_usesMulDiv512_false hkey2,
-        exprCompileCore_usesMulDiv512_false hvalue, Bool.false_or]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprUsesMulDiv512] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListUsesMulDiv512, stmtUsesMulDiv512, exprUsesMulDiv512]
-  | requireClause clause _ ih =>
-      simp only [stmtListUsesMulDiv512, Bool.or_eq_false_iff, Bool.false_or]
-      exact ⟨by cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-          | andEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or]
-          | orEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesMulDiv512, exprUsesMulDiv512, Bool.false_or], ih⟩
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListUsesMulDiv512, stmtUsesMulDiv512,
-        exprCompileCore_usesMulDiv512_false hcond,
-        stmtListTerminalCore_usesMulDiv512_false hthen,
-        stmtListTerminalCore_usesMulDiv512_false helse, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      rw [stmtListUsesMulDiv512_append, ihPfx, ihSfx]
-      simp
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtUsesMulDiv512)
+    (by simp [stmtListUsesMulDiv512])
+    (fun _ _ => by simp [stmtListUsesMulDiv512])
+    stmtListCompileCore_usesMulDiv512_false
+    stmtListTerminalCore_usesMulDiv512_false
+    supportedLeafStmt_usesMulDiv512_false
+    (fun hbody => ?_) (fun hcond hthen helse => ?_) h
+  · simpa [stmtUsesMulDiv512, exprUsesMulDiv512] using hbody
+  · simp only [stmtUsesMulDiv512, exprCompileCore_usesMulDiv512_false hcond,
+      stmtListTerminalCore_usesMulDiv512_false hthen,
+      stmtListTerminalCore_usesMulDiv512_false helse, Bool.false_or]
 
 -- SupportedStmtList never uses paramDynamicHeadWord
+private theorem supportedLeafStmt_usesParamDynamicHeadWord_false
+    {stmt : Stmt} (h : SupportedLeafStmt stmt) :
+    stmtUsesParamDynamicHeadWord stmt = false := by
+  cases h with
+  | emit hargs | ecm hargs =>
+      simpa [stmtUsesParamDynamicHeadWord] using
+        exprListCompileCore_usesParamDynamicHeadWord_false hargs
+  | setMappingChain hkeys hvalue =>
+      simp [stmtUsesParamDynamicHeadWord, exprListCompileCore_usesParamDynamicHeadWord_false hkeys,
+        exprCompileCore_usesParamDynamicHeadWord_false hvalue]
+  | _ =>
+      simp_all [stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
+        stmtListUsesParamDynamicHeadWord, exprCompileCore_usesParamDynamicHeadWord_false]
+
 open Verity.Core.Free in
 private theorem supportedStmtList_usesParamDynamicHeadWord_false
     {fields : List Field} {scope : List String} {stmts : List Stmt}
     (h : SupportedStmtList fields scope stmts) :
     stmtListUsesParamDynamicHeadWord stmts = false := by
-  induction h with
-  | compileCore hcore => exact stmtListCompileCore_usesParamDynamicHeadWord_false hcore
-  | terminalCore hterminal => exact stmtListTerminalCore_usesParamDynamicHeadWord_false hterminal
-  | setStorageSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setStorageAddrSingleSlot hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setImmutableSingle hvalue _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | mstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hoffset,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | tstoreSingle hoffset _ hvalue _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hoffset,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | calldatacopySingle hdest _ hsource _ hsize _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hdest,
-        exprCompileCore_usesParamDynamicHeadWord_false hsource,
-        exprCompileCore_usesParamDynamicHeadWord_false hsize, Bool.false_or, Bool.or_false]
-  | returndataCopyEmptySingle hdest _ =>
-      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hdest, exprUsesParamDynamicHeadWord]
-  | revertEmptySingle | revertReturndataEmptySingle =>
-      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
-  | letStorageField _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-  | letStorageAddrField _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-  | assignStorageField _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-  | assignStorageAddrField _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-  | emitEvent hcoreAll _ =>
-      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
-        using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
-  | pureHashingEcm _ hcoreAll _ =>
-      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord]
-        using exprListCompileCore_usesParamDynamicHeadWord_false hcoreAll
-  | letMappingField hkey _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey, Bool.false_or]
-  | letMappingWordField hkey _ _ | letMappingUintField hkey _ _
-  | letMappingPackedWordField hkey _ _ | letStructMemberField hkey _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey, Bool.false_or]
-  | letMapping2Field hkey1 _ hkey2 _ _ | letMapping2WordField hkey1 _ hkey2 _ _
-  | letStructMember2Field hkey1 _ hkey2 _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey1,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey2, Bool.false_or]
-  | setMappingUintSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMappingChainSingle hkeys _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprListCompileCore_usesParamDynamicHeadWord_false hkeys,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMappingSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMappingWordSingle hkey _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMappingPackedWordSingle hkey _ hvalue _ _ _ _ _ _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setStructMemberSingle hkey _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMapping2Single hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey1,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey2,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setMapping2WordSingle hkey1 _ hkey2 _ hvalue _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey1,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey2,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | setStructMember2Single hkey1 _ hkey2 _ hvalue _ _ _ _ =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey1,
-        exprCompileCore_usesParamDynamicHeadWord_false hkey2,
-        exprCompileCore_usesParamDynamicHeadWord_false hvalue, Bool.false_or]
-  | forEachLiteralBounded _ _ ih =>
-      simpa [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprUsesParamDynamicHeadWord] using ih
-  | forEachLiteralEmpty _ =>
-      simp [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprUsesParamDynamicHeadWord]
-  | requireClause clause _ ih =>
-      simp only [stmtListUsesParamDynamicHeadWord, Bool.or_eq_false_iff, Bool.false_or]
-      exact ⟨by cases clause with | mk family n m p q message =>
-          cases family with
-          | binary op =>
-              cases op <;> simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-          | andEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or]
-          | orEqLt =>
-              simp only [RequireLiteralGuardFamilyClause.toStmt,
-                stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord, Bool.false_or], ih⟩
-  | iteTerminal hcond _ hthen helse =>
-      simp only [stmtListUsesParamDynamicHeadWord, stmtUsesParamDynamicHeadWord,
-        exprCompileCore_usesParamDynamicHeadWord_false hcond,
-        stmtListTerminalCore_usesParamDynamicHeadWord_false hthen,
-        stmtListTerminalCore_usesParamDynamicHeadWord_false helse, Bool.false_or]
-  | @append _ pfx sfx _ _ ihPfx ihSfx =>
-      rw [stmtListUsesParamDynamicHeadWord_append, ihPfx, ihSfx]
-      simp
+  refine SupportedStmtList.boolFold_eq_false (stmtF := stmtUsesParamDynamicHeadWord)
+    (by simp [stmtListUsesParamDynamicHeadWord])
+    (fun _ _ => by simp [stmtListUsesParamDynamicHeadWord])
+    stmtListCompileCore_usesParamDynamicHeadWord_false
+    stmtListTerminalCore_usesParamDynamicHeadWord_false
+    supportedLeafStmt_usesParamDynamicHeadWord_false
+    (fun hbody => ?_) (fun hcond hthen helse => ?_) h
+  · simpa [stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord] using hbody
+  · simp only [stmtUsesParamDynamicHeadWord, exprCompileCore_usesParamDynamicHeadWord_false hcond,
+      stmtListTerminalCore_usesParamDynamicHeadWord_false hthen,
+      stmtListTerminalCore_usesParamDynamicHeadWord_false helse, Bool.false_or]
 
 private theorem stmtListUsesMulDiv512_eq_any (stmts : List Stmt) :
     stmtListUsesMulDiv512 stmts = stmts.any stmtUsesMulDiv512 := by

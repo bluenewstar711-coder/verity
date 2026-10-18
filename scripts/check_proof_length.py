@@ -114,11 +114,6 @@ ALLOWLIST: set[str] = {
     "exprUsesDynamicBytesEq_eq_false_of_coreClosed",
     "exprUsesArrayElement_eq_false_of_coreClosed",
     "exprTouchesUnsupportedCallSurface_eq_false_of_coreClosed",
-    # SupportedStmtList → unused-feature-surface inductions for new partial-def
-    # flags from upstream cf5cb844 + 6b2af37c. The proof induct on every
-    # SupportedStmtList constructor (~30 cases each) with mechanical simp.
-    "supportedStmtList_usesParamDynamicHeadWord_false",
-    "supportedStmtList_usesMulDiv512_false",
     # --- Core expression/statement compilation ---
     # Helper-body shape seam: the proof follows the compiler's own
     # validate/returns/body split and then applies the mutually recursive
@@ -130,10 +125,6 @@ ALLOWLIST: set[str] = {
     # head/tail compile-success plumbing.
     "compileStmtList_append_ok_inv",
     "constructorOnly_compileBody_empty_surfaces_withFork",
-    # Fuel-indexed mutual stmt/list induction proving compileStmt ignores the
-    # event/error catalogs off the contract surface; one mechanical arm per
-    # statement constructor (~35 cases), so splitting would only duplicate it.
-    "compileStmt_eventsErrorsAgnostic_aux",
     # --- Statement-level compiled step proofs ---
     "compiledStmtStep_letVar",
     "compiledStmtStep_assignVar",
@@ -146,7 +137,6 @@ ALLOWLIST: set[str] = {
     "execIRStmt_forEach_empty_loop_from_idx",
     "execIRStmt_for_empty_init_recurrence",
     "forEach_empty_final_rel",
-    "stmtTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed",
     "execIRStmts_forEach_literal_empty_compiled",
     "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
@@ -281,24 +271,6 @@ ALLOWLIST: set[str] = {
     "exprBoundNamesInScope_of_validateScopedExprIdentifiers_core",
     # --- Surface predicate bridge proofs ---
     "exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false",
-    "exprTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
-    "exprTouchesUnsupportedCallSurface_eq_featureOr",
-    "exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed",
-    "exprTouchesUnsupportedHelperSurface_eq_false_of_contractSurfaceClosed",
-    "stmtTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed",
-    "stmtListExprHelperCallNames_subset_stmtListInternalHelperCallNames",
-    "stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed",
-    "stmtListTerminalCore_helperSurfaceClosed",  # mstore/tstore widening — mechanical per-constructor cases
-    "SupportedStmtList.helperSurfaceClosed",
-    "SupportedStmtList.internalHelperCallNames_nil",
-    "supportedStmtList_usesStorageArrayElement_false",
-    "supportedStmtList_usesDynamicBytesEq_false",
-    "supportedStmtList_usesArrayElement_false",
-    # Mirror of supportedStmtList_usesDynamicBytesEq_false for verity#1761/#1832:
-    # one explicit case per SupportedStmtList constructor, dispatching to the
-    # matching exprCompileCore_uses{MulDiv512,ParamDynamicHeadWord}_false leaf.
-    "supportedStmtList_usesMulDiv512_false",
-    "supportedStmtList_usesParamDynamicHeadWord_false",
     # --- Mapping slot and field resolution proofs ---
     "findResolvedFieldAtSlotCopyFrom_of_member",
     "firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member",
@@ -418,8 +390,6 @@ ALLOWLIST: set[str] = {
     "literalMappingWrite_calldataFits",
     # Constructor-body fixture for issue #1723.
     "constructorOnly_noConflict",
-    # Call-surface decomposition kept as one structural recursion proof.
-    "stmtOrListTouchesUnsupportedCallSurface_eq_featureOr",
     # --- Yul generation / Layer 3 proofs ---
     "stmt_and_stmts_equiv",
     "execIRStmtsFuel_equiv_execYulStmtsFuel_of_stmt_equiv",
