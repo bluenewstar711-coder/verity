@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `942c68648`
-- **Last Updated**: `2026-10-18T16:58:00Z`
+- **Current `main` HEAD**: `026637521`
+- **Last Updated**: `2026-10-18T17:29:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`942c68648`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 32 PRs merged (`#2504`–`#2528`, `#2530`–`#2538`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S13` (`0` `maxHeartbeats` escalations, **−12,185 net lines** in `Compiler/` + 179 allowlist entries pruned across S5–S13, leaving 466; 7,006 proofs `<30` lines) landed on `main`! |
+| `main` (`026637521`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 34 PRs merged (`#2504`–`#2528`, `#2530`–`#2540`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S15` (`0` `maxHeartbeats` escalations, **−13,778 net lines** in `Compiler/` + 240 allowlist entries pruned across S5–S15, leaving 405; 7,057 proofs `<30` lines = 80%) landed on `main`! |
 | In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (verified) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`32` Merged + `2` Folded/Closed = `34` Total Resolved)
+## 2. Merged PRs in This Campaign (`34` Merged + `2` Folded/Closed = `36` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -52,6 +52,8 @@
 | `#2536` | `refactor/proofs-irinterpreter-paramloading-sourcesemantics` | `eb3338690` | **Track S11**: Decomposed all 18 allowlisted proofs > 50 lines across `IRInterpreter.lean` (13 proofs), `ParamLoading.lean` (2 proofs), and `SourceSemantics.lean` (3 proofs) into `≤30`-line `private theorem` helpers, narrowed the `execIRFunction_` allowlist regex, pruned 18 allowlist entries (`520 → 502`), and cut **net 942 lines** (`+1348 / -2290`). |
 | `#2537` | `refactor/proofs-generic-induction-remaining-decomposition` | `9e80f8bf1` | **Track S12**: Decomposed all 17 allowlisted proofs > 50 lines across `GenericInduction/Scope.lean` (4 proofs), `ExprStmt.lean` (4 proofs), `Loops.lean` (4 proofs), and `Calls.lean` (5 proofs) into `≤29`-line `private theorem` helpers, pruned 17 allowlist entries (`502 → 485`), and cut **net 291 lines** (`+974 / -1265`). |
 | `#2538` | `refactor/proofs-irgeneration-dynamicparam-splicesim-dispatch` | `942c68648` | **Track S13**: Decomposed all 19 allowlisted proofs > 50 lines across `DynamicParamLoading.lean` (6 proofs), `SpliceSimulation.lean` (6 proofs), `Dispatch.lean` (5 proofs), and `DispatchGeneric.lean` (2 proofs) into `≤30`-line `private theorem` helpers, pruned 19 allowlist entries (`485 → 466`; `7,006` proofs `<30` lines), and cut **net 42 lines** in `Compiler/` (`+1342 / -1318` total incl. `PrintAxioms.lean`). |
+| `#2539` | `refactor/proofs-irgeneration-contract-and-guards` | `aeae4c086` | **Track S15**: Decomposed all 24 allowlisted proofs > 50 lines across `Contract.lean` (18 proofs), `ContractShape.lean` (1), `ContractFeatureTest.lean` (1), `GuardedFunction.lean` (2), `GuardedSpec.lean` (1), and `HelperBodyShape.lean` (1) into `≤30`-line `private theorem` helpers, pruned 24 allowlist entries (`466 → 442`; `7,024` proofs `<30` lines), and cut **net 728 lines** (`+508 / -1236`). |
+| `#2540` | `refactor/proofs-irgeneration-storage-remaining-decomposition` | `026637521` | **Track S14**: Decomposed all 37 remaining allowlisted proofs > 50 lines in `Compiler/Proofs/IRGeneration/GenericInduction/Storage.lean` into `≤30`-line `private theorem` helpers (bringing `Storage.lean` to 0 proofs > 50 lines!), pruned 37 allowlist entries (`442 → 405`; `7,057` proofs `<30` lines = `80%`), and cut **net 865 lines** (`+921 / -1786`). |
 
 ---
 
@@ -75,8 +77,10 @@
 16. **Track S11 — Decompose `IRInterpreter.lean`, `ParamLoading.lean` & `SourceSemantics.lean` Allowlisted Proofs (`refactor/proofs-irinterpreter-paramloading-sourcesemantics`)** — **MERGED (`#2536`, `eb3338690`)**.
 17. **Track S12 — Decompose `GenericInduction/{Scope,ExprStmt,Loops,Calls}.lean` Allowlisted Proofs (`refactor/proofs-generic-induction-remaining-decomposition`)** — **MERGED (`#2537`, `9e80f8bf1`)**.
 18. **Track S13 — Decompose `DynamicParamLoading.lean`, `SpliceSimulation.lean`, `Dispatch.lean` & `DispatchGeneric.lean` Allowlisted Proofs (`refactor/proofs-irgeneration-dynamicparam-splicesim-dispatch`)** — **MERGED (`#2538`, `942c68648`)**.
-19. **Track S14 — Decompose `GenericInduction/Storage.lean` Remaining 37 Allowlisted Proofs (`refactor/proofs-irgeneration-storage-remaining-decomposition`)** — **ACTIVE on `ashur` (`c2c656b3-2213-462b-9b75-6aef19534e85`)**.
-20. **Track S15 — Decompose `Contract.lean`, `ContractShape.lean`, `ContractFeatureTest.lean`, `GuardedFunction.lean`, `GuardedSpec.lean` & `HelperBodyShape.lean` Allowlisted Proofs (`refactor/proofs-irgeneration-contract-and-guards`)** — **ACTIVE on `sepolia` (`4e878091-148d-4966-9d37-c4f78d7daa4a`)**.
+19. **Track S14 — Decompose `GenericInduction/Storage.lean` Remaining 37 Allowlisted Proofs (`refactor/proofs-irgeneration-storage-remaining-decomposition`)** — **MERGED (`#2540`, `026637521`)**.
+20. **Track S15 — Decompose `Contract.lean`, `ContractShape.lean`, `ContractFeatureTest.lean`, `GuardedFunction.lean`, `GuardedSpec.lean` & `HelperBodyShape.lean` Allowlisted Proofs (`refactor/proofs-irgeneration-contract-and-guards`)** — **MERGED (`#2539`, `aeae4c086`)**.
+21. **Track S16 — Decompose Final 13 `IRGeneration` Allowlisted Proofs to Zero Allowlist (`refactor/proofs-irgeneration-final-zero-allowlist`)** — **ACTIVE on `ashur` (`89ca8586-3ab3-48d5-baa1-fe686c26147d`)**.
+22. **Track S17 — Decompose 25 Allowlisted Proofs Across `HelperStepProofs`, `AbiEncoding`, `SolidityStorage`, `TypedIRCompiler` & `Verity/` (`refactor/proofs-helperstep-abi-storage-stdlib`)** — **ACTIVE on `sepolia` (`13fbf72c-0092-4726-baf5-17ce200ba2e9`)**.
 
 ---
 
@@ -102,5 +106,5 @@
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
 | `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
-| `track-s14-proofs-storage-remaining-decomposition` | `ashur` | `c2c656b3-2213-462b-9b75-6aef19534e85` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irgeneration-storage-remaining-decomposition` | Active |
-| `track-s15-proofs-contract-and-guards` | `sepolia` | `4e878091-148d-4966-9d37-c4f78d7daa4a` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irgeneration-contract-and-guards` | Active |
+| `track-s16-proofs-irgeneration-final` | `ashur` | `89ca8586-3ab3-48d5-baa1-fe686c26147d` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irgeneration-final-zero-allowlist` | Active |
+| `track-s17-proofs-helperstep-abi-storage-stdlib` | `sepolia` | `13fbf72c-0092-4726-baf5-17ce200ba2e9` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-helperstep-abi-storage-stdlib` | Active |
