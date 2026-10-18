@@ -4029,8 +4029,6 @@ def interpretContract (spec : CompilationModel) (selectors : List Nat)
         interpretFunction spec fn tx initialWorld externalCallOracle
   | none => revertedResult spec (withTransactionContext initialWorld tx)
 
--- The ceilDiv case pushes the equation-compiler's `simp` past 200 000 heartbeats.
-set_option maxHeartbeats 400000 in
 mutual
   /-- Spec-aware source semantics for the next helper-proof step.
   This is additive: the current generic theorem still reasons about the
@@ -5744,7 +5742,6 @@ theorem SupportedSpecHelperProofs.execInternalCallAssignObeysSummary
   · exact SupportedSpecHelperProofs.helperCallSummarySound hSupported hProofs hfn hmem
       fuel state.world argVals
 
-set_option maxHeartbeats 800000 in
 mutual
   private theorem exprList_all_helperSurfaceClosed
       {exprs : List Expr}
@@ -5767,7 +5764,6 @@ mutual
       (expr : Expr)
       (hsurface : exprTouchesUnsupportedHelperSurface expr = false) :
       evalExprWithHelpers spec fields fuel state expr = evalExpr fields state expr := by
-    set_option maxHeartbeats 800000 in
     cases expr with
     | internalCall _ _ =>
         simp [exprTouchesUnsupportedHelperSurface] at hsurface

@@ -406,7 +406,6 @@ theorem eval_callvalue_preserves_reviveJump
       (eval_lowerExprNative_callvalue_lt2_not_ok fuel (by omega)
         state codeOverride (final, v))
 
-set_option maxHeartbeats 4000000 in
 /-- For fuel < 6, eval of the lowered `lt(calldatasize, k)` expression errors
 out: the deeply nested Call/PrimCall structure consumes 6 fuel units before
 the inner CALLDATASIZE primop's `executionEnvOp` runs. -/

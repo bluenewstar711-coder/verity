@@ -572,7 +572,6 @@ theorem writeMapUint_aligned_preserves_mappingCoherentAllKeys
         writeSlot_slot_of_ne _ _ _ hslot, writeMapUint_slot]
       exact hcoh'
 
-set_option maxHeartbeats 1600000 in
 theorem writeMap2_aligned_preserves_mappingCoherentAllKeys
     (fields : List Field) (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256)
     (hslotlt : slot < Compiler.Constants.evmModulus)

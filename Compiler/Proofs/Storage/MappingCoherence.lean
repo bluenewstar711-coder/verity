@@ -314,7 +314,6 @@ theorem writeMapUint_aligned_preserves_mappingCoherentUint
     exact writeMapUint_aligned_other s slot key v slot' key' (hcoh slot' key' hslot')
       hkey (mappingUintSlot_ne_of_mapUint_ne hslot' hslot hkey)
 
-set_option maxHeartbeats 800000 in
 theorem writeMap2_aligned_preserves_mappingCoherentMap2
     (s : ContractState) (slot : Nat) (k1 k2 : Address) (v : Uint256)
     (hslot : slot < Compiler.Constants.evmModulus)

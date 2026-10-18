@@ -85,12 +85,6 @@ private theorem getVar_setVar_of_ne (state : IRState) (bound query : String) (va
 @[simp] private theorem setVar_selector (state : IRState) (name : String) (value : Nat) :
     (state.setVar name value).selector = state.selector := rfl
 
-private theorem execIRStmts_cons_continue
-    (fuel : Nat) (state next : IRState) (stmt : YulStmt) (tail : List YulStmt)
-    (hstmt : execIRStmt fuel state stmt = .continue next) :
-    execIRStmts (fuel + 1) state (stmt :: tail) = execIRStmts fuel next tail := by
-  simp [execIRStmts, hstmt]
-
 /-! ## Statement shape emitted for a `bytes` parameter -/
 
 /-- The revert guard a `bytes`/`string` loader puts on the payload length: the
@@ -457,15 +451,15 @@ theorem exec_lengthPrefixedLoaderStmts_then
     simp [execIRStmt, evalIRExpr, hget]
   simp only [lengthPrefixedLoaderStmts, bytesParamBindings,
     ParamLoading.applyBindingsToIRState, List.cons_append, List.nil_append]
-  rw [execIRStmts_cons_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 8)),
-    execIRStmts_cons_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 7)),
-    execIRStmts_cons_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 6)),
-    execIRStmts_cons_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 5)),
-    execIRStmts_cons_continue _ _ _ _ _ (h5 (rest.length + extraFuel + 4)),
-    execIRStmts_cons_continue _ _ _ _ _ (h6 (rest.length + extraFuel + 3)),
-    execIRStmts_cons_continue _ _ _ _ _ (h7 (rest.length + extraFuel + 2)),
-    execIRStmts_cons_continue _ _ _ _ _ (hguard (rest.length + extraFuel + 1)),
-    execIRStmts_cons_continue _ _ _ _ _ (h9 (rest.length + extraFuel))]
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 8)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 7)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 6)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 5)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h5 (rest.length + extraFuel + 4)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h6 (rest.length + extraFuel + 3)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h7 (rest.length + extraFuel + 2)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (hguard (rest.length + extraFuel + 1)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h9 (rest.length + extraFuel))]
 
 /-- The `bytes`/`string` payload guard never reverts when the model's payload
 bound holds: the length word is at most the calldata remaining after it. -/
@@ -742,11 +736,11 @@ theorem exec_dynamicCompositeLoaderStmts_then
     simp [execIRStmt, evalIRExpr, getVar_setVar_self]
   simp only [dynamicCompositeLoaderStmts, dynamicCompositeParamBindings,
     ParamLoading.applyBindingsToIRState, List.cons_append, List.nil_append]
-  rw [execIRStmts_cons_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 4)),
-    execIRStmts_cons_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 3)),
-    execIRStmts_cons_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 2)),
-    execIRStmts_cons_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 1)),
-    execIRStmts_cons_continue _ _ _ _ _ (h5 (rest.length + extraFuel))]
+  rw [execIRStmts_succ_cons_of_continue _ _ _ _ _ (h1 (rest.length + extraFuel + 4)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h2 (rest.length + extraFuel + 3)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h3 (rest.length + extraFuel + 2)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h4 (rest.length + extraFuel + 1)),
+    execIRStmts_succ_cons_of_continue _ _ _ _ _ (h5 (rest.length + extraFuel))]
 
 /-! ### Lifting the single-parameter refinement over parameter lists -/
 

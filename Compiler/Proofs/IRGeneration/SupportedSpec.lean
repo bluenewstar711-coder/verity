@@ -4509,10 +4509,6 @@ theorem SupportedBodyInterfaceExceptMappingWrites.helperCallNames_nil
     helperCallNames fn = [] := by
   simp [helperCallNames, hBody.stmtList.internalHelperCallNames_nil]
 
--- The default heartbeat budget is borderline for the helper-surface closure
--- proofs' isDefEq search on a cache-cold elaboration; it passes incrementally
--- but times out on fresh builds. Bump it for the whole mutual block.
-set_option maxHeartbeats 800000 in
 mutual
   theorem exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {expr : Expr}
@@ -4647,7 +4643,6 @@ mutual
         simp [exprTouchesInternalHelperSurface,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-  termination_by sizeOf expr
 
   theorem exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {exprs : List Expr}
@@ -4660,8 +4655,13 @@ mutual
         simp only [exprListTouchesUnsupportedHelperSurface, Bool.or_eq_false_iff] at hsurface
         simp [exprTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           exprListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-  termination_by sizeOf exprs
+end
 
+-- Statement closure depends on expression closure but not conversely, so it is
+-- its own mutual block. Both blocks recurse structurally over the nested
+-- `Expr`/`Stmt` inductives: well-founded `termination_by sizeOf` recursion
+-- here cost over 200 000 heartbeats in generated termination proofs alone.
+mutual
   theorem stmtTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {stmt : Stmt}
       (hsurface : stmtTouchesUnsupportedHelperSurface stmt = false) :
@@ -4740,7 +4740,6 @@ mutual
     | returnValues _ | returnArray _ | returnBytes _
     | returnStorageWords _ | emit _ _ | rawLog _ _ _ | panicCode _ | panic _ =>
         simp [stmtTouchesInternalHelperSurface]
-  termination_by sizeOf stmt
 
   theorem stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed
       {stmts : List Stmt}
@@ -4753,7 +4752,6 @@ mutual
         simp [stmtListTouchesInternalHelperSurface,
           stmtTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.1,
           stmtListTouchesInternalHelperSurface_eq_false_of_helperSurfaceClosed hsurface.2]
-  termination_by sizeOf stmts
 end
 
 theorem stmtTouchesInternalHelperSurface_eq_split

@@ -26,7 +26,6 @@ namespace Compiler.Proofs
 
 /-! ### ByteArray.toList length -/
 
-set_option maxHeartbeats 400000 in
 private theorem ByteArray.toList.loop_length (ba : ByteArray) (i : Nat) (acc : List UInt8)
     (hi : i ≤ ba.size) :
     (ByteArray.toList.loop ba i acc).length = (ba.size - i) + acc.length := by

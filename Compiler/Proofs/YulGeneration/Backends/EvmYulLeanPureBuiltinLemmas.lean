@@ -596,7 +596,6 @@ private theorem nat_land_0xFF (n : Nat) : Nat.land n 255 = n % 256 := by
   rw [show (255 : Nat) = 2 ^ 8 - 1 from by omega]
   exact Nat.and_two_pow_sub_one_eq_mod n 8
 
-set_option maxHeartbeats 16000000 in
 private theorem evalPureBuiltinViaEvmYulLean_byte_normalized (index value : Nat) :
     evalPureBuiltinViaEvmYulLean "byte" [index, value] =
       (if index % EvmYul.UInt256.size > 31 then some 0

@@ -73,7 +73,34 @@ private theorem encodeStorageAt_writeUintSlots_other
   · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeUintSlots]
 
-set_option maxHeartbeats 800000 in
+/-- A singleton uint-keyed mapping write leaves every other in-range slot's word. -/
+private theorem storage_writeUintKeyedMappingSlots_singleton_of_ne
+    {world : Verity.ContractState} {slot key query value : Nat}
+    (hquery : query < Compiler.Constants.evmModulus)
+    (hneq : query ≠ SourceSemantics.wordNormalize (Compiler.Proofs.abstractMappingSlot slot key)) :
+    (SourceSemantics.writeUintKeyedMappingSlots world [slot] key value).storage query =
+      world.storage query := by
+  simp only [SourceSemantics.writeUintKeyedMappingSlots, List.foldl_cons, List.foldl_nil]
+  have hneq' :
+      query ≠ Compiler.Proofs.solidityMappingSlot slot key % Compiler.Constants.evmModulus := by
+    simpa [SourceSemantics.wordNormalize, Compiler.Proofs.abstractMappingSlot_eq_solidity] using
+      hneq
+  have hslotNe :
+      IRStorageSlot.ofNat query ≠
+        IRStorageSlot.ofNat (Compiler.Proofs.solidityMappingSlot slot key) := by
+    intro h
+    apply hneq'
+    have hnat := congrArg IRStorageSlot.toNat h
+    simpa [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
+      Compiler.Constants.evmModulus, EvmYul.UInt256.size, Nat.mod_eq_of_lt hquery] using hnat
+  have hqueryMod : query % Verity.Core.UINT256_MODULUS = query := by
+    simpa [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using
+      Nat.mod_eq_of_lt hquery
+  simp [Compiler.Proofs.abstractStoreMappingEntry, Compiler.Proofs.abstractMappingSlot,
+    hneq', hslotNe, hqueryMod, SourceSemantics.wordNormalize]
+  apply Verity.Core.Uint256.ext
+  simp [Verity.Core.Uint256.modulus, Nat.mod_eq_of_lt (world.storage query).isLt]
+
 private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
     {fields : List Field}
     {world : Verity.ContractState}
@@ -85,25 +112,7 @@ private theorem encodeStorageAt_writeUintKeyedMappingSlots_singleton_other
       query =
       SourceSemantics.encodeStorageAt fields world query := by
   apply SourceSemantics.encodeStorageAt_congr
-  · simp only [SourceSemantics.writeUintKeyedMappingSlots, List.foldl_cons, List.foldl_nil]
-    have hneq' :
-        query ≠ Compiler.Proofs.solidityMappingSlot slot key % Compiler.Constants.evmModulus := by
-      simpa [SourceSemantics.wordNormalize, Compiler.Proofs.abstractMappingSlot_eq_solidity] using hneq
-    have hslotNe :
-        IRStorageSlot.ofNat query ≠
-          IRStorageSlot.ofNat (Compiler.Proofs.solidityMappingSlot slot key) := by
-      intro h
-      apply hneq'
-      have hnat := congrArg IRStorageSlot.toNat h
-      simpa [IRStorageSlot.toNat_ofNat, SourceSemantics.wordNormalize,
-        Compiler.Constants.evmModulus, EvmYul.UInt256.size, Nat.mod_eq_of_lt hquery] using hnat
-    have hqueryMod : query % Verity.Core.UINT256_MODULUS = query := by
-      simpa [Compiler.Constants.evmModulus, Verity.Core.UINT256_MODULUS] using
-        Nat.mod_eq_of_lt hquery
-    simp [Compiler.Proofs.abstractStoreMappingEntry, Compiler.Proofs.abstractMappingSlot,
-      hneq', hslotNe, hqueryMod, SourceSemantics.wordNormalize]
-    apply Verity.Core.Uint256.ext
-    simp [Verity.Core.Uint256.modulus, Nat.mod_eq_of_lt (world.storage query).isLt]
+  · exact storage_writeUintKeyedMappingSlots_singleton_of_ne hquery hneq
   · simp [SourceSemantics.writeUintKeyedMappingSlots,
       Verity.ContractState.storageAddr_writeMapUint,
       Verity.ContractState.storageAddr_withStorageChannel]
@@ -5008,7 +5017,6 @@ private theorem byteMemory_modifyTransientSlots (s : Verity.ContractState) (targ
     (f : Verity.Core.Uint256 → Verity.Core.Uint256) :
     (s.modifyTransientSlots targets f).byteMemory = s.byteMemory := rfl
 
-set_option maxHeartbeats 0 in
 set_option maxRecDepth 10000 in
 private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves
     {fields : List Field}
@@ -7562,7 +7570,156 @@ theorem stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of
         stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface hsplit.1,
         ih hsplit.2]
 
-set_option maxHeartbeats 800000 in
+/-! ### Single-word storage reads bound into a local
+
+`let`/`assign` of `Expr.storage`/`Expr.storageAddr` compile to a single
+`sload` bound to the target. The lemmas below factor the shared argument: the
+source and the IR read the same in-range word, and binding one in-range word
+preserves the step invariant. -/
+
+/-- Binding one in-range word on both sides preserves the statement-step invariant. -/
+private theorem stmtStep_preserves_of_bindValue
+    {fields : List Field} {scope : List String} {stmt : Stmt} {compiledIR : List YulStmt}
+    {name : String} {v fuel : Nat} {runtime : SourceSemantics.RuntimeState} {state : IRState}
+    (hsrc : SourceSemantics.execStmt fields runtime stmt =
+      .continue { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v })
+    (hir : execIRStmts fuel state compiledIR = .continue (state.setVar name v))
+    (hlt : v < Verity.Core.UINT256_MODULUS)
+    (hnext : FunctionBody.scopeNamesIncluded (stmtNextScope scope stmt) (name :: scope))
+    (hexact : FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state)
+    (hscope : FunctionBody.scopeNamesPresent scope runtime.bindings)
+    (hbounded : FunctionBody.bindingsBounded runtime.bindings)
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    ∃ sourceResult irExec,
+      SourceSemantics.execStmt fields runtime stmt = sourceResult ∧
+      execIRStmts fuel state compiledIR = irExec ∧
+      stmtStepMatchesIRExec fields (stmtNextScope scope stmt) sourceResult irExec := by
+  refine ⟨_, _, hsrc, hir, ?_⟩
+  simp only [stmtStepMatchesIRExec]
+  exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime name v,
+    FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
+      (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact) hnext,
+    FunctionBody.bindingsBounded_bindValue hbounded name v hlt,
+    FunctionBody.scopeNamesPresent_of_included
+      (FunctionBody.scopeNamesPresent_cons_bindValue hscope) hnext⟩
+
+private theorem execStmt_letVar_of_evalExpr {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState} {name : String} {e : Expr} {v : Nat}
+    (h : SourceSemantics.evalExpr fields runtime e = some v) :
+    SourceSemantics.execStmt fields runtime (.letVar name e) =
+      .continue { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v } := by
+  change (match SourceSemantics.evalExpr fields runtime e with
+    | some r => SourceSemantics.StmtResult.continue
+        { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
+    | none => SourceSemantics.StmtResult.revert) = _
+  rw [h]
+
+private theorem execStmt_assignVar_of_evalExpr {fields : List Field}
+    {runtime : SourceSemantics.RuntimeState} {name : String} {e : Expr} {v : Nat}
+    (h : SourceSemantics.evalExpr fields runtime e = some v) :
+    SourceSemantics.execStmt fields runtime (.assignVar name e) =
+      .continue { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v } := by
+  change (match SourceSemantics.evalExpr fields runtime e with
+    | some r => SourceSemantics.StmtResult.continue
+        { runtime with bindings := SourceSemantics.bindValue runtime.bindings name r }
+    | none => SourceSemantics.StmtResult.revert) = _
+  rw [h]
+
+private theorem execIRStmts_singleton_let_of_eval {state : IRState} {name : String}
+    {e : YulExpr} {v : Nat} (extraFuel : Nat) (h : evalIRExpr state e = some v) :
+    execIRStmts ([YulStmt.let_ name e].length + extraFuel + 1) state [YulStmt.let_ name e] =
+      .continue (state.setVar name v) := by
+  rw [show [YulStmt.let_ name e].length + extraFuel + 1 = extraFuel + 1 + 1 by
+    simp only [List.length_singleton]; omega]
+  simp [execIRStmts, execIRStmt, h]
+
+private theorem execIRStmts_singleton_assign_of_eval {state : IRState} {name : String}
+    {e : YulExpr} {v : Nat} (extraFuel : Nat) (h : evalIRExpr state e = some v) :
+    execIRStmts ([YulStmt.assign name e].length + extraFuel + 1) state [YulStmt.assign name e] =
+      .continue (state.setVar name v) := by
+  rw [show [YulStmt.assign name e].length + extraFuel + 1 = extraFuel + 1 + 1 by
+    simp only [List.length_singleton]; omega]
+  simp [execIRStmts, execIRStmt, h]
+
+/-- A persistent, unpacked scalar field resolves at its IR slot. -/
+private theorem findResolvedFieldAtSlotCopy_ofNat_of_findField
+    {fields : List Field} {fieldName : String} {ty : FieldType} {slot : Nat}
+    (hnoConflict : firstFieldWriteSlotConflict fields = none)
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := ty }, slot)) :
+    findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
+      some { name := fieldName, ty := ty } := by
+  have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
+    hnoConflict hfind
+    (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
+  simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
+    Verity.Core.UINT256_MODULUS] using
+    (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
+        some { name := fieldName, ty := ty } from by
+      rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
+
+private theorem evalExpr_storage_of_findField_uint256 {fields : List Field}
+    {fieldName : String} {slot : Nat} {runtime : SourceSemantics.RuntimeState}
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := FieldType.uint256 }, slot)) :
+    SourceSemantics.evalExpr fields runtime (.storage fieldName) =
+      some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
+  rw [SourceSemantics.evalExpr, hfind]
+  rfl
+
+private theorem evalExpr_storageAddr_of_findField_address {fields : List Field}
+    {fieldName : String} {slot : Nat} {runtime : SourceSemantics.RuntimeState}
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := FieldType.address }, slot)) :
+    SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
+      some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
+  change (match findFieldWithResolvedSlot fields fieldName with
+    | some (field, s) =>
+        if field.isTransient then
+          some (runtime.world.transientStorage (SourceSemantics.wordNormalize s)).val
+        else
+          some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
+    | none => none) = _
+  rw [hfind]
+  rfl
+
+/-- The compiled `sload` of a resolved `uint256` field reads its source word. -/
+private theorem evalIRExpr_sload_of_findField_uint256 {fields : List Field}
+    {fieldName : String} {slot : Nat} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} (hnoConflict : firstFieldWriteSlotConflict fields = none)
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := FieldType.uint256 }, slot))
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    evalIRExpr state (YulExpr.call "sload" [YulExpr.lit slot]) =
+      some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
+  have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
+  rw [encodeStorageAt_eq_storage_of_resolvedSlot
+    (findResolvedFieldAtSlotCopy_ofNat_of_findField hnoConflict hfind) (by rfl) (by rfl)] at hIR
+  have hlt : (runtime.world.storage (SourceSemantics.wordNormalize slot)).val <
+      EvmYul.UInt256.size := (runtime.world.storage _).isLt
+  rw [hIR, IRStorageSlot.toNat_ofNat_wordNormalize, Nat.mod_eq_of_lt hlt]
+
+/-- The compiled `sload` of a resolved `address` field reads its source address. -/
+private theorem evalIRExpr_sload_of_findField_address {fields : List Field}
+    {fieldName : String} {slot : Nat} {runtime : SourceSemantics.RuntimeState}
+    {state : IRState} (hnoConflict : firstFieldWriteSlotConflict fields = none)
+    (hfind : findFieldWithResolvedSlot fields fieldName =
+      some ({ name := fieldName, ty := FieldType.address }, slot))
+    (hruntime : FunctionBody.runtimeStateMatchesIR fields runtime state) :
+    evalIRExpr state (YulExpr.call "sload" [YulExpr.lit slot]) =
+      some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
+  have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
+  rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot
+    (findResolvedFieldAtSlotCopy_ofNat_of_findField hnoConflict hfind) (by rfl) (by rfl)] at hIR
+  have hlt : (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val <
+      EvmYul.UInt256.size :=
+    Nat.lt_trans (runtime.world.storageAddr _).isLt (by decide)
+  rw [hIR, IRStorageSlot.toNat_ofNat_wordNormalize, Nat.mod_eq_of_lt hlt]
+
+private theorem storageAddr_val_lt_modulus (world : Verity.ContractState) (slot : Nat) :
+    (world.storageAddr slot).val < Verity.Core.UINT256_MODULUS :=
+  Nat.lt_trans (world.storageAddr slot).isLt (by decide)
+
 private theorem compiledStmtStep_letStorageField
     {fields : List Field}
     {scope : List String}
@@ -7576,57 +7733,17 @@ private theorem compiledStmtStep_letStorageField
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileExprWithInternals,
-      hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileExprWithInternals, hNotMapping, hfind]
     rfl
-  preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
-        some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      rw [SourceSemantics.evalExpr, hfind]
-      rfl
-    have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-      hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
-    have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
-    have hresolved' :
-          findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
-            some { name := fieldName, ty := FieldType.uint256 } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
-              some { name := fieldName, ty := FieldType.uint256 } from
-            by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
-    rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' (by rfl) (by rfl)] at hIR
-    set v := (runtime.world.storage (SourceSemantics.wordNormalize slot)).val
-    set state' := state.setVar tmp v
-    set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings tmp v }
-    have hNextScopeIncl : FunctionBody.scopeNamesIncluded
-        (stmtNextScope scope (.letVar tmp (Expr.storage fieldName))) (tmp :: scope) := by
-      intro n hn
-      simpa [stmtNextScope, collectStmtBindNames] using hn
-    refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
-    · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
-        | some r => SourceSemantics.StmtResult.continue { runtime with
-            bindings := SourceSemantics.bindValue runtime.bindings tmp r }
-        | none => SourceSemantics.StmtResult.revert) = _; rw [hEvalSrc]
-    · have : [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])].length +
-          extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by simp [List.length]; omega
-      rw [this]; simp [execIRStmts, execIRStmt, hIR, state', v,
-        SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS]
-      apply congrArg (state.setVar tmp)
-      exact Nat.mod_eq_of_lt (by
-        simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt)
-    · simp only [stmtStepMatchesIRExec]
-      exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime tmp v,
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact) hNextScopeIncl,
-          FunctionBody.bindingsBounded_bindValue hbounded tmp v
-            (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt,
-        FunctionBody.scopeNamesPresent_of_included
-          (FunctionBody.scopeNamesPresent_cons_bindValue hscope) hNextScopeIncl⟩
+  preserves runtime state extraFuel hexact hscope hbounded hruntime _ :=
+    stmtStep_preserves_of_bindValue
+      (execStmt_letVar_of_evalExpr (evalExpr_storage_of_findField_uint256 hfind))
+      (execIRStmts_singleton_let_of_eval extraFuel
+        (evalIRExpr_sload_of_findField_uint256 hnoConflict hfind hruntime))
+      (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt
+      (fun n hn => by simpa [stmtNextScope, collectStmtBindNames] using hn)
+      hexact hscope hbounded hruntime
 
 theorem stmtListGenericCore_singleton_letStorageField
     {fields : List Field}
@@ -7642,7 +7759,6 @@ theorem stmtListGenericCore_singleton_letStorageField
     (compiledStmtStep_letStorageField hnoConflict hfind hfieldInScope)
     StmtListGenericCore.nil
 
-set_option maxHeartbeats 800000 in
 private theorem compiledStmtStep_letStorageAddrField
     {fields : List Field} {scope : List String} {tmp fieldName : String} {slot : Nat}
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
@@ -7653,63 +7769,17 @@ private theorem compiledStmtStep_letStorageAddrField
       [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileExprWithInternals,
-      hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileExprWithInternals, hNotMapping, hfind]
     rfl
-  preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
-        some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
-      change (match findFieldWithResolvedSlot fields fieldName with
-        | some (field, s) =>
-            if field.isTransient then
-              some (runtime.world.transientStorage (SourceSemantics.wordNormalize s)).val
-            else
-              some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
-        | none => none) = _
-      rw [hfind]
-      rfl
-    have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-      hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
-    have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
-    have hresolved' :
-          findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
-            some { name := fieldName, ty := FieldType.address } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
-              some { name := fieldName, ty := FieldType.address } from
-            by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
-    rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot hresolved' (by rfl) (by rfl)] at hIR
-    set v := (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val
-    set state' := state.setVar tmp v
-    set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings tmp v }
-    have hAddrLt : v < Verity.Core.UINT256_MODULUS :=
-      Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
-    have hNextScopeIncl : FunctionBody.scopeNamesIncluded
-        (stmtNextScope scope (.letVar tmp (Expr.storageAddr fieldName))) (tmp :: scope) := by
-      intro n hn
-      simpa [stmtNextScope, collectStmtBindNames] using hn
-    refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
-    · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
-        | some r => SourceSemantics.StmtResult.continue { runtime with
-            bindings := SourceSemantics.bindValue runtime.bindings tmp r }
-        | none => SourceSemantics.StmtResult.revert) = _; rw [hEvalSrc]
-    · have : [YulStmt.let_ tmp (YulExpr.call "sload" [YulExpr.lit slot])].length +
-          extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by simp [List.length]; omega
-      rw [this]; simp [execIRStmts, execIRStmt, hIR, state', v,
-        SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS]
-      apply congrArg (state.setVar tmp)
-      exact Nat.mod_eq_of_lt (by
-        simpa [Verity.Core.UINT256_MODULUS, v] using hAddrLt)
-    · simp only [stmtStepMatchesIRExec]
-      exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime tmp v,
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact) hNextScopeIncl,
-        FunctionBody.bindingsBounded_bindValue hbounded tmp v hAddrLt,
-        FunctionBody.scopeNamesPresent_of_included
-          (FunctionBody.scopeNamesPresent_cons_bindValue hscope) hNextScopeIncl⟩
+  preserves runtime state extraFuel hexact hscope hbounded hruntime _ :=
+    stmtStep_preserves_of_bindValue
+      (execStmt_letVar_of_evalExpr (evalExpr_storageAddr_of_findField_address hfind))
+      (execIRStmts_singleton_let_of_eval extraFuel
+        (evalIRExpr_sload_of_findField_address hnoConflict hfind hruntime))
+      (storageAddr_val_lt_modulus runtime.world _)
+      (fun n hn => by simpa [stmtNextScope, collectStmtBindNames] using hn)
+      hexact hscope hbounded hruntime
 
 theorem stmtListGenericCore_singleton_letStorageAddrField
     {fields : List Field}
@@ -7738,58 +7808,17 @@ private theorem compiledStmtStep_assignStorageField
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_uint256 hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileExprWithInternals,
-      hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileExprWithInternals, hNotMapping, hfind]
     rfl
-  preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storage fieldName) =
-        some (runtime.world.storage (SourceSemantics.wordNormalize slot)).val := by
-      rw [SourceSemantics.evalExpr, hfind]
-      rfl
-    have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-      hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
-    have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
-    have hresolved' :
-          findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
-            some { name := fieldName, ty := FieldType.uint256 } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
-              some { name := fieldName, ty := FieldType.uint256 } from
-            by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
-    rw [encodeStorageAt_eq_storage_of_resolvedSlot hresolved' (by rfl) (by rfl)] at hIR
-    set v := (runtime.world.storage (SourceSemantics.wordNormalize slot)).val
-    set state' := state.setVar name v
-    set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v }
-    have hNextScopeIncl : FunctionBody.scopeNamesIncluded
-        (stmtNextScope scope (.assignVar name (Expr.storage fieldName))) (name :: scope) := by
-      intro n hn
-      exact List.mem_cons_of_mem _ (by
-        simpa [stmtNextScope, collectStmtBindNames] using hn)
-    refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
-    · show (match SourceSemantics.evalExpr fields runtime (.storage fieldName) with
-        | some r => SourceSemantics.StmtResult.continue { runtime with
-            bindings := SourceSemantics.bindValue runtime.bindings name r }
-        | none => SourceSemantics.StmtResult.revert) = _; rw [hEvalSrc]
-    · have : [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])].length +
-          extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by simp [List.length]; omega
-      rw [this]; simp [execIRStmts, execIRStmt, hIR, state', v,
-        SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS]
-      apply congrArg (state.setVar name)
-      exact Nat.mod_eq_of_lt (by
-        simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt)
-    · simp only [stmtStepMatchesIRExec]
-      exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime name v,
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact) hNextScopeIncl,
-          FunctionBody.bindingsBounded_bindValue hbounded name v
-            (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt,
-        FunctionBody.scopeNamesPresent_of_included
-          (FunctionBody.scopeNamesPresent_cons_bindValue hscope) hNextScopeIncl⟩
+  preserves runtime state extraFuel hexact hscope hbounded hruntime _ :=
+    stmtStep_preserves_of_bindValue
+      (execStmt_assignVar_of_evalExpr (evalExpr_storage_of_findField_uint256 hfind))
+      (execIRStmts_singleton_assign_of_eval extraFuel
+        (evalIRExpr_sload_of_findField_uint256 hnoConflict hfind hruntime))
+      (runtime.world.storage (SourceSemantics.wordNormalize slot)).isLt
+      (fun n hn => List.mem_cons_of_mem _ (by simpa [stmtNextScope, collectStmtBindNames] using hn))
+      hexact hscope hbounded hruntime
 
 theorem stmtListGenericCore_singleton_assignStorageField
     {fields : List Field}
@@ -7805,7 +7834,6 @@ theorem stmtListGenericCore_singleton_assignStorageField
     (compiledStmtStep_assignStorageField hnoConflict hfind hfieldInScope)
     StmtListGenericCore.nil
 
-set_option maxHeartbeats 800000 in
 private theorem compiledStmtStep_assignStorageAddrField
     {fields : List Field} {scope : List String} {name fieldName : String} {slot : Nat}
     (hnoConflict : firstFieldWriteSlotConflict fields = none)
@@ -7816,64 +7844,17 @@ private theorem compiledStmtStep_assignStorageAddrField
       [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])] where
   compileOk := by
     have hNotMapping := isMapping_false_of_findFieldWithResolvedSlot_address hfind rfl
-    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork, CompilationModel.compileExprWithInternals,
-      hNotMapping, hfind]
+    simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      CompilationModel.compileExprWithInternals, hNotMapping, hfind]
     rfl
-  preserves runtime state extraFuel hexact hscope hbounded hruntime hslack := by
-    have hEvalSrc : SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) =
-        some (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val := by
-      change (match findFieldWithResolvedSlot fields fieldName with
-        | some (field, s) =>
-            if field.isTransient then
-              some (runtime.world.transientStorage (SourceSemantics.wordNormalize s)).val
-            else
-              some (runtime.world.storageAddr (SourceSemantics.wordNormalize s)).val
-        | none => none) = _
-      rw [hfind]
-      rfl
-    have hresolved := findResolvedFieldAtSlotCopy_of_findFieldWithResolvedSlot_singleton
-      hnoConflict hfind
-      (by simpa using findFieldWriteSlots_of_findFieldWithResolvedSlot hfind) (by rfl) (by rfl)
-    have hIR := FunctionBody.evalIRExpr_sload_of_runtimeStateMatchesIR hruntime slot
-    have hresolved' :
-          findResolvedFieldAtSlotCopy fields (IRStorageSlot.ofNat slot).toNat =
-            some { name := fieldName, ty := FieldType.address } := by
-        simpa [IRStorageSlot.toNat_ofNat_wordNormalize, Compiler.Constants.evmModulus,
-          Verity.Core.UINT256_MODULUS] using
-          (show findResolvedFieldAtSlotCopy fields (SourceSemantics.wordNormalize slot) =
-              some { name := fieldName, ty := FieldType.address } from
-            by rw [findResolvedFieldAtSlotCopy_wordNormalize]; exact hresolved)
-    rw [encodeStorageAt_eq_storageAddr_of_resolvedSlot hresolved' (by rfl) (by rfl)] at hIR
-    set v := (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).val
-    set state' := state.setVar name v
-    set runtime' := { runtime with bindings := SourceSemantics.bindValue runtime.bindings name v }
-    have hAddrLt : v < Verity.Core.UINT256_MODULUS :=
-      Nat.lt_trans (runtime.world.storageAddr (SourceSemantics.wordNormalize slot)).isLt (by decide)
-    have hNextScopeIncl : FunctionBody.scopeNamesIncluded
-        (stmtNextScope scope (.assignVar name (Expr.storageAddr fieldName))) (name :: scope) := by
-      intro n hn
-      exact List.mem_cons_of_mem _ (by
-        simpa [stmtNextScope, collectStmtBindNames] using hn)
-    refine ⟨.continue runtime', .continue state', ?_, ?_, ?_⟩
-    · show (match SourceSemantics.evalExpr fields runtime (.storageAddr fieldName) with
-        | some r => SourceSemantics.StmtResult.continue { runtime with
-            bindings := SourceSemantics.bindValue runtime.bindings name r }
-        | none => SourceSemantics.StmtResult.revert) = _; rw [hEvalSrc]
-    · have : [YulStmt.assign name (YulExpr.call "sload" [YulExpr.lit slot])].length +
-          extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by simp [List.length]; omega
-      rw [this]; simp [execIRStmts, execIRStmt, hIR, state', v,
-        SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
-        Verity.Core.UINT256_MODULUS]
-      apply congrArg (state.setVar name)
-      exact Nat.mod_eq_of_lt (by
-        simpa [Verity.Core.UINT256_MODULUS, v] using hAddrLt)
-    · simp only [stmtStepMatchesIRExec]
-      exact ⟨FunctionBody.runtimeStateMatchesIR_setVar_bindValue hruntime name v,
-        FunctionBody.bindingsExactlyMatchIRVarsOnScope_of_included
-          (FunctionBody.bindingsExactlyMatchIRVarsOnScope_setVar_bindValue hexact) hNextScopeIncl,
-        FunctionBody.bindingsBounded_bindValue hbounded name v hAddrLt,
-        FunctionBody.scopeNamesPresent_of_included
-          (FunctionBody.scopeNamesPresent_cons_bindValue hscope) hNextScopeIncl⟩
+  preserves runtime state extraFuel hexact hscope hbounded hruntime _ :=
+    stmtStep_preserves_of_bindValue
+      (execStmt_assignVar_of_evalExpr (evalExpr_storageAddr_of_findField_address hfind))
+      (execIRStmts_singleton_assign_of_eval extraFuel
+        (evalIRExpr_sload_of_findField_address hnoConflict hfind hruntime))
+      (storageAddr_val_lt_modulus runtime.world _)
+      (fun n hn => List.mem_cons_of_mem _ (by simpa [stmtNextScope, collectStmtBindNames] using hn))
+      hexact hscope hbounded hruntime
 
 theorem stmtListGenericCore_singleton_assignStorageAddrField
     {fields : List Field}

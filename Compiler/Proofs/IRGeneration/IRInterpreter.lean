@@ -1107,6 +1107,13 @@ def execIRStmts (fuel : Nat) (state : IRState) : List YulStmt → IRExecResult
 
 end -- mutual
 
+/-- One `continue` step of a statement list: the head runs, then the tail on the
+same fuel. Canonical form of the step every list-execution proof needs. -/
+theorem execIRStmts_succ_cons_of_continue (fuel : Nat) (state next : IRState) (stmt : YulStmt)
+    (tail : List YulStmt) (hstmt : execIRStmt fuel state stmt = .continue next) :
+    execIRStmts (fuel + 1) state (stmt :: tail) = execIRStmts fuel next tail := by
+  simp [execIRStmts, hstmt]
+
 theorem execIRStmt_for_init_noncontinue
     (fuel : Nat) (state : IRState)
     (init post body : List YulStmt) (cond : YulExpr) (r : IRExecResult)

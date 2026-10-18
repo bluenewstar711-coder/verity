@@ -2903,7 +2903,6 @@ macro "event_emit_semantic_bridge_tac" : tactic => `(tactic| unhygienic (
 
 end EventEmitSemanticBridgeMacro
 
-set_option maxHeartbeats 400000 in
 theorem eventEmitHeadStepSemanticBridge
     {runtimeContract : IRContract}
     {spec : CompilationModel}

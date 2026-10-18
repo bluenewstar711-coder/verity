@@ -171,6 +171,7 @@ import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.StateLenses
 import Compiler.Proofs.Storage.FieldCoherence
 import Compiler.Proofs.Storage.FieldEncode
 import Compiler.Proofs.Storage.FieldPackedCompile
@@ -2612,15 +2613,24 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.execStmt_frame_rule
   Compiler.Proofs.Frames.stmtsWriteOnly_nil
   Compiler.Proofs.Frames.stmtsWriteOnly_cons
+  Compiler.Proofs.Frames.execStmt_letVar_continue_inv
+  Compiler.Proofs.Frames.execStmt_assignVar_continue_inv
+  Compiler.Proofs.Frames.execStmt_mstore_continue_inv
+  Compiler.Proofs.Frames.execStmt_tstore_continue_inv
+  Compiler.Proofs.Frames.ownedEq_bindValue_of_disjoint
+  Compiler.Proofs.Frames.ownedEq_writePhysicalMemoryValue_of_disjoint
+  Compiler.Proofs.Frames.ownedEq_writeTransient
   Compiler.Proofs.Frames.stmtWritesOnly_letVar
   Compiler.Proofs.Frames.stmtWritesOnly_assignVar
   Compiler.Proofs.Frames.stmtWritesOnly_mstore
+  Compiler.Proofs.Frames.stmtWritesOnly_tstore_any
   Compiler.Proofs.Frames.stmtWritesOnly_tstore
   Compiler.Proofs.Frames.evalExpr_staticValue
-  Compiler.Proofs.Frames.stmtWritesOnly_tstore_any
   Compiler.Proofs.Frames.stmtWritesOnly_require
   Compiler.Proofs.Frames.stmtWritesOnly_return
   Compiler.Proofs.Frames.stmtWritesOnly_stop
+  Compiler.Proofs.Frames.stmtWritesOnly_mstore_of_staticValue
+  Compiler.Proofs.Frames.stmtWritesOnly_ite
   Compiler.Proofs.Frames.stmtWritesOnly_writeFootprint
   Compiler.Proofs.Frames.stmtListWritesOnly_writeFootprint
   Compiler.Proofs.Frames.execStmt_frame_rule_writeFootprint
@@ -2630,6 +2640,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.Frames.Coupling.supported_and
   Compiler.Proofs.Frames.Coupling.iterFrom_zero
   Compiler.Proofs.Frames.Coupling.iterFrom_succ
+  Compiler.Proofs.Frames.execStmtList_singleton_continue
   Compiler.Proofs.Frames.execStmtList_append_continue
   Compiler.Proofs.Frames.execStmtList_append_continue_of
   Compiler.Proofs.Frames.SegmentSimWithFields.id
@@ -3233,7 +3244,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.getVar_setVar_of_ne  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.setVar_calldata  -- private
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.setVar_selector  -- private
-  -- Compiler.Proofs.IRGeneration.DynamicParamLoading.execIRStmts_cons_continue  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_bytes
   Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_string
   Compiler.Proofs.IRGeneration.DynamicParamLoading.genSingleParamLoad_array
@@ -4359,6 +4369,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.compileExprListWithInternals_nil_ok  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintSlots_other  -- private
+  -- Compiler.Proofs.IRGeneration.storage_writeUintKeyedMappingSlots_singleton_of_ne  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeUintKeyedMappingSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_other  -- private
   -- Compiler.Proofs.IRGeneration.IRStorageSlot.toNat_ofNat_wordNormalize  -- private
@@ -4500,6 +4511,17 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_append
   -- Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface  -- private
   Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_false_of_contractSurface
+  -- Compiler.Proofs.IRGeneration.stmtStep_preserves_of_bindValue  -- private
+  -- Compiler.Proofs.IRGeneration.execStmt_letVar_of_evalExpr  -- private
+  -- Compiler.Proofs.IRGeneration.execStmt_assignVar_of_evalExpr  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_singleton_let_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.execIRStmts_singleton_assign_of_eval  -- private
+  -- Compiler.Proofs.IRGeneration.findResolvedFieldAtSlotCopy_ofNat_of_findField  -- private
+  -- Compiler.Proofs.IRGeneration.evalExpr_storage_of_findField_uint256  -- private
+  -- Compiler.Proofs.IRGeneration.evalExpr_storageAddr_of_findField_address  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_sload_of_findField_uint256  -- private
+  -- Compiler.Proofs.IRGeneration.evalIRExpr_sload_of_findField_address  -- private
+  -- Compiler.Proofs.IRGeneration.storageAddr_val_lt_modulus  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageField  -- private
   Compiler.Proofs.IRGeneration.stmtListGenericCore_singleton_letStorageField
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_letStorageAddrField  -- private
@@ -4678,6 +4700,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log3_of_eval_args
   Compiler.Proofs.IRGeneration.execIRStmtWithInternals_log4_of_eval_args
   Compiler.Proofs.IRGeneration.execIRInternalFunctionWithInternals_hides_caller_only_locals
+  Compiler.Proofs.IRGeneration.execIRStmts_succ_cons_of_continue
   Compiler.Proofs.IRGeneration.execIRStmt_for_init_noncontinue
   Compiler.Proofs.IRGeneration.execIRStmt_for_cond_none
   Compiler.Proofs.IRGeneration.execIRStmt_for_init_cond_zero
@@ -5794,6 +5817,76 @@ end Verity.AxiomAudit
   Compiler.Proofs.mappingChainSlotLocation_pair
   Compiler.Proofs.foldl_solidityMappingSlot_lt_evmModulus
   Compiler.Proofs.mappingChainSlotLocation_zero
+
+  -- Compiler/Proofs/StateLenses.lean
+  Compiler.Proofs.StateLenses.StorageWordsFrame.refl
+  Compiler.Proofs.StateLenses.StorageWordsFrame.trans
+  Compiler.Proofs.StateLenses.storageWordsFrame_writePhysicalSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_modifyPhysicalSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeAddrSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeTransientSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_modifyTransientSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeUintSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeAddressSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeTransientTargets
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeStorageWordFieldSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.storageWordsFrame_writeMappingTargets
+  Compiler.Proofs.StateLenses.storageArray_writeUintSlots
+  Compiler.Proofs.StateLenses.memory_writeUintSlots
+  Compiler.Proofs.StateLenses.byteMemory_writeUintSlots
+  Compiler.Proofs.StateLenses.returndata_writeUintSlots
+  Compiler.Proofs.StateLenses.events_writeUintSlots
+  Compiler.Proofs.StateLenses.knownAddresses_writeUintSlots
+  Compiler.Proofs.StateLenses.storageArray_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.memory_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.byteMemory_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.returndata_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.events_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.knownAddresses_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.storageArray_writeAddressSlots
+  Compiler.Proofs.StateLenses.memory_writeAddressSlots
+  Compiler.Proofs.StateLenses.byteMemory_writeAddressSlots
+  Compiler.Proofs.StateLenses.returndata_writeAddressSlots
+  Compiler.Proofs.StateLenses.events_writeAddressSlots
+  Compiler.Proofs.StateLenses.knownAddresses_writeAddressSlots
+  Compiler.Proofs.StateLenses.storageArray_writeTransientTargets
+  Compiler.Proofs.StateLenses.memory_writeTransientTargets
+  Compiler.Proofs.StateLenses.byteMemory_writeTransientTargets
+  Compiler.Proofs.StateLenses.returndata_writeTransientTargets
+  Compiler.Proofs.StateLenses.events_writeTransientTargets
+  Compiler.Proofs.StateLenses.knownAddresses_writeTransientTargets
+  Compiler.Proofs.StateLenses.storageArray_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.memory_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.byteMemory_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.returndata_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.events_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.knownAddresses_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.calldata_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.storageArray_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.memory_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.byteMemory_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.returndata_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.events_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.knownAddresses_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.calldata_writeAddressFieldSlots
+  Compiler.Proofs.StateLenses.storageArray_writeStorageWordFieldSlots
+  Compiler.Proofs.StateLenses.memory_writeStorageWordFieldSlots
+  Compiler.Proofs.StateLenses.events_writeStorageWordFieldSlots
+  Compiler.Proofs.StateLenses.storageArray_writeMappingTargets
+  Compiler.Proofs.StateLenses.memory_writeMappingTargets
+  Compiler.Proofs.StateLenses.events_writeMappingTargets
+  Compiler.Proofs.StateLenses.transientStorage_writeUintSlots
+  Compiler.Proofs.StateLenses.storageAddr_writeUintSlots
+  Compiler.Proofs.StateLenses.transientStorage_writeStorageWordSlots
+  Compiler.Proofs.StateLenses.storage_writeAddressSlots
+  Compiler.Proofs.StateLenses.transientStorage_writeAddressSlots
+  Compiler.Proofs.StateLenses.storage_writeTransientTargets
+  Compiler.Proofs.StateLenses.storageAddr_writeTransientTargets
+  Compiler.Proofs.StateLenses.storageAddr_writeUintFieldSlots
+  Compiler.Proofs.StateLenses.storage_writeAddressFieldSlots
 
   -- Compiler/Proofs/Storage/FieldCoherence.lean
   Compiler.Proofs.Storage.FieldCoherence.fieldMapKey_coherent_storageKeySlot
@@ -8287,4 +8380,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7566 theorems/lemmas (5481 public, 2085 private, 0 sorry'd)
+-- Total: 7656 theorems/lemmas (5560 public, 2096 private, 0 sorry'd)

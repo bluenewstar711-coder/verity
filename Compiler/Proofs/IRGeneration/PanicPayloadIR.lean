@@ -28,10 +28,9 @@ def panicPayloadState (state : IRState) (code : Nat) : IRState :=
 /-- The emitted panic sequence updates actual bytes and every overlapping word
 window before reverting; it does not leave unrelated word-map entries frozen. -/
 theorem execIRStmts_solidityPanicPayload (fuel : Nat) (state : IRState)
-    (code : Nat) (hcode : code < Compiler.Constants.evmModulus) :
+    (code : Nat) (_hcode : code < Compiler.Constants.evmModulus) :
     execIRStmts (fuel + 4) state (solidityPanicPayload code) =
       .revert (panicPayloadState state code) := by
-  have offset : 4 % Compiler.Constants.evmModulus = 4 := by decide
   have offsetWord : 4 % Verity.Core.Uint256.modulus = 4 := by decide
   have selector :
       (if 224 % Compiler.Constants.evmModulus < 256 then
@@ -40,7 +39,7 @@ theorem execIRStmts_solidityPanicPayload (fuel : Nat) (state : IRState)
   simp [solidityPanicPayload, solidityPanicPayloadExpr, execIRStmts, execIRStmt,
     evalIRExpr, evalIRCall, evalIRExprs,
     YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
-    panicPayloadState, offset, offsetWord, selector]
+    panicPayloadState, offsetWord, selector]
 
 /-- The arithmetic-overflow panic retains its complete physical poststate. -/
 theorem execIRStmts_arithmeticOverflowPanicPayload (fuel : Nat) (state : IRState) :

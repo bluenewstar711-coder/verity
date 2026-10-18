@@ -263,14 +263,11 @@ theorem execIRStmts_revertWithMessage (message : String) (fuel : Nat)
       finalState.memory 36 = (bytesFromString message).length ∧
       finalState = PhysicalPayloadStores.applyStores state (errorStringWrites message) := by
   refine ⟨_, execIRStmts_revertWithMessage_physical message fuel state, ?_, ?_, ?_, ?_⟩
-  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 0 = _
-    rw [errorStringWrites_physical]
+  · rw [errorStringWrites_physical]
     exact PhysicalErrorStringWords.selector_word state message extent
-  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 4 = _
-    rw [errorStringWrites_physical]
+  · rw [errorStringWrites_physical]
     exact PhysicalErrorStringWords.offset_word state message extent
-  · change (PhysicalPayloadStores.applyStores state (errorStringWrites message)).memory 36 = _
-    rw [errorStringWrites_physical]
+  · rw [errorStringWrites_physical]
     exact PhysicalErrorStringWords.length_word state message extent
   · rfl
 
@@ -310,7 +307,7 @@ theorem execIRStmt_mstore_ptr (fuel : Nat) (state : IRState)
   simp [execIRStmt, evalIRExpr, evalIRCall, evalIRExprs, hptr,
     YulGeneration.Backends.evalBuiltinCallWithEvmYulLeanContext,
     Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
-    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS, Nat.mod_mod]
+    Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS]
 
 /-- A block of pointer-offset stores applies its writes at the pointer. -/
 theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
@@ -325,22 +322,12 @@ theorem execIRStmts_mstore_ptr_block (ptrName : String) (p : Nat) :
             ((p + ow.1) % Compiler.Constants.evmModulus, ow.2)))
   | [], _, state, _ => by simp [execIRStmts, PhysicalPayloadStores.applyStores]
   | (o, w) :: rest, fuel, state, hptr => by
-      rw [show ((o, w) :: rest).length + fuel + 1 =
-        (rest.length + fuel + 1) + 1 from by simp [List.length]; omega]
-      show (match execIRStmt (rest.length + fuel + 1) state
-          (.exprStmt (.call "mstore"
-            [.call "add" [.ident ptrName, .lit o], .hex w])) with
-        | .continue s₁ => execIRStmts (rest.length + fuel + 1) s₁
-            (rest.map fun (ow : Nat × Nat) =>
-              YulStmt.exprStmt (.call "mstore"
-                [.call "add" [.ident ptrName, .lit ow.1], .hex ow.2]))
-        | .return v s => .return v s
-        | .stop s => .stop s
-        | .revert s => .revert s) = _
-      rw [execIRStmt_mstore_ptr (rest.length + fuel) state ptrName p o w hptr]
       have hptr' : (state.writePhysicalMemoryValue
           ((p + o) % Compiler.Constants.evmModulus) w).getVar ptrName = some p := hptr
-      change execIRStmts (rest.length + fuel + 1) _ _ = _
+      rw [show ((o, w) :: rest).length + fuel + 1 = (rest.length + fuel + 1) + 1 by
+          simp only [List.length_cons]; omega,
+        List.map_cons, execIRStmts_succ_cons_of_continue _ _ _ _ _
+          (execIRStmt_mstore_ptr (rest.length + fuel) state ptrName p o w hptr)]
       simpa only [List.map_cons, PhysicalPayloadStores.applyStores,
         Verity.Core.Uint256.val_ofNat, Compiler.Constants.evmModulus,
         Verity.Core.Uint256.modulus, Verity.Core.UINT256_MODULUS, Nat.mod_mod] using

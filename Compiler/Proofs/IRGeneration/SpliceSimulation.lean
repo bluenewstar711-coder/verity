@@ -101,7 +101,6 @@ theorem SpliceSimList.loopFree : ∀ (xs : List YulStmt), SpliceSimList xs →
 
 end
 
-set_option maxHeartbeats 1600000 in
 /-- A non-exit expression statement never halts the frame: every interpreter
 branch other than the `return`/`stop` builtins produces `continue` or
 `revert`. -/
@@ -111,6 +110,8 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
     (hsd : ∀ args, e ≠ .call "selfdestruct" args) :
     (∀ v s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .return v s) ∧
       (∀ s, execIRStmt (fuel + 1) state (.exprStmt e) ≠ .stop s) := by
+  -- Every leaf of the unfolded interpreter is closed by a constructor clash or by
+  -- the excluded builtin name; no leaf needs `simp_all` over the split context.
   refine ⟨fun v s hcontra => ?_, fun s hcontra => ?_⟩ <;>
   · rw [execIRStmt.eq_def] at hcontra
     repeat' split at hcontra
@@ -118,7 +119,13 @@ theorem execIRStmt_exprStmt_no_halt (e : YulExpr) (fuel : Nat) (state : IRState)
       | exact absurd rfl (hret _)
       | exact absurd rfl (hstop _)
       | exact absurd rfl (hsd _)
-      | simp_all
+      | (cases hcontra; done)
+      | contradiction
+      | (injections; subst_vars
+         first
+          | exact absurd rfl (hret _)
+          | exact absurd rfl (hstop _)
+          | exact absurd rfl (hsd _))
 
 /-- Atomic non-exit statements: everything the splice leaves untouched and
 whose execution cannot halt the frame. -/

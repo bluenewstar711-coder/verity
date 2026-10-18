@@ -66,7 +66,6 @@ private theorem natAbs_ofNat_sub (a b : Nat) (h : a < b) :
   rw [show ((b : Nat) : Int) - (a : Int) = ((b - a : Nat) : Int) from by omega]
   simp only [Int.natAbs_natCast]
 
-set_option maxHeartbeats 400000000 in
 set_option maxRecDepth 4096 in
 theorem int256_div_toUint256_val_eq_uint256_sdiv (a b : Nat)
     (ha : a < Compiler.Constants.evmModulus) (hb : b < Compiler.Constants.evmModulus) :
@@ -1142,7 +1141,6 @@ private theorem se_clear_eq {v k : Nat} (hsign : v &&& 2^k = 0) :
     · simp [hi, show i < k + 1 from by omega]
     · simp [show ¬(i < k) from hi, show ¬(i < k + 1) from by omega]
 
-set_option maxHeartbeats 4000000 in
 private theorem se_tb_val (byteIdx : Nat) (hb : byteIdx < EvmYul.UInt256.size)
     (hle : byteIdx ≤ 31) :
     (({ val := ⟨byteIdx, hb⟩ } : EvmYul.UInt256) * { val := 8 } + { val := 7 }).val.val =
@@ -1206,7 +1204,6 @@ private theorem se_size_to_uint256_val :
     (EvmYul.UInt256.size.toUInt256 : EvmYul.UInt256).val.val = 0 := by
   simp [Nat.toUInt256, EvmYul.UInt256.ofNat, Id.run, EvmYul.UInt256.size]
 
-set_option maxHeartbeats 16000000 in
 /-- Core signextend equivalence: Verity's `Uint256.signextend` agrees with
 EVMYulLean's `UInt256.signextend`.
 
