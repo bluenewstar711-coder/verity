@@ -93,7 +93,6 @@ ALLOWLIST: set[str] = {
     # that carry the helper table, compilation, and state/fuel relations together.
     # Splitting them would duplicate the same witness plumbing without reducing
     # the proof search performed by their bodies.
-    "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals",
     "directInternalHelperStatementContextBridge_sourceAssignEvidence",
     # --- Denote/SourceSemantics agreement (P4 seed) ---
     # Mutual recursion with execStmtList_eq: each new Stmt constructor
@@ -125,19 +124,10 @@ ALLOWLIST: set[str] = {
     # head/tail compile-success plumbing.
     "compileStmtList_append_ok_inv",
     "constructorOnly_compileBody_empty_surfaces_withFork",
-    # --- Statement-level compiled step proofs ---
-    "compiledStmtStep_letVar",
-    "compiledStmtStep_assignVar",
-    "compiledStmtStep_require",
-    "compiledStmtStep_return",
     # Nat-indexed forEach empty-body proof witnesses. Positive non-empty
     # literal loops intentionally remain outside the supported fragment. The
     # longer witnesses below are recurrence/state-relation proofs where
     # splitting would duplicate the same loop-index, binder, and fuel facts.
-    "execIRStmt_forEach_empty_loop_from_idx",
-    "forEach_empty_final_rel",
-    "execIRStmts_forEach_literal_empty_compiled",
-    "stmtStepMatches_forEach_literal_empty_final",
     # --- Storage write compiled step proofs ---
     "compiledStmtStep_setStorage_singleSlot",
     # Zero-offset storage-word writes lower to the same single `sstore` shape
@@ -265,11 +255,6 @@ ALLOWLIST: set[str] = {
     "compiledStmtStep_returndatacopy_bounded_single_preserves",
     # --- Generic induction and scope proofs ---
     "stmtListGenericCore_of_supportedStmtList_of_surface",
-    "stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface",
-    "stmtListScopeCore_of_unsupportedContractSurface_eq_false",
-    "exprBoundNamesInScope_of_validateScopedExprIdentifiers_core",
-    # --- Surface predicate bridge proofs ---
-    "exprCompileCore_of_exprTouchesUnsupportedContractSurface_eq_false",
     # --- Mapping slot and field resolution proofs ---
     "findResolvedFieldAtSlotCopyFrom_of_member",
     "firstFieldWriteSlotConflictCopyFrom_some_of_seen_slot_member",
@@ -362,10 +347,6 @@ ALLOWLIST: set[str] = {
     # --- Return statement compilation (memory sync adds steps) ---
     "exec_compileStmt_return_core_extraFuel",
     # --- Helper-aware IR compatibility proofs ---
-    "execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness",
-    "execIRStmtsWithInternals_of_internalCall_compiledHelperWitness",
-    "compiledStmtStepWithHelpersAndHelperIR_internalCallAssign",
-    "compiledStmtStepWithHelpersAndHelperIR_internalCall",
     # --- Contract feature fixtures ---
     "literalMappingWrite_calldataFits",
     # Constructor-body fixture for issue #1723.
