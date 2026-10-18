@@ -20,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
+
 ROOT = Path(__file__).resolve().parents[1]
 SOLC = ROOT / ".lake/solidity-import/solc-0.8.34"
 WORK = ROOT / ".lake/import-mutations"
@@ -487,7 +489,7 @@ DIFFERENTIAL_MUTANTS = ("denote-panic-selector", "denote-panic-endian",
                    "denote-custom-require-argument",
                    "import-scalar-read", "import-scalar-slot", "import-scalar-offset",
                    "import-scalar-write", "import-scalar-delete", "import-void-fallthrough",
-                   "denote-scalar-sibling-mask",
+                   "denote-scalar-sibling-mask", "import-bare-empty-revert",
                    'import-mapping-layout',
                    'import-mapping-read-one',
                    'import-mapping-read-two',
@@ -651,6 +653,41 @@ def module_campaign_output(module: str, label: str, timeout: int, *extra: str) -
     return output
 
 
+def deployment_world_mutations() -> None:
+    results = json.loads((module_campaign_output("check_deployment_world_mutations", "deployment-world-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-create2-drop-nonce", "denote-create2-empty-code", "denote-create2-drop-value",
+             "denote-create2-drop-deposit", "denote-create2-ignore-collision"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] for row in results)):
+        raise SystemExit("deployment-world mutations require actual minimal EVM/Lean witnesses")
+    print("pass five deployment-world runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def create2_opcode_mutations() -> None:
+    results = json.loads((module_campaign_output("check_create2_opcode_mutations", "create2-opcode-mutations",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"create2-initcode-word-cost", "create2-eip150-divisor", "create2-parent-refund",
+             "create2-memory-expansion"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['deletion_minimal']
+                       and row['signature'] and len(row['witnessCaseIds']) == 1 for row in results)):
+        raise SystemExit("CREATE2 opcode mutants require executed minimal EVM/Lean witnesses")
+    print("pass four CREATE2 opcode runtime mutations (A/B foundation; compiled route pending)", flush=True)
+
+
+def account_storage_mutations() -> None:
+    results = json.loads((module_campaign_output("check_account_storage_mutations", "account-storage-conformance",
+                                                 MUTANT_TIMEOUT) / "mutation-results.json").read_text())
+    names = {"denote-physical-slot-account", "denote-physical-batch-account", "denote-physical-modify-account"}
+    if ({row['mutant'] for row in results} != names
+            or not all(row['detected'] and row['baselinePassed'] and row['implementationCompiles']
+                       and row['kind'] == 'kernel-conformance-rejection' for row in results)):
+        raise SystemExit("account storage mutations require valid implementations rejected by unchanged kernel assertions")
+    print("pass three account storage kernel conformance mutations (not runtime witnesses)", flush=True)
+
+
 def block_mutation() -> None:
     block_result = module_campaign("check_block_mutations", "block-mutations", MUTANT_TIMEOUT)
     if (block_result["mutant"] != "import-block-drop" or not block_result["detected"]
@@ -685,6 +722,29 @@ def reference_location_mutation() -> None:
     print("pass reference-location", flush=True)
 
 
+def byte_call_mutations() -> None:
+    subprocess.run([sys.executable,
+                    str(ROOT / "scripts/solidity_differential/check_byte_call_mutations.py")],
+                   cwd=ROOT, check=True, timeout=MUTANT_TIMEOUT)
+    print("pass canonical byte-call and exact empty-revert mutations", flush=True)
+
+
+def interface_static_call_rejections() -> None:
+    module_campaign_output("check_interface_static_call_rejections",
+                           "interface-static-call-rejections", MUTANT_TIMEOUT)
+    print("pass interface staticcall located rejections", flush=True)
+
+
+def interface_static_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_interface_static_call_mutations", mutant,
+                             MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"interface staticcall mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def tasks(update_golden: bool) -> list:
     """Independent work items, most expensive first (each runs in its own snapshot).
 
@@ -700,10 +760,16 @@ def tasks(update_golden: bool) -> list:
              ("abi-rejections", 1, abi_rejections),
              ("block-drop", 1, block_mutation),
              ("reference-wrong-root", 1, reference_mutation),
-             ("reference-location", 1, reference_location_mutation)]
+             ("reference-location", 1, reference_location_mutation),
+             ("byte-call", 1, byte_call_mutations),
+             ("deployment-world", 1, deployment_world_mutations),
+             ("create2-opcode", 1, create2_opcode_mutations),
+             ("account-storage", 1, account_storage_mutations),
+             ("interface-static-call-rejections", 1, interface_static_call_rejections)]
     items += [(m, 1, (lambda m=m: hashing_mutant(m))) for m in HASHING_MUTANTS]
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
+    items += [(m, 1, (lambda m=m: interface_static_call_mutant(m))) for m in INTERFACE_MUTANTS]
     return items
 
 

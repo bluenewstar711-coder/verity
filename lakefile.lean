@@ -58,7 +58,10 @@ input_dir solidityImportSmokeSources where
   text := true
 
 lean_lib «SolidityImportSmoke» where
-  globs := #[.one `Contracts.SolidityImportSmoke.Smoke,
+  globs := #[.one `Contracts.SolidityImportSmoke.AccountStorageBridgeChecks,
+    .one `Contracts.SolidityImportSmoke.Create2ParentGasChecks,
+    .one `Contracts.SolidityImportSmoke.Create2OpcodeChecks,
+    .one `Contracts.SolidityImportSmoke.Smoke,
     .one `Contracts.SolidityImportSmoke.AbiCanonicalityModel,
     .one `Contracts.SolidityImportSmoke.StaticAbiChecks,
     .one `Contracts.SolidityImportSmoke.StructValidationOrderModel,
@@ -66,6 +69,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.SymbolicExecutionChecks,
     .one `Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks,
     .one `Contracts.SolidityImportSmoke.AbiLoweringChecks,
+    .one `Contracts.SolidityImportSmoke.PhysicalMemoryFrameChecks,
     .one `Contracts.SolidityImportSmoke.AbiCoverageChecks,
     .one `Contracts.SolidityImportSmoke.ExplicitAbiChecks,
     .one `Contracts.SolidityImportSmoke.SelectorIdentityChecks,
@@ -84,6 +88,8 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.VoidHelperGuardSequenceModel,
     .one `Contracts.SolidityImportSmoke.ModifierUncheckedCompoundSequenceModel,
     .one `Contracts.SolidityImportSmoke.TupleHelperSequenceModel,
+    .one `Contracts.SolidityImportSmoke.UncheckedSequenceModel,
+    .one `Contracts.SolidityImportSmoke.TupleSequenceModel,
     .one `Contracts.SolidityImportSmoke.Int256ContractTypeSequenceModel,
     .one `Contracts.SolidityImportSmoke.FnPtrStructDeleteModifierSequenceModel,
     .one `Contracts.SolidityImportSmoke.EmptyArrayReturnBytesCalldataSequenceModel,

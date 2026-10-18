@@ -3,6 +3,15 @@
 -- Regenerate with: python3 scripts/generate_print_axioms.py
 
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanNativeStepLemmas
+import Verity.Core.Model.BytesObjectMemory
+import Verity.Core.AccountState
+import Verity.Core.Model.DenoteCreate2
+import Verity.Core.Model.Create2ParentGas
+import Verity.Core.Model.Create2Opcode
+import Verity.Core.Model.AccountStorageBridge
+import Contracts.SolidityImportSmoke.DeploymentWorldChecks
+import Verity.Core.Model.InitCodeExecution
+import Contracts.SolidityImportSmoke.InitCodeExecutionChecks
 import Compiler.CompilationModel.ReservedScratchNames
 import Compiler.SolidityImport.Transactions
 import Compiler.SolidityImport.StorageFrames
@@ -11,6 +20,7 @@ import Compiler.SolidityImport.TransactionAccess
 import Contracts.SolidityImportSmoke.Smoke
 import Contracts.SolidityImportSmoke.StaticAbiChecks
 import Compiler.SolidityImport.EntryPointInvariants
+import Compiler.SolidityImport.AdversarialEntryPointInvariants
 import Contracts.SolidityImportSmoke.EntryPointInvariantChecks
 import Compiler.SolidityImport.LoopInvariants
 import Compiler.SolidityImport.SymbolicExecution
@@ -20,6 +30,11 @@ import Compiler.SolidityImport.Coverage
 import Compiler.SolidityImport.AbiEncoding
 import Compiler.SolidityImport.AbiByteLanes
 import Compiler.SolidityImport.AbiMemory
+import Contracts.SolidityImportSmoke.PhysicalMemoryFrameChecks
+import Compiler.SolidityImport.AbiPhysicalMemory
+import Compiler.SolidityImport.AbiPhysicalCopy
+import Compiler.SolidityImport.AbiMemoryGrid
+import Verity.Core.Model.ByteMemoryInverse
 import Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks
 import Contracts.SolidityImportSmoke.AbiLoweringChecks
 import Contracts.SolidityImportSmoke.AbiCoverageChecks
@@ -93,6 +108,7 @@ import Compiler.Proofs.IRGeneration.DispatchGeneric
 import Compiler.Proofs.IRGeneration.DispatchStringParam
 import Compiler.Proofs.IRGeneration.DynamicAbiRefinement
 import Compiler.Proofs.IRGeneration.DynamicParamLoading
+import Compiler.Proofs.IRGeneration.EmptyRevert
 import Compiler.Proofs.IRGeneration.ErrorStringPayloadIR
 import Compiler.Proofs.IRGeneration.EventObservable
 import Compiler.Proofs.IRGeneration.FragmentCheck
@@ -127,12 +143,24 @@ import Compiler.Proofs.IRGeneration.HelperBodyShape
 import Compiler.Proofs.IRGeneration.HelperSummaryEvidence
 import Compiler.Proofs.IRGeneration.HelperVoidCallCatalogRegression
 import Compiler.Proofs.IRGeneration.IRInterpreter
+import Compiler.Proofs.IRGeneration.IRRuntimeTypes
 import Compiler.Proofs.IRGeneration.IRStorageWord
 import Compiler.Proofs.IRGeneration.InternalHelperBodyCorrespondence
 import Compiler.Proofs.IRGeneration.IntrinsicProofs
 import Compiler.Proofs.IRGeneration.NonReentrantGuardIR
 import Compiler.Proofs.IRGeneration.PanicPayloadIR
 import Compiler.Proofs.IRGeneration.ParamLoading
+import Compiler.Proofs.IRGeneration.PhysicalAbiBytes
+import Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex
+import Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores
+import Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes
+import Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader
+import Compiler.Proofs.IRGeneration.PhysicalErrorStringWords
+import Compiler.Proofs.IRGeneration.PhysicalMemory
+import Compiler.Proofs.IRGeneration.PhysicalPayloadStores
 import Compiler.Proofs.IRGeneration.Returndata
 import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
@@ -309,12 +337,114 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.Native.step_selfbalance_ok
   Compiler.Proofs.YulGeneration.Backends.Native.step_and_ok
 
+  -- Verity/Core/Model/BytesObjectMemory.lean
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_at
+  Compiler.CompilationModel.BytesObjectMemory.writeWord_readByte_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_header
+  Compiler.CompilationModel.BytesObjectMemory.materialize_payload
+  Compiler.CompilationModel.BytesObjectMemory.materialize_padding
+  Compiler.CompilationModel.BytesObjectMemory.materialize_represents
+  Compiler.CompilationModel.BytesObjectMemory.materialize_outside
+  Compiler.CompilationModel.BytesObjectMemory.materialize_preserves_before
+
+  -- Verity/Core/AccountState.lean
+  Verity.Core.AccountState.storageAt_writeStorage
+  Verity.Core.AccountState.storageAt_writeStorage_same
+  Verity.Core.AccountState.storageAt_writeStorage_other
+  Verity.Core.AccountState.storageAt_writeStorageValues
+  Verity.Core.AccountState.storage_only_not_collision
+  Verity.Core.AccountWorld.write_at
+  Verity.Core.AccountWorld.write_other
+
+  -- Verity/Core/Model/DenoteCreate2.lean
+  Compiler.CompilationModel.DenoteCreate2.static_aborts_without_effect
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_other
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_storageWords
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_events
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_code
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_target_nonce
+  Compiler.CompilationModel.DenoteCreate2.commitRuntime_clears_storage
+
+  -- Verity/Core/Model/Create2ParentGas.lean
+  Compiler.CompilationModel.Create2ParentGas.memoryCost_monotone
+  Compiler.CompilationModel.Create2ParentGas.resultingWords_ge
+  Compiler.CompilationModel.Create2ParentGas.opcodeCost_zero_size
+  Compiler.CompilationModel.Create2ParentGas.charge_of_enough
+  Compiler.CompilationModel.Create2ParentGas.charge_of_insufficient
+  Compiler.CompilationModel.Create2ParentGas.charge_conserves_gas
+  Compiler.CompilationModel.Create2ParentGas.finish_of_within
+  Compiler.CompilationModel.Create2ParentGas.finish_of_excess
+  Compiler.CompilationModel.Create2ParentGas.finished_gas_bound
+
+  -- Verity/Core/Model/Create2Opcode.lean
+  Compiler.CompilationModel.Create2Opcode.expand_before
+  Compiler.CompilationModel.Create2Opcode.expand_new_zero
+  Compiler.CompilationModel.Create2Opcode.static_aborts
+  Compiler.CompilationModel.Create2Opcode.oversized_aborts
+
+  -- Verity/Core/Model/AccountStorageBridge.lean
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_account_other
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_word_same
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writePhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.modifyPhysicalSlots_preserves_coherent
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_balance_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.writeSelfSlot_code_view_frame
+  Compiler.CompilationModel.AccountStorageBridge.commitRuntime_preserves_coherent
+
+  -- Contracts/SolidityImportSmoke/DeploymentWorldChecks.lean
+  SolidityImportSmoke.DeploymentWorldChecks.nonce_limit_returns_zero_without_increment
+  SolidityImportSmoke.DeploymentWorldChecks.insufficient_balance_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.depth_limit_does_not_increment
+  SolidityImportSmoke.DeploymentWorldChecks.unsupported_initcode_is_instrument_error
+  SolidityImportSmoke.DeploymentWorldChecks.metadata_survives_storage_write
+
+  -- Verity/Core/Model/InitCodeExecution.lean
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_zero
+  Compiler.CompilationModel.InitCodeExecution.run_succ
+  Compiler.CompilationModel.InitCodeExecution.run_after_step
+  Compiler.CompilationModel.InitCodeExecution.midnightInitcode_length
+  Compiler.CompilationModel.InitCodeExecution.hasMidnightPrefix_initcode
+  Compiler.CompilationModel.InitCodeExecution.expandedLength_ge
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_at
+  Compiler.CompilationModel.InitCodeExecution.codeCopy_readByte_outside
+  Compiler.CompilationModel.InitCodeExecution.prefix_sub_length
+  -- Compiler.CompilationModel.InitCodeExecution.step1  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step2  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step3  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step4  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step5  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step6  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step7  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step8  -- private
+  -- Compiler.CompilationModel.InitCodeExecution.step9  -- private
+  Compiler.CompilationModel.InitCodeExecution.midnight_run
+  Compiler.CompilationModel.InitCodeExecution.midnight_codeByte
+  Compiler.CompilationModel.InitCodeExecution.midnight_slice
+  Compiler.CompilationModel.InitCodeExecution.midnight_returns_payload
+
+  -- Contracts/SolidityImportSmoke/InitCodeExecutionChecks.lean
+  SolidityImportSmoke.InitCodeExecutionChecks.unsupported_opcode_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.subtract_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.copy_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.return_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.duplicate_underflow_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.fuel_exhaustion_rejected
+  SolidityImportSmoke.InitCodeExecutionChecks.truncated_push_zero_extends
+  SolidityImportSmoke.InitCodeExecutionChecks.empty_code_stops
+  SolidityImportSmoke.InitCodeExecutionChecks.zero_copy_preserves_memory
+
   -- Compiler/CompilationModel/ReservedScratchNames.lean
   Compiler.CompilationModel.compatScratch_startsWith_reserved
   Compiler.CompilationModel.compatScratch_not_internalImmutable
 
   -- Compiler/SolidityImport/Transactions.lean
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_storage
+  Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_accounts
+  Compiler.CompilationModel.SolidityImport.Transactions.finishFrame_revert_accounts
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_foreignStorage
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_transient
   Compiler.CompilationModel.SolidityImport.Transactions.beginTransaction_parkedTransient
@@ -401,6 +531,10 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_all_entry_points
   Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_contextual_entry_points
 
+  -- Compiler/SolidityImport/AdversarialEntryPointInvariants.lean
+  Compiler.CompilationModel.SolidityImport.Transactions.invariant_of_adversarial_entry_points
+  Compiler.CompilationModel.SolidityImport.Transactions.adversarial_sequence_append
+
   -- Contracts/SolidityImportSmoke/EntryPointInvariantChecks.lean
   SolidityImportSmoke.EntryPointInvariantChecks.zero_exec
   SolidityImportSmoke.EntryPointInvariantChecks.one_exec
@@ -452,6 +586,8 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.execStmt_tstore_arm
   Compiler.CompilationModel.SolidityImport.execStmt_panicCode_arm
   Compiler.CompilationModel.SolidityImport.execStmt_forEach_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_ecm_staticUint256_arm
+  Compiler.CompilationModel.SolidityImport.execStmt_revertEmpty_arm
   Compiler.CompilationModel.SolidityImport.execStmt_revertReturndata_arm
   Compiler.CompilationModel.SolidityImport.execStmt_stop_arm
   Compiler.CompilationModel.SolidityImport.execStmt_setStorage_arm
@@ -526,12 +662,6 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.execStmt_mstore_memory_frame
   Compiler.CompilationModel.Denote.execStmt_mstore_byte_frame
   Compiler.CompilationModel.Denote.fresh_allocation_byte_frame
-  Compiler.CompilationModel.Denote.abiInsertByte_word
-  Compiler.CompilationModel.Denote.abiInsertByte_read
-  Compiler.CompilationModel.Denote.abiInsertByte_frame
-  Compiler.CompilationModel.Denote.abiCopyPrefix_zero
-  Compiler.CompilationModel.Denote.abiCopyPrefix_step
-  Compiler.CompilationModel.Denote.abiCopyBytes_correct
   Compiler.CompilationModel.Denote.execStmt_mstore_abiInsertByte
   Compiler.CompilationModel.Denote.execStmt_mstore_abiCopyPrefix
   Compiler.CompilationModel.Denote.evalExpr_byteWordOffset
@@ -553,6 +683,7 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.abiCopyPrefix_source
   Compiler.CompilationModel.Denote.abiCopyPrefix_live_step
   Compiler.CompilationModel.Denote.abiCopyInputs_bind
+  Compiler.CompilationModel.Denote.abiCopyLoopInvariant_initial_bind
   Compiler.CompilationModel.Denote.abiCopyLoopInvariant_bind
   Compiler.CompilationModel.Denote.abiCopyInputs_afterStore
   Compiler.CompilationModel.Denote.abiCopyLoopInvariant_step
@@ -576,6 +707,61 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.Denote.execStmtList_packedBuffer
   Compiler.CompilationModel.Denote.abiReserve_wrapBelow
   Compiler.CompilationModel.Denote.execStmtList_reserve_wrapped
+
+  -- Contracts/SolidityImportSmoke/PhysicalMemoryFrameChecks.lean
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.overlapping_window_changes
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.store_footprint_is_32_bytes
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.overlapping_byte_not_disjoint
+  SolidityImportSmoke.PhysicalMemoryFrameChecks.outside_byte_preserved
+
+  -- Compiler/SolidityImport/AbiPhysicalMemory.lean
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical_frame
+  Compiler.CompilationModel.Denote.execStmt_mstore_physical_byte_frame
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_zero
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_prefix
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_byte
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_frame
+  Compiler.CompilationModel.Denote.execStmt_zeroWord_physical
+  -- Compiler.CompilationModel.Denote.evalPhysicalAddBounded  -- private
+  -- Compiler.CompilationModel.Denote.evalPhysicalWordStride  -- private
+  Compiler.CompilationModel.Denote.execStmt_zeroWordBody_physical
+  Compiler.CompilationModel.Denote.execForEachLoop_clear_physical
+  Compiler.CompilationModel.Denote.execStmt_clearWords_physical
+  Compiler.CompilationModel.Denote.abiPhysicalRoundedSize_bounds
+  -- Compiler.CompilationModel.Denote.evalPhysicalRoundedCount  -- private
+  -- Compiler.CompilationModel.Denote.evalPhysicalRoundedSize  -- private
+  Compiler.CompilationModel.Denote.execStmtList_reserve_physical
+  Compiler.CompilationModel.Denote.execStmtList_packedBuffer_physical
+  Compiler.CompilationModel.Denote.execStmtList_reserve_oversized_physical
+  Compiler.CompilationModel.Denote.abiPhysicalReserve_wrapBelow
+  Compiler.CompilationModel.Denote.execStmtList_reserve_wrapped_physical
+  Compiler.CompilationModel.Denote.execStmt_clearPackedBytes_physical
+  Compiler.CompilationModel.Denote.abiClearPhysicalWorld_coherent
+  Compiler.CompilationModel.Denote.execStmtList_packedBuffer_coherent
+
+  -- Compiler/SolidityImport/AbiPhysicalCopy.lean
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_grid
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_byte_grid
+  Compiler.CompilationModel.Denote.abiMemoryByte_physical
+  Compiler.CompilationModel.Denote.abiInsertByteWorld_physical_byte
+  Compiler.CompilationModel.Denote.execStmt_mstore_abiInsertByte_physical
+
+  -- Compiler/SolidityImport/AbiMemoryGrid.lean
+  Compiler.CompilationModel.Denote.abiInsertByte_word
+  Compiler.CompilationModel.Denote.abiInsertByte_read
+  Compiler.CompilationModel.Denote.abiInsertByte_frame
+  Compiler.CompilationModel.Denote.abiCopyPrefix_zero
+  Compiler.CompilationModel.Denote.abiCopyPrefix_step
+  Compiler.CompilationModel.Denote.abiCopyBytes_correct
+
+  -- Verity/Core/Model/ByteMemoryInverse.lean
+  Compiler.CompilationModel.DenoteMemory.byteDigitsValue_succ
+  Compiler.CompilationModel.DenoteMemory.byteDigitsValue_bound
+  Compiler.CompilationModel.DenoteMemory.boundedDigits_of_byteDigitsValue
+  Compiler.CompilationModel.DenoteMemory.valueWord_wordValue
+  Compiler.CompilationModel.DenoteMemory.physicalByte_word_grid
+  Compiler.CompilationModel.DenoteMemory.physicalByte_word_grid_value
 
   -- Contracts/SolidityImportSmoke/SolidityAbiPrimitiveChecks.lean
   Compiler.CompilationModel.SolidityImport.SolidityAbi.prefix_load
@@ -1638,6 +1824,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_head
   Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_abiBlockWrites
   Compiler.Proofs.AbiMemoryLayout.applyWrites_abiBlockWrites_getElem
+  Compiler.Proofs.AbiMemoryLayout.applyStores_write_memory
+  -- Compiler.Proofs.AbiMemoryLayout.abiBlockWrites_extent_ge  -- private
+  Compiler.Proofs.AbiMemoryLayout.applyStores_abiBlockWrites_head
+  Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_applyStores_abiBlockWrites
+  Compiler.Proofs.AbiMemoryLayout.yulLogDataWords_applyStores_abiBlockWrites_of_lt
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_length
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_layout
   Compiler.Proofs.AbiMemoryLayout.abiEncodeScalarHeads_memory_head
@@ -2409,6 +2600,7 @@ end Verity.AxiomAudit
 
   -- Compiler/Proofs/Frames.lean
   Compiler.Proofs.Frames.Resource.disjoint_comm
+  Compiler.Proofs.Frames.Resource.ownedEq_word_window
   Compiler.Proofs.Frames.Resource.ownedEq_refl
   Compiler.Proofs.Frames.Resource.ownedEq_symm
   Compiler.Proofs.Frames.Resource.ownedEq_trans
@@ -2919,6 +3111,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeAddressKeyedMapping2WordFieldSlots_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.writeStorageArray_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.packedBitsValid_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEach_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_rawFree
+  Compiler.Proofs.IRGeneration.DenoteAgreement.execStmtList_rawFree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachLoop_agree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execForEachSetBitLoop_agree
   Compiler.Proofs.IRGeneration.DenoteAgreement.execStmt_forEachSetBit_eq
@@ -2932,6 +3130,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteEquivalence.control_flow_constructor
   Compiler.Proofs.IRGeneration.DenoteEquivalence.revert_constructor
   Compiler.Proofs.IRGeneration.DenoteEquivalence.statement_list_composition
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.stmtByteFree_of_contractSurfaceClosed
+  Compiler.Proofs.IRGeneration.DenoteEquivalence.stmtListByteFree_of_contractSurfaceClosed
   Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_functionSelector
   Compiler.Proofs.IRGeneration.DenoteEquivalence.toIRTransaction_args
   Compiler.Proofs.IRGeneration.DenoteEquivalence.effectiveFields_eq
@@ -2961,6 +3161,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.DenoteAgreement.findDynamicArrayElementAtSlot_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorageAt_eq
   Compiler.Proofs.IRGeneration.DenoteAgreement.encodeStorage_eq
+  Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_revertData
   Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_revertedResult
   Compiler.Proofs.IRGeneration.DenoteAgreement.toSourceResult_successResult
   Compiler.Proofs.IRGeneration.DenoteAgreement.denoteFunction_eq
@@ -3069,6 +3270,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.DynamicParamLoading.scalars_of_bindSupportedParams  -- private
   Compiler.Proofs.IRGeneration.DynamicParamLoading.exec_genParamLoads_external
 
+  -- Compiler/Proofs/IRGeneration/EmptyRevert.lean
+  Compiler.Proofs.IRGeneration.EmptyRevert.compile_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.source_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.ir_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.denote_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.frame_exact
+  Compiler.Proofs.IRGeneration.EmptyRevert.supported
+
   -- Compiler/Proofs/IRGeneration/ErrorStringPayloadIR.lean
   Compiler.Proofs.IRGeneration.applyWrites_not_written
   Compiler.Proofs.IRGeneration.MstoreWrites.append
@@ -3082,14 +3291,25 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.errorStringWrites_mem0
   Compiler.Proofs.IRGeneration.errorStringWrites_mem4
   Compiler.Proofs.IRGeneration.errorStringWrites_mem36
+  Compiler.Proofs.IRGeneration.MstoreWrites.storeTrace
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_physical
+  -- Compiler.Proofs.IRGeneration.ecm_chunker_eq  -- private
+  -- Compiler.Proofs.IRGeneration.errorStringWrites_physical  -- private
   Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage
+  Compiler.Proofs.IRGeneration.execIRStmts_revertWithMessage_payload_slice
   Compiler.Proofs.IRGeneration.execIRStmt_mstore_ptr
   Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_block
   Compiler.Proofs.IRGeneration.execIRStmt_log
 
   -- Compiler/Proofs/IRGeneration/EventObservable.lean
+  Compiler.Proofs.IRGeneration.evalIRExpr_memory_insensitive
+  Compiler.Proofs.IRGeneration.evalIRExprs_memory_insensitive
   Compiler.Proofs.IRGeneration.evalIRExpr_mem_insensitive
   Compiler.Proofs.IRGeneration.evalIRExprs_mem_insensitive
+  Compiler.Proofs.IRGeneration.evalIRExprs_writePhysicalMemoryValue
+  Compiler.Proofs.IRGeneration.applyStores_eq_memory_update
+  Compiler.Proofs.IRGeneration.applyStores_getVar
+  Compiler.Proofs.IRGeneration.evalIRExprs_applyStores
   Compiler.Proofs.IRGeneration.execIRStmts_mstore_ptr_expr_block
   Compiler.Proofs.IRGeneration.normalizeEventWord_memInsensitive
   Compiler.Proofs.IRGeneration.scalarEventUnindexedStoresFrom_shape
@@ -3264,6 +3484,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_implies_onExpr
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnExpr_of_subset
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_returndata
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_byteMemory
   Compiler.Proofs.IRGeneration.FunctionBody.initialIRStateForTx_returndata
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsMatchIRVars_nil_initialIRStateForTx
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_nil_initialIRStateForTx
@@ -3504,7 +3725,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtListWithFork_cons_eq_ok
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_inv_with_internals
-  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setBothMemory
+  Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_writePhysicalMemoryValue
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_updateMemoryEvents
   Compiler.Proofs.IRGeneration.FunctionBody.runtimeStateMatchesIR_setTransientStorage
   Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVars_setMemory
@@ -3799,12 +4020,18 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_let  -- private
   -- Compiler.Proofs.IRGeneration.eventLegacy_singleton_expr  -- private
   -- Compiler.Proofs.IRGeneration.eventIRState_set_memory_eq_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_self  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_twice  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_getVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_setVar  -- private
+  -- Compiler.Proofs.IRGeneration.eventWithWorldMemory_write  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memory_update  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_memory_update  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_evtPtr_add  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_cons  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_eq_words  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromWords_legacy  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureStoreStmtsFromChunks_legacy  -- private
-  -- Compiler.Proofs.IRGeneration.eventSignatureScratchStore_memoryRel  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureScratchStores_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureTopic_of_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_topic0  -- private
@@ -3819,7 +4046,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventEvalIRExpr_normalizeEventWord  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus  -- private
   -- Compiler.Proofs.IRGeneration.eventNormalizeEventValue_lt_evmModulus_any  -- private
-  -- Compiler.Proofs.IRGeneration.eventUnindexedScratchStore_memoryRel  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedStore_one_continue  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedEntryOk_memory  -- private
   -- Compiler.Proofs.IRGeneration.eventUnindexedEntriesOk_memory  -- private
@@ -3845,9 +4071,13 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval  -- private
   -- Compiler.Proofs.IRGeneration.eventIndexedTopicParts_eval_values  -- private
   -- Compiler.Proofs.IRGeneration.eventScratchKey_injective_of_lt  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_preserve_before  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_head  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteSignatureScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventScratchKey_mod32  -- private
+  -- Compiler.Proofs.IRGeneration.eventScratchKey_disjoint  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_byte_outside  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memory_of_write  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_head  -- private
+  -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_getElem  -- private
+  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_eq_signature  -- private
   -- Compiler.Proofs.IRGeneration.eventChunkBytes32_length  -- private
   -- Compiler.Proofs.IRGeneration.eventByteWordCount_le_self  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureWords_length  -- private
@@ -3863,9 +4093,6 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventSignatureScratch_read_getElem_val  -- private
   -- Compiler.Proofs.IRGeneration.eventSignatureScratch_memorySliceWords_eq  -- private
   -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_eq_of_getElem  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_preserve_before  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_head  -- private
-  -- Compiler.Proofs.IRGeneration.eventWriteUnindexedScratch_read_getElem  -- private
   -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_length  -- private
   -- Compiler.Proofs.IRGeneration.eventEncodedValuesForKind_unindexed_all_getElem  -- private
   -- Compiler.Proofs.IRGeneration.eventYulLogDataWords_of_writeUnindexedScratch  -- private
@@ -3873,7 +4100,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_one  -- private
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_two  -- private
   -- Compiler.Proofs.IRGeneration.eventLogStmt_continue_three  -- private
-  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit  -- private
+  -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_updatePhysical  -- private
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_setVar  -- private
   -- Compiler.Proofs.IRGeneration.eventRuntimeStateMatchesIR_after_emit_scratch  -- private
   -- Compiler.Proofs.IRGeneration.eventBindingsExactlyMatch_after_emit  -- private
@@ -4223,6 +4450,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_returndatacopy_bounded_single
+  Compiler.Proofs.IRGeneration.compiledStmtStep_revertEmpty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_revertReturndata_empty_single
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingUint_singleSlot_of_slotSafety_preserves  -- private
@@ -4250,6 +4478,7 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.uint256_or_val_eq_lor_mod  -- private
   -- Compiler.Proofs.IRGeneration.uint256_not_val_eq_xor_allOnes_mod  -- private
   -- Compiler.Proofs.IRGeneration.uint256_shl_val_eq_mul_pow_mod  -- private
+  -- Compiler.Proofs.IRGeneration.byteMemory_modifyTransientSlots  -- private
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves  -- private
   Compiler.Proofs.IRGeneration.compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety
   -- Compiler.Proofs.IRGeneration.compiledStmtStep_setStructMember_singleSlot_of_slotSafety_preserves  -- private
@@ -4293,6 +4522,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_tstoreSingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_calldatacopySingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_surface
+  Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
   Compiler.Proofs.IRGeneration.stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/StorageWord.lean
@@ -4664,6 +4894,12 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_returnValue
   Compiler.Proofs.IRGeneration.applyIRTransactionContext_events
 
+  -- Compiler/Proofs/IRGeneration/IRRuntimeTypes.lean
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_at
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_storage
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_events
+  Compiler.Proofs.IRGeneration.IRState.writePhysicalMemoryValue_vars
+
   -- Compiler/Proofs/IRGeneration/IRStorageWord.lean
   Compiler.Proofs.IRGeneration.IRStorageWord.toNat_ofNat
   Compiler.Proofs.IRGeneration.IRStorageWord.ofNat_toNat
@@ -4781,6 +5017,101 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then_extraFuel
   Compiler.Proofs.IRGeneration.ParamLoading.exec_genParamLoads_supported_then
 
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiBytes.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.chunk_length_le
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.chunks_flatten
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.padded_length
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.fold_bound
+  Compiler.Proofs.IRGeneration.PhysicalAbiBytes.word_bounded
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiChunkIndex.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_count
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_get
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.chunk_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.read_original
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkIndex.read_padding
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiChunkStores.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_length
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_extent
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.chunkWrites_zipIdx
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.dataWrites_eq
+  Compiler.Proofs.IRGeneration.PhysicalAbiChunkStores.read_chunk
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiWordBytes.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.byte_encoding_unbounded
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.byte_encoding
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordBytes.word_encoding
+
+  -- Compiler/Proofs/IRGeneration/PhysicalAbiWordRecovery.lean
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.paddedWord_list
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.paddedWord_value
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_recovery
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.word_padding_byte
+  Compiler.Proofs.IRGeneration.PhysicalAbiWordRecovery.stored_chunk_byte
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringBytes.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.selector_encoding  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.wordBytes_length
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.padding_extent
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_length
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.full_original_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.full_padding_byte
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_selector_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_offset_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_length_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_original_byte  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_padding_byte  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringBytes.payload_slice
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringExecution.lean
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.trace
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.shape
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringExecution.execute
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringHeader.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.zeroOffset  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.fourOffset  -- private
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.lengthOffset  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.selector_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.offset_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.length_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.data_preserves_header
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_header_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_selector_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_offset_byte
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringHeader.full_length_byte
+
+  -- Compiler/Proofs/IRGeneration/PhysicalErrorStringWords.lean
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.applyStores_coherent  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.full_coherent
+  -- Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.selector_tail_agrees  -- private
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.selector_word
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.offset_word
+  Compiler.Proofs.IRGeneration.PhysicalErrorStringWords.length_word
+
+  -- Compiler/Proofs/IRGeneration/PhysicalMemory.lean
+  Compiler.Proofs.IRGeneration.writePhysicalMemoryValue_matches
+  Compiler.Proofs.IRGeneration.source_mstore_of_eval
+  Compiler.Proofs.IRGeneration.source_mstore_cons_of_eval
+  Compiler.Proofs.IRGeneration.source_tstore_of_eval
+  Compiler.Proofs.IRGeneration.source_tstore_cons_of_eval
+
+  -- Compiler/Proofs/IRGeneration/PhysicalPayloadStores.lean
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_stores
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_storage
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_events
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_byte_outside
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_append
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.applyStores_byte_written
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_stores_revert
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.exec_trace_revert
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.StoreTrace.append
+  Compiler.Proofs.IRGeneration.PhysicalPayloadStores.StoreTrace.hexStores
+
   -- Compiler/Proofs/IRGeneration/Returndata.lean
   Compiler.Proofs.IRGeneration.returndatacopyWritesAt_of_index
   Compiler.Proofs.IRGeneration.returndatacopyMemory_at_index
@@ -4802,7 +5133,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventFromResolvedArgs?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length
   Compiler.Proofs.IRGeneration.SourceSemantics.exists_writeUnindexedEventScratch_of_length_zero
-  Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchMemoryAfterEmit?_of_supported_length
+  Compiler.Proofs.IRGeneration.SourceSemantics.exists_eventScratchWorldAfterEmit?_of_supported_length
   Compiler.Proofs.IRGeneration.SourceSemantics.UInt256_size_eq_UINT256_MODULUS
   -- Compiler.Proofs.IRGeneration.SourceSemantics.findEntry_filter_ne_eq_findEntry  -- private
   Compiler.Proofs.IRGeneration.SourceSemantics.lookupBinding?_bindValue_ne
@@ -6135,6 +6466,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_tstoreSingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_calldatacopySingle_of_exprCompileCore
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore
+  Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_revertEmptySingle
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_revertReturndataEmptySingle
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingSingleSlot
   Compiler.Proofs.YulGeneration.Backends.bridgedSafeStmts_setMappingUintSingleSlot
@@ -7924,6 +8256,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.Backends.StateBridge.uint256_roundtrip
 
   -- Compiler/Proofs/YulGeneration/Calldata.lean
+  Compiler.Proofs.YulGeneration.calldataloadWord_lt_modulus
   -- Compiler.Proofs.YulGeneration.calldatacopyWritesAt_of_index  -- private
   Compiler.Proofs.YulGeneration.calldatacopyMemory_at_index
   Compiler.Proofs.YulGeneration.calldatacopyMemory_outside
@@ -7954,4 +8287,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 7317 theorems/lemmas (5266 public, 2051 private, 0 sorry'd)
+-- Total: 7566 theorems/lemmas (5481 public, 2085 private, 0 sorry'd)

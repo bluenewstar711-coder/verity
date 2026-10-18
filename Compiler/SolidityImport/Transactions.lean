@@ -21,6 +21,7 @@ def beginTransaction (world : Verity.ContractState) : Verity.ContractState :=
     if isTransientKey key then 0 else world.storageWords key
   { fresh with
     memory := fun _ => 0
+    byteMemory := DenoteMemory.Memory.empty
     returndata := []
     events := []
     calls := [] }
@@ -48,13 +49,24 @@ def finishFrame (initial : Verity.ContractState) : StmtOutcome → Except String
 This function is a frame runner, not yet a full ABI/dispatch transaction runner. -/
 def executeBody (oracle : DenoteOracle) (fields : List Field)
     (world : Verity.ContractState) (bindings : Env) (body : List Stmt)
-    (errors : List ErrorDef := []) :
+    (errors : List ErrorDef := []) (byteCalls : ByteCallEnvironment := {}) :
     Except String FrameResult :=
   let initial := beginTransaction world
-  finishFrame initial (execStmtList oracle fields { world := initial, bindings, errors } body)
+  finishFrame initial (execStmtList oracle fields
+    { world := initial, bindings, errors,
+      byteCallAdversary := byteCalls.adversary, byteCallGas := byteCalls.gas } body)
 
 @[simp] theorem beginTransaction_storage (world : Verity.ContractState) (slot : Nat) :
     (beginTransaction world).storageWords (.slot slot) = world.storageWords (.slot slot) := rfl
+
+@[simp] theorem beginTransaction_accounts (world : Verity.ContractState) :
+    (beginTransaction world).accountWorld = world.accountWorld := rfl
+
+/-- The existing canonical frame rollback restores code/nonces/balances along
+with storage, rather than retaining a successful child creation. -/
+theorem finishFrame_revert_accounts (initial : Verity.ContractState) (bytes : List UInt8) :
+    (finishFrame initial (.revertWithData bytes)).map (fun result => result.world.accountWorld) =
+      .ok initial.accountWorld := rfl
 
 @[simp] theorem beginTransaction_foreignStorage (world : Verity.ContractState)
     (account slot : Nat) :

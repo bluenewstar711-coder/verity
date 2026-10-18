@@ -102,6 +102,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Default scalar locals (development; validation pending) | Uninitialized unsigned integers, address, bool and bytes32 bind a fresh local to zero; reference and unsupported scalar defaults reject at the declaration |
 | Scalar local writes (development; validation pending) | `=` and `delete` on materialized scalar locals; converted RHS evaluated before assignment; lexical shadowing retains declaration identity; compound writes and parameter writes reject |
 | Invariant scalar `for` (development; validation pending) | uint256 counter from zero, strict `<`, increment by one; literal/parameter/unwritten-local bounds; body return/revert preserved; body counter writes, mutable bounds, break/continue reject |
+| Empty `revert()` and ABI rejection payloads (development; full release gates pending) | Explicit `Stmt.revertEmpty` compiles to `revert(0,0)` and Denote observes exactly zero bytes, independent of memory and the current return-data buffer. Source scalar/struct guards, getter bounds and bare builtin revert keep their existing conditions and source-position rejections. Other external calls remain outside admitted source support. |
+| Typed-interface `uint256` staticcall (development; full release gates pending) | `I(addr).f()` where `f` is a parameterless `view` function of an interface returning one `uint256`, `addr` has type `address`, and the call is a whole single-variable initializer, the right-hand side of `=` to an identifier, or an expression statement. Lowers to the closed `SolidityStaticCall.uint256Module` ECM: selector stored at the free pointer, `staticcall(gas(), addr, p, 4, p, 32)`, a failed call's complete return data forwarded as the revert payload, fewer than 32 success bytes revert with no data (including accounts without code), the first word decoded and extra bytes ignored. Denote executes the same request against an explicit byte adversary. Non-view/pure callees, arguments, other return shapes, call options, non-interface receivers, `address payable`/typed-local receivers, `return`/operand/compound/indexed-target placement and `try` reject with `file:line:column`. `InterfaceStaticCallSequence` runs three equivalent variants A/B/C against selector-checked oracle mocks and an account without code. |
 | Schema ABI array-length `for` (development; validation pending) | Memory/calldata array length captured after its exact initial decoder; recursively checked body preserves memory headers; memory writes and external calls reject |
 | Local declarations and storage aliases | Bindings named after the Solidity local (suffixed `_1`, `_2`, ... on collision), or resolved read paths |
 | Scalar storage reads, `=`, and `delete` | Resolved uint8–uint256, address, bool, and bytes32 fields; exact solc slots and packed offsets; masked writes preserve neighboring bits and bool reads/writes normalize to 0/1 |
@@ -133,7 +135,8 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 
 Non-empty roots with unnamed return parameters must return explicitly on every non-reverting path. Payable roots are rejected until value-transfer
 semantics are supported. Other `msg`, `block`, and `tx` context members are
-rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls,
+rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls
+(other than the typed-interface staticcall row above),
 modifiers, recursion, named call arguments, signed
 operations, and any other construct reached from a root are rejected with
 `file:line:column`, the construct, the reason, and the call path from the root
@@ -636,7 +639,7 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 | Supported Solidity | Lowering boundary |
 | --- | --- |
 | Multi-return internal, private, and internally-called public helpers | Unnamed multi-return scalar helpers (`returnParameters.parameters.size > 1`) allocate fresh `letVar` result bindings initialized to zero, evaluate and convert `Return` tuple components in source order into those bindings, and thread post-`if`/`else` continuations along fallthrough paths via `lowerVoidHelperFrom`. Named or reference return parameters and discarded multi-return calls remain rejected. |
-| Tuple destructuring declarations and assignments (`(uint256 a, uint128 b) = fn(...)`, `(a, b) = fn(...)`) | Supported when the RHS is a multi-return helper call of matching arity; `VariableDeclarationStatement` requires at least one non-null declaration and binds declared components in order; `Assignment` (`=`) evaluates converted components into fresh temporaries and commits each non-elided target to a materialized scalar local or scalar storage field in order after rejecting duplicate local or storage targets. |
+| Tuple destructuring declarations and assignments (`(uint256 a, uint128 b) = fn(...)`, `(a, b) = fn(...)`, `(uint256 a, , uint128 c) = (x, y, z)`) | Supported when the RHS is a multi-return helper call of matching arity, or, for declarations only, a literal `TupleExpression` of matching arity whose components are evaluated left to right (including elided ones, so their panics and reverts keep solc's order) through the conditional-tuple leaf lowering before the fresh locals are bound; `VariableDeclarationStatement` requires at least one non-null declaration and binds declared components in order; `Assignment` (`=`) evaluates converted components into fresh temporaries and commits each non-elided target to a materialized scalar local or scalar storage field in order after rejecting duplicate local or storage targets. |
 | Compound assignments (`+=`, `-=`) on unsigned scalar parameters | When an unsigned scalar parameter is modified by `+=` or `-=` in a root, helper, or modifier body (without direct `=` or `delete` parameter writes), the parameter is materialized into a declaration-bound mutable local copy at frame entry so call-by-value updates are visible within the frame without mutating caller bindings. |
 | Narrow constant event arguments (e.g. `emit Initialized(type(uint8).max)`) | Canonical integer literals `Expr.literal n` with `n < 2 ^ bits` and empty prelude are accepted for `.uintN bits` event parameters in both `Import.lean` and `ValidationEvents.lean`, alongside direct matching `.uintN bits` parameters. |
 
@@ -670,7 +673,7 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 | --- | --- |
 | Same-contract overloaded function declarations (`overloadedDeclarations` in `refInt`) | When `solc` records non-empty `overloadedDeclarations` on a function reference, `refInt` accepts the resolved `referencedDeclaration` if every candidate in `overloadedDeclarations` either belongs to the same virtual override family (`sameVirtualFamily`) or shares an origin declaring contract across `baseFunctionClosure` (for example `ERC20._approve(3)` and `ERC20._approve(4)` declared in the same contract). Cross-contract overloads with distinct signatures and no override relationship remain rejected (`ambiguous declaration`), and importing two overloaded roots with the same name in a single slice fails closed (`root function name collision`). |
 | Compile-time constant scalar expressions in custom-error arguments (`address(0)`, `type(uintN).max`, named constants) | Alongside decimal literals and direct scalar bindings, `lowerErrorArguments` accepts pure scalar expressions (`numericConstants` identifiers, `typeConversion` casts such as `address(0)`, and `type(T).max`/`min`) whose lowered value has an empty statement prelude (`converted.pre.isEmpty`) and a canonical literal `Expr.literal n` satisfying `Denote.errorScalarValueValid modelType n`. Non-constant or effectful expressions fail closed. |
-| Conditional tuple expressions (`cond ? (a0, ..., ak) : (b0, ..., bk)`) | Supported as the RHS of tuple variable declarations (`lowerLocal`) and tuple assignments (`lowerEffect`), including nested `Conditional` branches whose leaves are `TupleExpression`s or multi-return helper calls of matching arity. Target component types are threaded into each leaf so integer constants (such as `0 days`, `1 days`) convert to the declared component type before branch joining via fresh temporaries and `Stmt.ite`. Stateful or assignment expressions inside tuple components and bare top-level `TupleExpression` RHSs fail closed. |
+| Conditional tuple expressions (`cond ? (a0, ..., ak) : (b0, ..., bk)`) | Supported as the RHS of tuple variable declarations (`lowerLocal`) and tuple assignments (`lowerEffect`), including nested `Conditional` branches whose leaves are `TupleExpression`s or multi-return helper calls of matching arity. Target component types are threaded into each leaf so integer constants (such as `0 days`, `1 days`) convert to the declared component type before branch joining via fresh temporaries and `Stmt.ite`. Stateful or assignment expressions inside tuple components fail closed, as do bare top-level `TupleExpression` RHSs of tuple assignments. |
 | Transient storage `tload(slot)` in single-assignment `InlineAssembly` | `lowerYul` lowers `tload(a)` to `Expr.tload`, covered by `Coverage.exprCovered`, `Quote.quoteExpr`, and `TransactionAccess.expressionAccesses` (evaluating `DenoteState.transientStorage`). `tstore` and multi-statement assembly blocks remain outside this slice. |
 
 ### Development slice: fixed-size unsigned scalar array members in mapping structs and root fixed-size array returns
@@ -889,3 +892,101 @@ prerequisite for CREATE2 key-derivation helpers, not an implementation of code d
 | Narrow fixed-bytes (`bytes1`–`bytes31`) locals, helper parameters/returns, `bytesN("...")` string literal casts (`N < 32`), and `bytes12` / `bytes20` integer/address conversions (`ERC2771Context._msgSender()`, `Votes`) | `localParamType`, `cleanHelperResultExpr`, and `lowerYulDirectAssignmentTarget` support `bytes1`–`bytes31` (`ParamType.bytesN w`, left-aligned to `256 - 8*w` bits), while keeping root ABI parameters and storage fields restricted to `bytes4` and `bytes32`. `lowerCast` supports `bytesN("...")` / `bytesN(hex"...")` for `1 <= N < 32` when the literal byte length is `<= N` (leaving `bytes32("...")` rejected), `bytesN(bytesSliceOrMemory)` (`1 <= N <= 32`), `bytes12(uint96)` / `uint96(bytes12)` (`shl 160` / `shr 160`), `bytes20(uint160)` / `uint160(bytes20)` / `bytes20(address)` / `address(bytes20)` (`shl 96` / `shr 96`), and widening/truncating conversions between `bytes12` / `bytes20` and `bytes32`. `lowerBinary` supports `==`, `!=`, `<`, `<=`, `>`, `>=`, `&`, `\|`, and `^` on matching `bytesN` types (rejecting implicit `int_const` operands), and `AbiEncoding` packs `bytes1`–`bytes32` values by their exact byte width (`scalarPackedWidth`). |
 | Tuple assignment with `MemberAccess` storage or flat-struct targets (`(_roles[roleId].grantDelay, effect) = _roles[roleId].grantDelay.withUpdate(...)`, `AccessManager`) | `lowerEffect` `TupleExpression` assignment supports `MemberAccess` components alongside `Identifier` components, resolving each `MemberAccess` target against flat `memory` struct locals (`flatStructs`), ERC-7201 raw-slot storage structs (`SPath.rawSlot`), and top-level or 1-/2-/3-key mapping-backed storage structs (`SPath.zero`, `SPath.one`, `SPath.two`) with boolean `0`/`1` normalization and key-capture prelude validation. |
 
+# Initcode execution groundwork
+
+`Verity/Core/Model/InitCodeExecution.lean` executes the bytecode instructions in
+Midnight's eleven-byte deployment prefix with an explicit instruction bound.
+The kernel proof `midnight_returns_payload` composes nine intermediate
+instruction lemmas and proves that the returned bytes equal the appended
+payload. Byte-copy frame lemmas preserve reads outside the destination range.
+This is deployment proof infrastructure: it adds no supported Solidity or Yul
+construct to the importer. `CREATE2` remains rejected until exact object-memory
+provenance, account-world transitions and full A/B/C checks are integrated.
+
+The account-world prerequisite now stores bounded nonces, balances, exact code
+bytes and finite storage in `ContractState.accountWorld`. `DenoteCreate2`
+executes the checked initcode templates and handles transfers, nonce increments,
+collisions, deposit rules and child gas. Account frames and existing transaction
+rollback include this metadata. The source-storage/account-storage bridge,
+parent opcode charging, ABI/events, compiled-model route and importer lowering
+remain required before CREATE2 is supported. Unsupported initcode is an
+instrument error, never a fabricated successful deployment or Solidity revert.
+
+`BytesObjectMemory` provides a byte-level immutable object representation:
+big-endian length header, payload at base+32, zero padding and disjoint-write
+frame proofs. Its EVM/Lean instrument observes source-created objects and
+aliases after another allocation. This is a prerequisite, not new supported
+Solidity: allocator/pointer identity, overflow and gas behavior, declaration
+provenance, the canonical word-memory bridge and compiled-model integration
+remain mandatory before admitting object-pointer Yul expressions.
+
+
+### CREATE2 parent opcode composition prerequisite
+
+`Create2ParentGas` charges the Osaka base cost, six-gas Keccak and two-gas
+EIP-3860 initcode words, and quadratic memory expansion. Zero-length ranges
+do not expand memory. Kernel lemmas establish the EIP-150 gas split,
+conservation and bounded child refunds. `Create2Opcode.execute` derives the
+child allowance from parent gas, reads initcode from actual byte memory,
+executes the concrete account transition and refunds unused child gas. The
+expanded memory zero-extends inactive bytes; no backing-function contents
+beyond the old active range become visible. Static/size violations abort,
+parent out-of-gas aborts, and nonaligned instrument memory is rejected.
+
+`check_deployment_world --parent-opcode` compares actual EVM opcode memory,
+parent continuation gas, child allowance and account transitions against Lean,
+including nonce-limit prechecks. It supplies neither initcode bytes nor a child
+gas allowance to the Lean opcode driver. This remains A/B calibration, not an
+imported or compiled-model C campaign. Canonical Stmt integration, complete
+frame gas tracking, source allocator/memory refinement, account/storage bridge,
+ABI/revert/event observations and all exact-head release gates remain required.
+No new Solidity construct or whole-EVM equivalence is claimed here.
+
+
+### Canonical flat-storage/account coherence
+
+Concrete account storage uses `Std.TreeMap` with kernel-checked read-after-write
+and outside-frame laws. `writePhysicalSlot`, `writePhysicalSlots` and
+`modifyPhysicalSlots` update flat persistent storage and the self account's
+finite storage together. Batch transformers read the original world, including
+when targets alias. These APIs preserve code, nonce, balance, caller metadata,
+transient keys and legacy shadow channels. Legacy `writeSlot` and bulk lenses
+retain their previous account-world frame; their regression is unchanged.
+
+Canonical Denote flat scalar, packed, mapping-word and fixed-array write helpers
+use the physical APIs. The reference `SourceSemantics` uses the same exact
+physical transitions; the statements of `DenoteAgreement` and
+`DenoteFunctionAgreement` are unchanged. `AccountStorageBridge` proves coherence
+for single/batch/transformed writes and runtime-code commits to another account.
+Old shadow-mapping/channel-wide compatibility operations are not asserted to
+preserve this relation and must not be used as an exact deployment bridge.
+
+The scalar differential adapters initialize finite storage through the physical
+API. The sequence adapter verifies flat/account agreement for every touched or
+requested persistent slot after each transaction, including rollback. This
+seeds storage only: it does not fabricate creator nonce, balance or code, model
+external account effects, admit CREATE2, or establish full deployment A/B/C
+equivalence. Those account inputs, complete gas/memory integration and the
+remaining source-admission obligations still have to be implemented.
+
+Stateful differential implementation snapshots bind the recorded Git HEAD to the campaign workspace and recheck it during replay. A commit switch with byte-identical sources still invalidates the campaign; an unavailable Git revision is an instrumentation error. This supplements source/artifact identity checks and does not certify unexecuted test phases.
+
+### Regression evidence: `unchecked` blocks and tuple destructuring
+
+`UncheckedSequence` and `TupleSequence` add stateful A/B/C fixtures for already
+supported constructs: narrow `uint8`/`uint64` wrapping, unchecked mapping
+decrements, `require` inside unchecked helper blocks, checked helpers called
+from unchecked code, elided tuple components, conditional tuple selection,
+literal tuple declarations, and multi-value root returns. An `unchecked` block
+in a value helper may now contain a returning `if` when the block has no
+block-level declarations: its statements are lowered into the helper
+continuation followed by a synthetic block-end marker that restores checked
+arithmetic, and each `if` branch restores the lexical `unchecked` flag. Plain
+helper blocks with partial returns and such unchecked blocks with declarations
+still reject with located diagnostics. Each fixture has
+metamorphic source variants (`check_storage --fixture unchecked-blocks` /
+`tuple-destructuring`) and scheduled importer mutants
+(`import-unchecked-block-*`, `import-tuple-destructuring-*`). Literal tuples on
+the right of tuple assignments remain rejected.
+
+Whole-contract frame proofs can use `Transactions.AdversarialEntryPointSequence` and `invariant_of_adversarial_entry_points` to vary both the transaction context and permitted oracle at each public call. Every permitted oracle must satisfy the actual per-entry-point execution obligation. The rule includes observed reverting frames through rollback; ABI decoding, dispatch and value transfers remain separate obligations. `adversarial_sequence_append` composes observed prefixes.

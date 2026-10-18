@@ -51,14 +51,13 @@ WORD_TYPES = ('address', 'bool', 'bytes32') + tuple(f'uint{n}' for n in range(8,
 
 
 def pinned_sources(repository, revision, entry):
-    """Require exact tracked inputs; untracked production files cannot sneak in."""
+    """Require exact tracked inputs across the checkout; untracked/ignored files cannot sneak in."""
     repository = Path(repository).resolve()
-    root = Path(entry).parts[0]
     if command(['git', '-C', repository, 'rev-parse', 'HEAD']).strip() != revision:
         raise HarnessError('source revision differs from the pinned revision')
-    if command(['git', '-C', repository, 'status', '--porcelain', '--', root]):
+    if command(['git', '-C', repository, 'status', '--porcelain', '--ignored']):
         raise HarnessError('pinned production sources are dirty')
-    names = command(['git', '-C', repository, 'ls-files', '-z', root]).split('\0')
+    names = command(['git', '-C', repository, 'ls-files', '-z']).split('\0')
     files = [repository / name for name in names if name.endswith('.sol')]
     if repository / entry not in files:
         raise HarnessError('pinned entry source is absent')
@@ -204,6 +203,8 @@ def load_config(path):
                 'initialStorage', 'prefix', 'arguments'}
     if not required <= config.keys():
         raise HarnessError(f'incomplete pinned-sequence configuration: {sorted(required - config.keys())}')
+    if config['settings'].get('evmVersion', 'osaka') != 'osaka':
+        raise HarnessError('only the osaka evmVersion is supported')
     config['project'] = (path.parent / config['project']).resolve()
     for signature in config['signatures']:
         argument_types(signature)

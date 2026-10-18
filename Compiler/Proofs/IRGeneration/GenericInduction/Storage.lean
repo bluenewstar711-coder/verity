@@ -1,4 +1,5 @@
 import Compiler.Proofs.IRGeneration.GenericInduction.ExprStmt
+import Compiler.Proofs.IRGeneration.EmptyRevert
 import Compiler.CompilationModel.ReservedScratchNames
 
 set_option linter.unnecessarySeqFocus false
@@ -50,8 +51,8 @@ private theorem encodeStorageAt_writeUintSlots_singleton_other
     simp [SourceSemantics.writeUintSlots, SourceSemantics.wordNormalize]
     have hfalse : [slot % Compiler.Constants.evmModulus].contains query = false :=
       singleton_contains_false hneq'
-    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writeSlots]
+    exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeUintSlots]
 
 private theorem encodeStorageAt_writeUintSlots_other
@@ -68,8 +69,8 @@ private theorem encodeStorageAt_writeUintSlots_other
   · simp only [SourceSemantics.writeUintSlots]
     have hfalse : (slots.map SourceSemantics.wordNormalize).contains query = false := by
       simpa [List.contains_iff_mem] using hnotMem
-    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
-  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writeSlots]
+    exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _ hfalse
+  · simp [SourceSemantics.writeUintSlots, Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeUintSlots]
 
 set_option maxHeartbeats 800000 in
@@ -129,9 +130,9 @@ private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_oth
         [SourceSemantics.mappingSlotChain slot keys % Compiler.Constants.evmModulus].contains query =
           false :=
       singleton_contains_false hneq'
-    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+    exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _ hfalse
   · simp [SourceSemantics.writeAddressKeyedMappingChainSlots,
-      Verity.ContractState.storageAddr_writeSlots]
+      Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeAddressKeyedMappingChainSlots]
 
 def mappingWordTargetSlot (slot key wordOffset : Nat) : Nat :=
@@ -256,9 +257,9 @@ private theorem encodeStorageAt_writeAddressKeyedMappingWordSlots_singleton_othe
           [(Compiler.Proofs.solidityMappingSlot slot key + wordOffset) %
               Compiler.Constants.evmModulus].contains query = false :=
         singleton_contains_false hEq
-      exact Verity.ContractState.storage_writeSlots_not_mem _ _ _ hfalse
+      exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _ hfalse
   · simp [SourceSemantics.writeAddressKeyedMappingWordSlots,
-      Verity.ContractState.storageAddr_writeSlots]
+      Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeAddressKeyedMappingWordSlots]
 
 private theorem encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleton_other
@@ -297,9 +298,9 @@ private theorem encodeStorageAt_writeAddressKeyedMappingPackedWordSlots_singleto
           [(Compiler.Proofs.solidityMappingSlot slot key + wordOffset) %
               Compiler.Constants.evmModulus].contains query = false :=
         singleton_contains_false hEq
-      exact Verity.ContractState.storage_modifySlots_not_mem _ _ _ hfalse
+      exact Verity.ContractState.storage_modifyPhysicalSlots_not_mem _ _ _ hfalse
   · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots,
-      Verity.ContractState.storageAddr_modifySlots]
+      Verity.ContractState.storageAddr_modifyPhysicalSlots]
   · simp [SourceSemantics.writeAddressKeyedMappingPackedWordSlots]
 
 def findResolvedFieldAtSlotCopy (fields : List Field) (slot : Nat) : Option Field :=
@@ -1068,7 +1069,7 @@ private theorem encodeStorageAt_writeAddressKeyedMappingChainSlots_singleton_eq_
     exact hdyn
   simp only [hdyn']
   simp only [SourceSemantics.writeAddressKeyedMappingChainSlots, List.map_cons, List.map_nil]
-  rw [Verity.ContractState.storage_writeSlots_mem _ _ _
+  rw [Verity.ContractState.storage_writePhysicalSlots_mem _ _ _
     (singleton_contains_true _)]
   simp only [Verity.Core.Uint256.val_ofNat]
   exact Nat.mod_eq_of_lt hvalue
@@ -1288,10 +1289,10 @@ private theorem encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_oth
             Compiler.Constants.evmModulus
     · exact (hneq (hEq.trans (mapping2WordTargetSlot_eq_mod slot key1 key2 wordOffset).symm)).elim
     · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots, List.map_cons, List.map_nil]
-      exact Verity.ContractState.storage_writeSlots_not_mem _ _ _
+      exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _
         (singleton_contains_false hEq)
   · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots,
-      Verity.ContractState.storageAddr_writeSlots]
+      Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeAddressKeyedMapping2WordSlots]
 
 private theorem encodeStorageAt_writeAddressKeyedMapping2WordSlots_singleton_eq_written
@@ -1434,12 +1435,12 @@ private theorem encodeStorageAt_writeStorageWordSlots_singleton_other
       SourceSemantics.encodeStorageAt fields world query := by
   apply SourceSemantics.encodeStorageAt_congr
   · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize]
-    exact Verity.ContractState.storage_writeSlots_not_mem _ _ _
+    exact Verity.ContractState.storage_writePhysicalSlots_not_mem _ _ _
       (singleton_contains_false hneq)
   · simp [SourceSemantics.writeStorageWordSlots, SourceSemantics.wordNormalize]
     rw [Verity.ContractState.storageAddr_writeAddrSlots_not_mem _ _ _
       (singleton_contains_false hneq)]
-    rw [Verity.ContractState.storageAddr_writeSlots]
+    rw [Verity.ContractState.storageAddr_writePhysicalSlots]
   · simp [SourceSemantics.writeStorageWordSlots]
 
 private theorem runtimeStateMatchesIR_writeStorageWordSlot_zeroOffset
@@ -1584,7 +1585,7 @@ private theorem runtimeStateMatchesIR_writeUintSlots
             simpa [SourceSemantics.wordNormalize, Compiler.Constants.evmModulus,
               Verity.Core.UINT256_MODULUS, Verity.Core.Uint256.modulus] using hcontains
         simp only [SourceSemantics.writeUintSlots, IRStorageSlot.toNat_ofNat_wordNormalize]
-        rw [Verity.ContractState.storage_writeSlots_mem _ _ _ hcontains]
+        rw [Verity.ContractState.storage_writePhysicalSlots_mem _ _ _ hcontains]
         simp only [Verity.Core.Uint256.val_ofNat]
         exact congrArg Compiler.Proofs.IRGeneration.IRStorageWord.ofNat (Nat.mod_eq_of_lt hvalue).symm
       · simp only [hmem, ↓reduceIte]
@@ -2733,23 +2734,23 @@ private theorem compiledStmtStep_mstore_single_preserves
       -- Source execution: mstore updates source-level memory
       set runtime' := {
         runtime with
-        world := {
-          runtime.world with
-          memory := fun o =>
-            if o = offsetNat then valueNat else runtime.world.memory o
-        }
+        world := runtime.world.writePhysicalMemoryValue offsetNat valueNat
       }
       have hSrcExec : SourceSemantics.execStmt fields runtime
           (.mstore offset value) = .continue runtime' := by
         simp [SourceSemantics.execStmt, hOffsetSrc, hValueSrc, runtime']
       -- IR execution: mstore updates IR-level memory
-      set state' := { state with
-          memory := fun o => if o = offsetNat then valueNat else state.memory o }
+      set state' := state.writePhysicalMemoryValue offsetNat valueNat
+      have hOffsetLt : offsetNat < Compiler.Constants.evmModulus := by
+        have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
+          hcoreOffset hexact hinScopeOffset hbounded
+          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeOffset) hruntime
+        rw [hOffsetSrc] at this; exact this
       have hExecStmt :
           execIRStmt (extraFuel + 1) state
             (YulStmt.exprStmt (YulExpr.call "mstore" [offsetIR, valueIR])) =
               .continue state' := by
-        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state']
+        simp [execIRStmt, evalIRExprs, hIROffset, hIRValue, state', Nat.mod_eq_of_lt hOffsetLt]
       have hfuelEq : 1 + extraFuel = extraFuel + 1 := by omega
       have hIRExec : execIRStmts (compiledIR.length + extraFuel + 1) state compiledIR =
           .continue state' := by
@@ -2772,14 +2773,9 @@ private theorem compiledStmtStep_mstore_single_preserves
         FunctionBody.scopeNamesPresent_of_included hscope hincl
       have hbounded' : FunctionBody.bindingsBounded runtime'.bindings := by
         simpa [runtime'] using hbounded
-      have hValueLt : valueNat < Verity.Core.Uint256.modulus := by
-        have := FunctionBody.evalExpr_lt_evmModulus_core_of_scope
-          hcoreValue hexact hinScopeValue hbounded
-          (FunctionBody.exprBoundNamesPresent_of_scope hscope hinScopeValue) hruntime
-        rw [hValueSrc] at this; exact this
       have hruntime' : FunctionBody.runtimeStateMatchesIR fields runtime' state' := by
         show FunctionBody.runtimeStateMatchesIR fields _ _
-        exact FunctionBody.runtimeStateMatchesIR_setBothMemory hruntime offsetNat valueNat hValueLt
+        exact FunctionBody.runtimeStateMatchesIR_writePhysicalMemoryValue hruntime offsetNat valueNat
       exact ⟨_, _, hSrcExec, hIRExec,
         hruntime', hexact', hbounded', hscope'⟩
 
@@ -3375,6 +3371,24 @@ theorem compiledStmtStep_returndatacopy_bounded_single
   preserves := compiledStmtStep_returndatacopy_bounded_single_preserves
     hcoreDest hinScopeDest hcoreSource hinScopeSource hcoreSize hinScopeSize
     hdestIR hsourceIR hsizeIR
+
+/-- Direct empty revert has no memory or returndata premise. This coarse IR
+step agreement complements the byte-exact Denote/frame lemmas. -/
+theorem compiledStmtStep_revertEmpty_single
+    {fields : List Field} {scope : List String} :
+    CompiledStmtStep fields scope .revertEmpty
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] where
+  compileOk := by
+    simp [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+      pure, Except.pure]
+  preserves := by
+    intro runtime state extraFuel _ _ _ _ _
+    refine ⟨.revert, .revert state, rfl, ?_, trivial⟩
+    have hfuel : 1 + extraFuel + 1 = Nat.succ (Nat.succ extraFuel) := by omega
+    change execIRStmts (1 + extraFuel + 1) state
+      [YulStmt.exprStmt (YulExpr.call "revert" [YulExpr.lit 0, YulExpr.lit 0])] = .revert state
+    rw [hfuel]
+    exact EmptyRevert.ir_exact state extraFuel
 
 /-- `revertReturndata` bubbles the callee's revert reason.  The compiler's
 temporary is exactly `returndatasize()`; whichever branch the copy takes for the
@@ -4989,6 +5003,11 @@ private theorem uint256_shl_val_eq_mul_pow_mod
     Nat.mod_eq_of_lt hshiftLt]
   rw [Nat.shiftLeft_eq]
 
+/-- Transient writes leave the physical memory carrier untouched. -/
+private theorem byteMemory_modifyTransientSlots (s : Verity.ContractState) (targets : List Nat)
+    (f : Verity.Core.Uint256 → Verity.Core.Uint256) :
+    (s.modifyTransientSlots targets f).byteMemory = s.byteMemory := rfl
+
 set_option maxHeartbeats 0 in
 set_option maxRecDepth 10000 in
 private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_preserves
@@ -5825,7 +5844,7 @@ private theorem compiledStmtStep_setMappingPackedWord_singleSlot_of_slotSafety_p
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
                 state4, state3, state2, state1] using hret
             · simpa [SourceSemantics.writeAddressKeyedMappingPackedWordFieldSlots, htrans,
-                state4, state3, state2, state1] using hevents
+                state4, state3, state2, state1, byteMemory_modifyTransientSlots] using hevents
           simpa [state', htrans] using hmatch
         · have htransFalse : SourceSemantics.fieldIsTransient fields fieldName = false := by
             cases h : SourceSemantics.fieldIsTransient fields fieldName <;> simp [h] at htrans ⊢
@@ -8168,6 +8187,12 @@ theorem stmtListGenericCore_of_supportedStmtList_returndataCopyEmptySingle_of_su
     (scope := scope)
     (hcoreDest := hcoreDest)
     (hinScopeDest := hinScopeDest)
+
+theorem stmtListGenericCore_of_supportedStmtList_revertEmptySingle_of_surface
+    {fields : List Field} {scope : List String} :
+    StmtListGenericCore fields scope [Stmt.revertEmpty] :=
+  StmtListGenericCore.cons compiledStmtStep_revertEmpty_single
+    StmtListGenericCore.nil
 
 theorem stmtListGenericCore_of_supportedStmtList_revertReturndataEmptySingle_of_surface
     {fields : List Field} {scope : List String} :
