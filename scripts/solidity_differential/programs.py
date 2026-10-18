@@ -4,6 +4,7 @@ import copy
 import json
 from pathlib import Path
 import random
+import re
 
 from .engine import campaign, write_json
 
@@ -270,6 +271,50 @@ def stateful_empty_revert_source(original, variant):
             raise ValueError('nonunique empty-revert variant anchor')
         return original.replace(old, 'if ((next & 1) == 1) revert();')
     raise ValueError('unknown empty-revert program variant')
+
+
+def stateful_interface_static_call_source(original, variant):
+    """Equivalent typed-interface staticcall programs over the same call sequence."""
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('IPriceOracle', 'IQuoteSource'), ('oracle', 'feed'), ('value', 'answer'),
+                         ('saved', 'stash'), ('observed', 'latest'), ('quote', 'fetch'),
+                         ('first', 'left'), ('second', 'right')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("""        uint256 value = IPriceOracle(oracle).price();
+        return value;
+    }
+
+    function record""", """        address target = oracle;
+        uint256 value;
+        value = IPriceOracle(target).price();
+        uint256 result = value;
+        return result;
+    }
+
+    function record"""),
+            ("""        saved = next;
+        uint256 value = IPriceOracle(oracle).price();
+        observed = value;""", """        saved = next;
+        uint256 value = IPriceOracle(oracle).price();
+        observed = value + 0;"""),
+            ("if (reject % 2 != 0) revert();", "if ((reject & 1) == 1) { revert(); }"),
+            ("return quote(first) + quote(second);", """uint256 head = quote(first);
+        uint256 tail = quote(second);
+        return head + tail;"""),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique interface staticcall variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown interface staticcall program variant')
 
 
 def stateful_storage_source(original, variant):

@@ -44,6 +44,36 @@ def environment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := [
           request.target != world.thisAddress.val && !reservedPrecompile request.target &&
           (accounts.contains request.target || emptyAccounts.contains request.target) } }
 
+/-- Revert payload of the selector-checked program for unexpected calldata. -/
+def calldataMismatchBytes : Bytes := [0xba, 0xd0, 0xca, 0x11]
+
+/-- `calldataload(0)`: the first 32 calldata bytes, zero padded. -/
+def firstCalldataWord (calldata : Bytes) : Nat :=
+  (List.range 32).foldl (fun word index => word * 256 + (calldata.getD index 0).toNat) 0
+
+/-- `CheckedStaticOracle` in `Contracts/SolidityImportSmoke/InterfaceStaticCallOracle.sol`:
+slots 0..2 are the `raw-static-oracle-v1` value, failure flag and response
+length; slots 3 and 4 are the expected first calldata word and calldata length.
+All five slots are read before dispatch; mismatching calldata reverts with
+`calldataMismatchBytes`, otherwise the raw program's response is produced. -/
+def checkedEnvironment (accounts : List Nat) (gas : Nat) (emptyAccounts : List Nat := []) :
+    ByteCallEnvironment :=
+  { gas := some gas
+    adversary := some { (staticAdversary fun request world =>
+      if request.kind != .staticcall || request.value != 0 then (false, [], [])
+      else if accounts.contains request.target then
+        let slot := fun index => (world.storageWords (.contractSlot request.target index)).val
+        let touched := (List.range 5).map (Verity.StorageKey.contractSlot request.target)
+        if request.calldata.length != slot 4 || firstCalldataWord request.calldata != slot 3 then
+          (false, calldataMismatchBytes, touched)
+        else
+          (slot 1 % 256 == 0, responseBytes (slot 0) (slot 2), touched)
+      else (true, [], [])) with
+        accepts := fun request world =>
+          request.kind == .staticcall && request.value == 0 &&
+          request.target != world.thisAddress.val && !reservedPrecompile request.target &&
+          (accounts.contains request.target || emptyAccounts.contains request.target) } }
+
 private def decimal (value : Lean.Json) : Except String Nat := do
   let text ← value.getStr?
   let some n := text.toNat? | throw "oracle mock expects decimal words"
@@ -55,7 +85,8 @@ The account list is a code deployment model, not inferred from requested slots. 
 def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
   let config ← input.getObjVal? "byteCallEnvironment"
   let program ← config.getObjValAs? String "program"
-  unless program == "raw-static-oracle-v1" do throw "unsupported byte-call mock program"
+  unless program == "raw-static-oracle-v1" || program == "checked-static-oracle-v1" do
+    throw "unsupported byte-call mock program"
   let caller ← decimal (← input.getObjVal? "account")
   let accounts ← (← (← config.getObjVal? "accounts").getArr?).toList.mapM fun entry => do
     let address ← decimal entry
@@ -73,6 +104,7 @@ def configure (input : Lean.Json) : Except String ByteCallEnvironment := do
     return address
   unless emptyAccounts.eraseDups.length == emptyAccounts.length do throw "duplicate empty mock account"
   let gas ← decimal (← config.getObjVal? "gas")
-  return environment accounts gas emptyAccounts
+  return if program == "checked-static-oracle-v1" then checkedEnvironment accounts gas emptyAccounts
+    else environment accounts gas emptyAccounts
 
 end Compiler.CompilationModel.SolidityImport.StaticOracleMocks

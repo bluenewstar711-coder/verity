@@ -109,6 +109,17 @@ mutual
     | head :: tail => abiHeaderPreservingStmt head && abiHeaderPreservingList tail
 end
 
+/-- The only admitted External Call Module: the closed Solidity typed-interface
+`staticcall` with one `uint256` return. Its Denote arm runs the byte transport
+against the explicit adversary; metadata must equal the canonical module, so the
+data descriptor rather than an opaque closure fixes both Denote and compilation. -/
+def staticUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.staticUint256 resultVar selector numStaticArgs) =>
+      mod == Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs &&
+        decide (selector < 2 ^ 32) && args.length == numStaticArgs + 1 && exprListCovered args
+  | none => false
+
 /- Executable coverage includes writes; `stmtCovered` retains its read-only
 meaning and its original world-preservation theorems. -/
 mutual
@@ -118,6 +129,7 @@ mutual
     | .panicCode code => exprCovered code
     | .forEach _ count body => exprCovered count && executableStmtListCovered body
     | .revertEmpty | .revertReturndata => true
+    | .ecm mod args => staticUint256Covered mod args
     | .emit _ args => exprListCovered args
     | .stop => true
     | .returnBytes _ => true
@@ -265,6 +277,20 @@ theorem execStmt_forEach_arm (oracle : DenoteOracle) (fields : List Field)
            (fun next => execStmtList oracle fields next body)
            { state with bindings := bindValue state.bindings name (wordNormalize 0) } 0 bound
        | none => .revert) := rfl
+
+/-- The closed typed-interface `staticcall` arm: execution is exactly the byte
+transport, and an instrumentation error (no adversary, no gas allowance, or a
+request outside the adversary's domain) is a payload-free `.revert`, never a
+Solidity revert observation. -/
+theorem execStmt_ecm_staticUint256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector numStaticArgs : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs) args) =
+      (match executeByteStaticCall oracle fields state
+          (Compiler.ECM.SolidityStaticCall.uint256Module resultVar selector numStaticArgs)
+          resultVar selector numStaticArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
 
 theorem execStmt_revertEmpty_arm (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) :
