@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `366eaa50f`
-- **Last Updated**: `2026-10-18T11:38:00Z`
+- **Current `main` HEAD**: `8c5ed4626`
+- **Last Updated**: `2026-10-18T12:18:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`366eaa50f`) | **33 / 45** | **73.33%** | +1 (`isHealthy(Market,address)`) | 18 PRs merged (`#2504`–`#2523`, plus `#2507` and `#2514` folded/closed); all 3 Midnight decoupling slices (`M1`–`M3`), Track `B0` (`DenoteExternalCode` + `decodeOptionalBoolCall`), and Tracks `S1`–`S3` (`0` `maxHeartbeats` escalations, −3,369 net lines in `Storage.lean` / `Stmt.lean`) landed on `main`! |
-| In-flight Family A (`ce6c55a5`, `39604dfb8`) | **35 / 45** (verified) | **77.78%** | +3 (`touchMarket`, `updatePosition`) | Generic `create2(0, ptr, len, salt)` byte-payload deployment + struct event emission (`emit Event(Struct, bytes32 indexed)`). Build, `make check`, smoke/loss/programs differential, 3-variant stateful A/B/C, rejections, `byte-call` (8/8), and 8/14 CREATE2/log mutants already passed; finishing final mutation tasks on `old-agent`. |
+| `main` (`8c5ed4626`) | **33 / 45** | **73.33%** | +1 (`isHealthy(Market,address)`) | 20 PRs merged (`#2504`–`#2525`, plus `#2507` and `#2514` folded/closed); all 4 Midnight decoupling slices (`M1`–`M4`), Track `B0` (`DenoteExternalCode` + `decodeOptionalBoolCall`), and Tracks `S1`–`S4` (`0` `maxHeartbeats` escalations, **−4,274 net lines** across `Storage.lean`, `Stmt.lean`, `Scope.lean`, `ResultRelation.lean`) landed on `main`! |
+| In-flight Family A (`ce6c55a5`, `39604dfb8`) | **35 / 45** (verified) | **77.78%** | +3 (`touchMarket`, `updatePosition`) | Generic `create2(0, ptr, len, salt)` byte-payload deployment + struct event emission (`emit Event(Struct, bytes32 indexed)`). `lake build`, `make check`, `PrintAxioms`, 3-variant stateful A/B/C, rejections, `byte-call` (8/8), and **all 14/14 CREATE2/log mutants passed**; finishing final exact-head campaign verification on `39604dfb8` before opening PR. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`18` Merged + `2` Folded/Closed = `20` Total Resolved)
+## 2. Merged PRs in This Campaign (`20` Merged + `2` Folded/Closed = `22` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -38,6 +38,8 @@
 | `#2521` | `refactor/modular-split-and-proof-decomposition` | `262a9f6a3` | **Track S2**: Decomposed monolithic mapping-write proofs (`879 → 169` lines, `187–273 → 65–83` lines) in `Storage.lean` and terminal-ite proofs (`535/586 → 63/67` lines) in `Stmt.lean` into `<30`-line `private` helpers, removing `set_option maxRecDepth 10000` and cutting **net 2,398 lines** (`+934 / -3332`). |
 | `#2522` | `feat/denote-external-code-and-optional-bool-call` | `f701a9ca7` | **Track B0**: Added `Verity/Core/Model/DenoteExternalCode.lean` (`accountCode`, `extCodeSize`, `extCodeSlice`, `sstore2Payload?` + `@[simp]` lemmas), extended `DenoteByteExternalCalls.lean` (`decodeStaticBool`, `decodeOptionalBoolCall`, `staticBytesRequest`, `callBytesRequest` + `@[simp]` lemmas), and fixed `inheritance-external-contract-call-rejected` in `check_storage_rejections.py`. |
 | `#2523` | `refactor/proofs-stmt-list-and-ite-decomposition` | `366eaa50f` | **Track S3**: Decomposed `compiledStmtStep_ite` (`245 → 29` lines) and `compiledStmtStep_setStorage_aliasSlots` (`175 → 41` lines) in `Storage.lean`, plus `exec_compileStmtList_core` (`439 → 20` lines), `exec_compileStmtList_core_extraFuel` (`497 → 144` lines), `exec_compileStmtList_terminal_core_sizeOf_extraFuel` (`608 → 171` lines), and 12 `wholeFuel`/`tailExtraFuel` proofs in `Stmt.lean` into 52 `private` helpers, cutting **net 971 lines** (`+1367 / -2338`). |
+| `#2524` | `refactor/decouple-protocol-comments-and-oracle-smoke` | `177f4b6d7` | **Track M4**: Replaced remaining protocol-specific comments in `Math.lean`, `Reentrancy.lean`, `SecurityCombos.lean`, and `MerkleAndNoncesSequence.sol`, and renamed `MorphoStyleOracleSummarySmoke` → `OracleSummarySmoke` in `InternalInterfaceSmoke.lean` + `PropertyOracleSummarySmoke.t.sol`. |
+| `#2525` | `refactor/proofs-scope-and-result-relation-decomposition` | `8c5ed4626` | **Track S4**: Unified `stmtListScopeDiscipline_of_validateScopedStmtListIdentifiers` (`479 → 3` lines) and `scopeNamesPresent_foldl_stmtNextScope_of_validateScopedStmtListIdentifiers` (`409 → 3` lines) into `scopedStmtListInvariant_of_core`, decomposed `exprBoundNamesInScope_of_validateScopedExprIdentifiers_core` (`402 → 50` lines) and `stmtListScopeDiscipline_scope_names` (`237 → 15` lines) in `Scope.lean` + `ResultRelation.lean`, cutting **net 862 lines** (`+725 / -1587`). |
 
 ---
 
@@ -46,23 +48,24 @@
 1. **Track M1 — Decouple Midnight Specifics from Importer, Stdlib, Proofs & Coverage (`refactor/decouple-midnight-core`)** — **MERGED (`#2517`, `0c4d56c49`)**.
 2. **Track M2 — Replace `pinned-midnight`, `MarketAbi`, `MidnightPositionAndFeeSequence` & PR `#2514` with Construct-Generic Fixtures (`refactor/decouple-midnight-fixtures`)** — **MERGED (`#2518`, `824b60a23`)**.
 3. **Track M3 — Rename Remaining 6 Protocol-Named Smoke Fixtures (`refactor/decouple-midnight-smoke-remaining`)** — **MERGED (`#2519`, `0bf5d8487`)**.
-4. **Track M4 — Decouple Protocol Comments & Oracle Summary Smoke (`refactor/decouple-protocol-comments-and-oracle-smoke`)** — **ACTIVE on `ashur` (`fd930e6c-8e6c-42ff-a66c-78ea34eb4791`)**.
+4. **Track M4 — Decouple Protocol Comments & Oracle Summary Smoke (`refactor/decouple-protocol-comments-and-oracle-smoke`)** — **MERGED (`#2524`, `177f4b6d7`)**.
 5. **Track S1 — Mathlib4 Code Style, Naming & Compositional State/Frame Lenses (`refactor/mathlib-style-and-frame-lenses`)** — **MERGED (`#2520`, `7adb5e6f9`)**.
 6. **Track S2 — Decompose Monolithic `IRGeneration` Storage & Terminal-Ite Proofs (`refactor/modular-split-and-proof-decomposition`)** — **MERGED (`#2521`, `262a9f6a3`)**.
 7. **Track S3 — Decompose `Stmt.lean` List Inductions & `Storage.lean` `ite`/`aliasSlots` Proofs (`refactor/proofs-stmt-list-and-ite-decomposition`)** — **MERGED (`#2523`, `366eaa50f`)**.
-8. **Track S4 — Decompose `Scope.lean` & `ResultRelation.lean` Monolithic Proofs (`refactor/proofs-scope-and-result-relation-decomposition`)** — **ACTIVE on `sepolia` (`7b3b0c0b-f072-4aab-85de-e30beb2b82aa`)**.
+8. **Track S4 — Decompose `Scope.lean` & `ResultRelation.lean` Monolithic Proofs (`refactor/proofs-scope-and-result-relation-decomposition`)** — **MERGED (`#2525`, `8c5ed4626`)**.
+9. **Track S5 — Decompose `Calls.lean`, `EventBridge.lean` & `InterfaceAssembly.lean` Monolithic Proofs (`refactor/proofs-calls-eventbridge-interface-decomposition`)** — **ACTIVE on `sepolia` (`fb45c65c-52c0-4a38-b095-4e8ac9de3f0f`)**.
 
 ---
 
 ## 4. Ordered Remaining Construct Families (All Implemented Generically, 33/45 -> 45/45)
 
 1. **Family A — Generic Yul `create2(0, ptr, len, salt)` Byte-Payload Deployment & Struct Event Emission (`emit Event(Struct, bytes32 indexed)`)** — **ACTIVE on `old-agent` (`ce6c55a5-de18-4302-b9ff-b44eb8cdd736`)**:
-   - Verified on `39604dfb8`: unlocks `touchMarket` and `updatePosition` (**35 / 45 = 77.78%**); `make check`, `lake build`, `PrintAxioms`, smoke/loss/programs differential, 3-variant stateful A/B/C, located rejections, `byte-call` (8/8), and 8/14 CREATE2/log mutants passed; finishing last 6 mutation tasks (`--jobs 2`).
+   - Verified on `39604dfb8`: unlocks `touchMarket` and `updatePosition` (**35 / 45 = 77.78%**); `make check`, `lake build`, `PrintAxioms`, 3-variant stateful A/B/C, located rejections, `byte-call` (8/8), and **all 14/14 CREATE2/log mutants passed**; finishing final exact-head campaign verification (`bdzqmhask`) before opening PR.
 2. **Track B0 + Family B — External Code Reads (`<addr>.code.length` / `<addr>.code`, `EXTCODESIZE` / `EXTCODECOPY`) & Low-Level `.call(bytes)` with Optional-Bool Returndata Decode**:
    - **Track B0 MERGED (`#2522`, `f701a9ca7`)**: `Verity/Core/Model/DenoteExternalCode.lean`, `decodeStaticBool`, `decodeOptionalBoolCall`, `staticBytesRequest`, `callBytesRequest`, and `inheritance-external-contract-call-rejected` landed on `main`.
-   - **Family B (next on `Import.lean` as soon as Family A merges)**: Wire `DenoteExternalCode` and `decodeOptionalBoolCall` into `ECM.lean`, `Denote.lean`, and `Import.lean` to unlock the 5 functions blocked on external code reads and `SafeTransferLib` (**40 / 45 = 88.89%**).
+   - **Family B (queued next on `old-agent` as soon as Family A merges)**: Wire `DenoteExternalCode` (`<addr>.code.length`, `abi.decode(<addr>.code, (Struct))`) and `decodeOptionalBoolCall` (`SafeTransferLib` low-level `.call(abi.encodeCall(...))`) into `ECM.lean`, `Denote.lean`, and `Import.lean` to unlock 5 functions (**40 / 45 = 88.89%**).
 3. **Family C — Typed-Interface View Staticcalls with Arguments & `bool`/`bytes32` Returns (`I(addr).f(args...)`)**:
-   - Unlocks the 2 functions blocked on typed-interface staticcall arguments (**42 / 45 = 93.33%**) and unblocks gate/oracle/ratifier staticcalls.
+   - **Queued next on `ashur` as soon as Family A merges**: Unlocks the 2 functions blocked on typed-interface staticcall arguments (**42 / 45 = 93.33%**) and unblocks gate/oracle/ratifier staticcalls.
 4. **Family D — Stateful Helper Operands & Dynamic Struct Array `abi.decode(bytes, (Struct[]))`**:
    - Unlocks 2 more functions (**44 / 45 = 97.78%**).
 5. **Family E — Typed-Interface State-Changing External Callbacks & Dynamic Array Event/Root Parameters (`address[]` event, `bytes[]` param)**:
@@ -74,6 +77,6 @@
 
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
-| `family-a-create2-and-struct-emit` | `old-agent` | `ce6c55a5-de18-4302-b9ff-b44eb8cdd736` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-create2-and-struct-emit` | Active (final mutation run on `39604dfb8`) |
-| `track-s4-scope-and-result-relation-decomposition` | `sepolia` | `7b3b0c0b-f072-4aab-85de-e30beb2b82aa` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-scope-and-result-relation-decomposition` | Active |
-| `track-m4-decouple-comments-and-smoke` | `ashur` | `fd930e6c-8e6c-42ff-a66c-78ea34eb4791` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/decouple-protocol-comments-and-oracle-smoke` | Active |
+| `family-a-create2-and-struct-emit` | `old-agent` | `ce6c55a5-de18-4302-b9ff-b44eb8cdd736` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-create2-and-struct-emit` | Active (14/14 mutants passed; final exact-head verification on `39604dfb8`) |
+| `track-s5-calls-eventbridge-interface-decomposition` | `sepolia` | `fb45c65c-52c0-4a38-b095-4e8ac9de3f0f` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-calls-eventbridge-interface-decomposition` | Active |
+| `family-c-interface-static-call-args-and-bool` | `ashur` | *(reserved — dispatches as soon as Family A merges in ~5 min)* | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-interface-static-call-args-and-bool` | Queued |
