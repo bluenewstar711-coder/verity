@@ -69,14 +69,27 @@ _DECL_HEAD_RE = re.compile(
     r"(?:(?:private|protected|noncomputable|unsafe|partial|nonrec)\s+)*"
     rf"(?:{_DECL_KEYWORDS})\s+([^\s:({{\[]+)"
 )
+_MUTUAL_DECL_HEAD_RE = re.compile(
+    r"^\s+(?:@\[[^\]]*\]\s*)*"
+    r"(?:(?:private|protected|noncomputable|unsafe|partial|nonrec)\s+)*"
+    rf"(?:{_DECL_KEYWORDS})\s+([^\s:({{\[]+)"
+)
+_NAMESPACE_RE = re.compile(r"^namespace\s+([^\s]+)")
+_SECTION_RE = re.compile(r"^section(?:\s+([^\s]+))?\s*$")
+_END_RE = re.compile(r"^end(?:\s+([^\s]+))?\s*$")
+_MUTUAL_START_RE = re.compile(r"^mutual\s*$")
 # Column-0 lines that still belong to the preceding declaration.
 _DECL_CONTINUATION_RE = re.compile(r"^(?:\||termination_by\b|decreasing_by\b|where\b|deriving\b)")
 _DECL_PREFIX_RE = re.compile(r"^(?:@\[|set_option\s.*\sin\s*$)")
 
 
-def _name_matches(found: str, wanted: str) -> bool:
-    """Match `Ns.foo` against `foo` written inside `namespace Ns`, and vice versa."""
-    return found == wanted or found.endswith(f".{wanted}") or wanted.endswith(f".{found}")
+def _name_matches(raw_found: str, full_found: str, wanted: str, has_ns: bool) -> bool:
+    """Match `Ns.foo` against `foo` in `namespace Ns`, respecting explicit qualifiers."""
+    if full_found == wanted or full_found.endswith(f".{wanted}"):
+        return True
+    if not has_ns and wanted.endswith(f".{raw_found}"):
+        return True
+    return False
 
 
 def _docstring_start(lines: list[str], end_idx: int) -> int | None:
@@ -91,25 +104,7 @@ def _docstring_start(lines: list[str], end_idx: int) -> int | None:
     return None
 
 
-def locate_declaration(path: Path, name: str) -> tuple[int, int]:
-    """1-based inclusive line range of top-level declaration `name`.
-
-    The range includes the docstring, attributes, and `set_option ... in`
-    prefix lines, and ends at the last non-blank line before the next
-    column-0 command. Raises `LookupError` if absent or ambiguous.
-    """
-    lines = path.read_text(encoding="utf-8").splitlines()
-    heads = [
-        idx
-        for idx, line in enumerate(lines)
-        if (match := _DECL_HEAD_RE.match(line)) and _name_matches(match.group(1), name)
-    ]
-    if not heads:
-        raise LookupError(f"declaration `{name}` not found in {path}")
-    if len(heads) > 1:
-        found = ", ".join(str(idx + 1) for idx in heads)
-        raise LookupError(f"declaration `{name}` is ambiguous in {path} (lines {found})")
-    head = heads[0]
+def _leading_prefix_start(lines: list[str], head: int) -> int:
     start = head
     while start > 0:
         prev = start - 1
@@ -120,6 +115,85 @@ def locate_declaration(path: Path, name: str) -> tuple[int, int]:
         if doc is None:
             break
         start = doc
+    return start
+
+
+def locate_declaration(path: Path, name: str) -> tuple[int, int]:
+    """1-based inclusive line range of top-level declaration `name` (or its enclosing `mutual` block).
+
+    The range includes the docstring, attributes, and `set_option ... in`
+    prefix lines, and ends at the last non-blank line before the next
+    column-0 command. Raises `LookupError` if absent or ambiguous.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    scopes: list[tuple[str, list[str]]] = []
+    mutual_start: int | None = None
+    # Each entry is (report_line_idx, block_head_idx, is_mutual)
+    matches: list[tuple[int, int, bool]] = []
+
+    for idx, line in enumerate(lines):
+        if _MUTUAL_START_RE.match(line):
+            mutual_start = idx
+            continue
+        if mutual_start is not None:
+            if _END_RE.match(line):
+                mutual_start = None
+                continue
+            m_inner = _MUTUAL_DECL_HEAD_RE.match(line) or _DECL_HEAD_RE.match(line)
+            if m_inner:
+                raw_name = m_inner.group(1)
+                ns_parts = [p for k, ps in scopes if k == "namespace" for p in ps]
+                full_name = ".".join([*ns_parts, raw_name]) if ns_parts else raw_name
+                if _name_matches(raw_name, full_name, name, bool(ns_parts)):
+                    matches.append((idx, mutual_start, True))
+            continue
+
+        if m_ns := _NAMESPACE_RE.match(line):
+            scopes.append(("namespace", m_ns.group(1).split(".")))
+            continue
+        if m_sec := _SECTION_RE.match(line):
+            sec_name = m_sec.group(1)
+            scopes.append(("section", sec_name.split(".") if sec_name else []))
+            continue
+        if m_end := _END_RE.match(line):
+            end_name = m_end.group(1)
+            if not end_name:
+                if scopes:
+                    scopes.pop()
+            else:
+                parts = end_name.split(".")
+                while scopes and parts:
+                    _, top_parts = scopes.pop()
+                    if len(top_parts) >= len(parts):
+                        break
+                    parts = parts[:-len(top_parts)]
+            continue
+
+        if match := _DECL_HEAD_RE.match(line):
+            raw_name = match.group(1)
+            ns_parts = [p for k, ps in scopes if k == "namespace" for p in ps]
+            full_name = ".".join([*ns_parts, raw_name]) if ns_parts else raw_name
+            if _name_matches(raw_name, full_name, name, bool(ns_parts)):
+                matches.append((idx, idx, False))
+
+    if not matches:
+        raise LookupError(f"declaration `{name}` not found in {path}")
+    if len(matches) > 1:
+        found = ", ".join(str(m[0] + 1) for m in matches)
+        raise LookupError(f"declaration `{name}` is ambiguous in {path} (lines {found})")
+
+    _, head, is_mutual = matches[0]
+    start = _leading_prefix_start(lines, head)
+    if is_mutual:
+        end = head
+        for idx in range(head + 1, len(lines)):
+            if _END_RE.match(lines[idx]):
+                end = idx
+                break
+            if lines[idx].strip():
+                end = idx
+        return start + 1, end + 1
+
     end = head
     for idx in range(head + 1, len(lines)):
         line = lines[idx]
