@@ -31,14 +31,37 @@ import platform
 import random
 import sys
 
-from eth_abi import encode
-from eth_utils import keccak
-
 from .anvil import SequenceAdapter as EVM
 from .denote import SequenceAdapter as Denote
 from .engine import ROOT, HarnessError, SOLC, command, solc_compile, write_json
 from .identity import ImplementationIdentity
 from .stateful import replay_three_routes, shrink_sequence
+
+try:
+    from eth_abi import encode
+except ModuleNotFoundError:
+    def encode(types, values):
+        words = []
+        for ty, val in zip(types, values):
+            if ty == 'bool':
+                words.append(int(bool(val)).to_bytes(32, 'big'))
+            elif ty == 'bytes32':
+                words.append(bytes(val))
+            elif ty == 'address':
+                words.append(int(val, 16).to_bytes(32, 'big'))
+            else:
+                words.append(int(val).to_bytes(32, 'big'))
+        return b''.join(words)
+
+try:
+    from eth_utils import keccak
+except ModuleNotFoundError:
+    if str(ROOT / 'scripts') not in sys.path:
+        sys.path.insert(0, str(ROOT / 'scripts'))
+    from keccak256 import keccak_256 as _keccak_256
+
+    def keccak(primitive=None, *, text=None):
+        return _keccak_256(text.encode('utf-8') if text is not None else primitive)
 
 # Anvil's first funded accounts; the first one deploys every route at nonce 0.
 SENDERS = (
