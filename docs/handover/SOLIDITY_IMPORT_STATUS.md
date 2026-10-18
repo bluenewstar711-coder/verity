@@ -2,8 +2,8 @@
 
 - **Campaign Coordinator**: `33a95621-558e-4686-843c-accb2db2d114` (replaces `f586b1b9` / `34056738` / `795c3c1d` / `608d2555` / `aae68584` / `300051ac` / `ebb2f1fe`)
 - **Repository**: `lfglabs-dev/verity`
-- **Current `main` HEAD**: `52033df96`
-- **Last Updated**: `2026-10-18T15:51:00Z`
+- **Current `main` HEAD**: `eb3338690`
+- **Last Updated**: `2026-10-18T16:15:00Z`
 
 ---
 
@@ -11,12 +11,12 @@
 
 | Branch / PR | Imported / Total (excl. `multicall`) | Coverage % | Delta vs `10f697bbb` | Notes |
 | --- | --- | --- | --- | --- |
-| `main` (`52033df96`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 29 PRs merged (`#2504`–`#2528`, `#2530`–`#2535`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S10` (`0` `maxHeartbeats` escalations, **−10,910 net lines** in `Compiler/` + 125 allowlist entries pruned across S5–S10) landed on `main`! |
+| `main` (`eb3338690`) | **35 / 45** | **77.78%** | +3 (`isHealthy`, `touchMarket`, `updatePosition`) | 30 PRs merged (`#2504`–`#2528`, `#2530`–`#2536`, plus `#2507` and `#2514` folded/closed); Family A (`#2526`), all 5 Midnight/Morpho decoupling slices (`M1`–`M5`), Tracks `B0` (`#2522`) & `C0` (`#2527`), and Tracks `S1`–`S11` (`0` `maxHeartbeats` escalations, **−11,852 net lines** in `Compiler/` + 143 allowlist entries pruned across S5–S11) landed on `main`! |
 | In-flight Family B (`b223122a` on `old-agent`) | **40 / 45** (verified) | **88.89%** | +8 (+5: `claimSettlementFee`, `claimContinuousFee`, `withdraw`, `supplyCollateral`, `withdrawCollateral`) | External code length (`<addr>.code.length`, `EXTCODESIZE`) + low-level `.call(bytes)` with optional-bool returndata decode (`SafeTransferLib.safeTransfer` / `safeTransferFrom`) wired onto `#2522`'s `DenoteExternalCode` and `DenoteByteExternalCalls`. |
 
 ---
 
-## 2. Merged PRs in This Campaign (`29` Merged + `2` Folded/Closed = `31` Total Resolved)
+## 2. Merged PRs in This Campaign (`30` Merged + `2` Folded/Closed = `32` Total Resolved)
 
 | PR | Branch | Merge Commit on `main` | Summary |
 | --- | --- | --- | --- |
@@ -49,6 +49,7 @@
 | `#2533` | `refactor/proofs-functionbody-stmt-decomposition` | `6816051ac` | **Track S9**: Decomposed all 15 allowlisted proofs in `FunctionBody/Stmt.lean` (`171 → <30`, `144 → <30`, `143 → 17`, `133 → <30`, `126 → 1`, `110 → <30`, `74 → 20`, etc. — every rewritten proof ≤ 30 lines), pruned 15 allowlist entries, and cut **net 341 lines** (`+995 / -1336`). |
 | `#2534` | `refactor/proofs-supportedspec-decomposition` | `bca186ed9` | **Track S10**: Added `SupportedLeafStmt`, `SupportedStmtList.induction_of_leaf`, and `SupportedStmtList.boolFold_eq_false`, decomposed all 18 allowlisted proofs in `SupportedSpec.lean` so every proof is `<30` lines, pruned 18 allowlist entries, and cut **net 1,574 lines** (`+634 / -2208`). |
 | `#2535` | `refactor/decouple-remaining-protocol-identifiers` | `52033df96` | **Track M5**: Renamed `midnight*` initcode prologue declarations to `push11CopyReturn*` in `InitCodeExecution.lean` and `DenoteCreate2.lean`, renamed `morpho*` admin fragment declarations/comments to generic `ownerAuthSetFeeRecipient*` / `ownerEnableFlag*` / `ownerEnableThreshold*` / `delegateAuthorization*` in `TypedIRCompiler.lean` and `TypedIRCompilerCorrectness.lean`, and decomposed both > 50-line proofs in `TypedIRCompilerCorrectness.lean` (`177 → 18`, `60 → 29` lines), cutting **net 57 lines** (`+286 / -343`). |
+| `#2536` | `refactor/proofs-irinterpreter-paramloading-sourcesemantics` | `eb3338690` | **Track S11**: Decomposed all 18 allowlisted proofs > 50 lines across `IRInterpreter.lean` (13 proofs), `ParamLoading.lean` (2 proofs), and `SourceSemantics.lean` (3 proofs) into `≤30`-line `private theorem` helpers, narrowed the `execIRFunction_` allowlist regex, pruned 18 allowlist entries (`520 → 502`), and cut **net 942 lines** (`+1348 / -2290`). |
 
 ---
 
@@ -69,8 +70,9 @@
 13. **Track S8 — Decompose `Function.lean` Monolithic Proofs & Fix Default-Heartbeat Build (`refactor/proofs-function-decomposition`)** — **MERGED (`#2532`, `b107a5185`)**.
 14. **Track S9 — Decompose `FunctionBody/Stmt.lean` Remaining Allowlisted Proofs (`refactor/proofs-functionbody-stmt-decomposition`)** — **MERGED (`#2533`, `6816051ac`)**.
 15. **Track S10 — Decompose `SupportedSpec.lean` Allowlisted Proofs (`refactor/proofs-supportedspec-decomposition`)** — **MERGED (`#2534`, `bca186ed9`)**.
-16. **Track S11 — Decompose `IRInterpreter.lean`, `ParamLoading.lean` & `SourceSemantics.lean` Allowlisted Proofs (`refactor/proofs-irinterpreter-paramloading-sourcesemantics`)** — **ACTIVE on `sepolia` (`73fabed3-27ee-40de-b943-d439d9620cdf`)**.
+16. **Track S11 — Decompose `IRInterpreter.lean`, `ParamLoading.lean` & `SourceSemantics.lean` Allowlisted Proofs (`refactor/proofs-irinterpreter-paramloading-sourcesemantics`)** — **MERGED (`#2536`, `eb3338690`)**.
 17. **Track S12 — Decompose `GenericInduction/{Scope,ExprStmt,Loops,Calls}.lean` Allowlisted Proofs (`refactor/proofs-generic-induction-remaining-decomposition`)** — **ACTIVE on `ashur` (`be972d23-4076-498d-be87-d5e76b1f6dab`)**.
+18. **Track S13 — Decompose `DynamicParamLoading.lean`, `SpliceSimulation.lean`, `Dispatch.lean` & `DispatchGeneric.lean` Allowlisted Proofs (`refactor/proofs-irgeneration-dynamicparam-splicesim-dispatch`)** — **ACTIVE on `sepolia` (`a2000f6f-0d9a-45c6-a72e-3c8a2e9259c9`)**.
 
 ---
 
@@ -96,5 +98,5 @@
 | Track | Machine (`node_id`) | Mission ID | Backend / Model | Target Branch | Status |
 | --- | --- | --- | --- | --- | --- |
 | `family-b-external-code-and-low-level-call` | `old-agent` | `b223122a-c286-48c5-a4f0-44ff1ec84dfb` | `claudecode` / `claude-opus-5-5` (`high`) | `feat/solidity-import-external-code-and-low-level-call` | Active |
-| `track-s11-proofs-irinterpreter-paramloading-sourcesemantics` | `sepolia` | `73fabed3-27ee-40de-b943-d439d9620cdf` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irinterpreter-paramloading-sourcesemantics` | Active |
 | `track-s12-proofs-generic-induction-remaining-decomposition` | `ashur` | `be972d23-4076-498d-be87-d5e76b1f6dab` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-generic-induction-remaining-decomposition` | Active |
+| `track-s13-proofs-dynamicparam-splicesim-dispatch` | `sepolia` | `a2000f6f-0d9a-45c6-a72e-3c8a2e9259c9` | `claudecode` / `claude-opus-5-5` (`high`) | `refactor/proofs-irgeneration-dynamicparam-splicesim-dispatch` | Active |
