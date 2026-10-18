@@ -120,10 +120,6 @@ ALLOWLIST: set[str] = {
     "supportedStmtList_usesParamDynamicHeadWord_false",
     "supportedStmtList_usesMulDiv512_false",
     # --- Core expression/statement compilation ---
-    "compileStmt_core_ok_any_scope",  # mstore/tstore widening — mechanical per-constructor cases
-    "compileStmtList_core_ok",
-    "compileStmtList_terminal_core_ok",
-    "compileStmtList_terminal_core_ok_nonempty",
     # Helper-body shape seam: the proof follows the compiler's own
     # validate/returns/body split and then applies the mutually recursive
     # return-free shape-irrelevance lemma. Splitting would duplicate that
@@ -134,10 +130,6 @@ ALLOWLIST: set[str] = {
     # head/tail compile-success plumbing.
     "compileStmtList_append_ok_inv",
     "constructorOnly_compileBody_empty_surfaces_withFork",
-    "execStmtList_terminal_core_not_continue",  # mstore/tstore widening — 9 per-constructor cases
-    "compileStmtList_terminal_ite_ok_inv",
-    "compileStmt_terminal_ite_ok_inv",
-    "compileStmt_ok_any_scope_aux",
     # Fuel-indexed mutual stmt/list induction proving compileStmt ignores the
     # event/error catalogs off the contract surface; one mechanical arm per
     # statement constructor (~35 cases), so splitting would only duplicate it.
@@ -282,13 +274,6 @@ ALLOWLIST: set[str] = {
     # bridge, out-of-bounds revert) that the bounded semantics requires.
     # Splitting would duplicate the eval-agreement spine and fuel accounting.
     "compiledStmtStep_returndatacopy_bounded_single_preserves",
-    # --- IR execution proofs (terminal ite, core append/tail) ---
-    "execIRStmts_compiled_terminal_ite_then_of_irExec",
-    "execIRStmts_compiled_terminal_ite_else_of_irExec",
-    "stmtResultMatchesIRExec_compiled_terminal_ite_then",
-    "stmtResultMatchesIRExec_compiled_terminal_ite_else",
-    "exec_compileStmtList_core_extraFuel",
-    "exec_compileStmtList_terminal_core_sizeOf_extraFuel",
     # --- Generic induction and scope proofs ---
     "stmtListGenericCore_of_supportedStmtList_of_surface",
     "stmtListScopeCore_prefix_of_compileStmtList_ok_of_stmtListTouchesUnsupportedContractSurface",
@@ -429,10 +414,6 @@ ALLOWLIST: set[str] = {
     "compiledStmtStepWithHelpersAndHelperIR_internalCall",
     "evalExprWithHelpers_eq_evalExpr_of_helperSurfaceClosed",
     "execStmtWithHelpers_eq_execStmt_of_helperSurfaceClosed_aux",
-    # Spec-aware compile-scope transport is one mutual induction over
-    # statements and statement lists; splitting it would duplicate the scope
-    # bookkeeping that the theorem is meant to centralize.
-    "compileStmt_ok_any_scope_with_surface_aux",
     # --- Contract feature fixtures ---
     "literalMappingWrite_calldataFits",
     # Constructor-body fixture for issue #1723.

@@ -3936,10 +3936,26 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.stmtListTerminalCore_stop_tail_compileCore
   Compiler.Proofs.IRGeneration.FunctionBody.stmtListTerminalCore_ite_tail_compileCore
   Compiler.Proofs.IRGeneration.FunctionBody.stmtListTerminalCore_ne_nil
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_core_cons_ok  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_letVar_eq_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_assignVar_eq_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_require_eq_of_compileRequireFailCond  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_return_eq_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_stop_eq  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_mstore_eq_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_tstore_eq_of_compileExpr  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.isEmpty_eq_false_of_stmtListTerminalCore  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ite_eq_of_compiled  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_core_ok_ne_nil  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_core_ok_any_scope
+  -- Compiler.Proofs.IRGeneration.FunctionBody.stmtOkAnyScope_ite  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.stmtOkAnyScope_forEach  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.stmtOkAnyScope_forEachSetBit  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.stmtOkAnyScope_of_lt  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.stmtListOkAnyScope_cons  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_aux  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_aux  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_aux  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ok_any_scope_with_surface_with_internals
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope_with_surface
@@ -3947,10 +3963,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_ok_any_scope
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok_with_surface
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_compileStmt_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ite_ok_components  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_terminal_ite_ok_inv
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_terminal_ite_ok_inv
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_ok_of_head_ok  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_core_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_terminal_ite_core_ok  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_terminal_core_ok
+  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_cons_core_ne_nil  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_terminal_core_ok_nonempty
   -- Compiler.Proofs.IRGeneration.FunctionBody.yulStmtList_length_le_sizeOf  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.compiledIteBlockSize_ge_thenBranchLength  -- private
@@ -4031,18 +4051,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_revertPrefix_continue  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_revertPrefix_then_revert  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_revertWithMessage_revert
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmtList_core_cons_ok  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.exists_eval_compileExpr_core_of_exact  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_letVar_eq_of_compileExpr  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_return_eq_of_compileExpr  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_letVar_cons_eq  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_cons_continue_extraFuel  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_return_cons_extraFuel  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_assignVar_eq_of_compileExpr  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_require_eq_of_compileRequireFailCond  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_stop_eq  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_mstore_eq_of_compileExpr  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_tstore_eq_of_compileExpr  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_assignVar_cons_eq  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_require_cons_eq_of_ne_zero  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_mstore_cons_eq  -- private
@@ -4052,6 +4064,14 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_require_fail_cons_extraFuel  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_require_cons_extraFuel  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_stop_cons_extraFuel  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_nil  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_letVar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_assignVar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_require  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_return  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_stop  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_mstore  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.coreListExecMatches_tstore  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmtList_core_extraFuel
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmtList_core
   -- Compiler.Proofs.IRGeneration.FunctionBody.compiled_terminal_ite_body_block_extraFuel_eq  -- private
@@ -4072,8 +4092,10 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_compiled_terminal_ite_thenIf_false  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_compiled_terminal_ite_else_branch_entry
   Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_compiled_terminal_ite_else_branch_entry_tailFuel
+  -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_compiled_terminal_ite_of_ifs  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_compiled_terminal_ite_then_of_irExec  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmts_compiled_terminal_ite_else_of_irExec  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_ite_cons_not_continue  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.execStmtList_terminal_core_not_continue
   Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatchesIRExec_ir_not_continue_of_source_not_continue
   Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatchesIRExec_ir_not_continue_of_terminal_core
@@ -4119,12 +4141,18 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.FunctionBody.execIRStmt_tstore_of_evals_nonzeroFuel  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.bindingsExactlyMatchIRVarsOnScope_setTransientStorage  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_require_cons_sizeOf  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.isEmpty_eq_false_of_stmtListTerminalCore  -- private
-  -- Compiler.Proofs.IRGeneration.FunctionBody.compileStmt_ite_eq_of_compiled  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.sizeOf_terminal_ite_else_fuel_eq  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.sizeOf_terminal_ite_then_fuel_eq  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_terminal_ite_else_of_branch  -- private
   -- Compiler.Proofs.IRGeneration.FunctionBody.stmtResultMatches_terminal_ite_then_of_branch  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_letVar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_assignVar  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_require  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_return  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_stop  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_mstore  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_tstore  -- private
+  -- Compiler.Proofs.IRGeneration.FunctionBody.terminalListExecMatches_ite  -- private
   Compiler.Proofs.IRGeneration.FunctionBody.exec_compileStmtList_terminal_core_sizeOf_extraFuel
   Compiler.Proofs.IRGeneration.FunctionBody.stmtResultToSourceResult_matches_irExecResult
 
@@ -8725,4 +8753,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8001 theorems/lemmas (5562 public, 2439 private, 0 sorry'd)
+-- Total: 8029 theorems/lemmas (5562 public, 2467 private, 0 sorry'd)
