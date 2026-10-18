@@ -35,15 +35,21 @@ def staticAdversary
 balance, code, log and call-journal channels come from `callee`, while the
 caller's execution context, calldata, memories and legacy returndata stay. -/
 def commitCalleeWorld (caller callee : Verity.ContractState) : Verity.ContractState :=
-  { caller with
-    storageWords := callee.storageWords
-    storageArray := callee.storageArray
-    selfBalance := callee.selfBalance
-    knownAddresses := callee.knownAddresses
-    events := callee.events
-    calls := callee.calls
-    codeSize := callee.codeSize
-    accountWorld := callee.accountWorld }
+  { callee with
+    sender := caller.sender
+    thisAddress := caller.thisAddress
+    txOrigin := caller.txOrigin
+    msgValue := caller.msgValue
+    blockTimestamp := caller.blockTimestamp
+    blockNumber := caller.blockNumber
+    chainId := caller.chainId
+    blobBaseFee := caller.blobBaseFee
+    calldataSize := caller.calldataSize
+    calldata := caller.calldata
+    selector := caller.selector
+    memory := caller.memory
+    byteMemory := caller.byteMemory
+    returndata := caller.returndata }
 
 section CommitCalleeWorld
 

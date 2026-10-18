@@ -124,12 +124,6 @@ ALLOWLIST: set[str] = {
     "compileStmtList_core_ok",
     "compileStmtList_terminal_core_ok",
     "compileStmtList_terminal_core_ok_nonempty",
-    # Mechanical per-constructor legacy-compatible Yul shape witnesses for the
-    # compile-core / terminal-core statement-list grammars. Splitting further
-    # would duplicate the same compile-success destructuring and constructor
-    # plumbing without reducing proof complexity.
-    "stmtListCompileCore_compiledLegacyCompatible",
-    "stmtListTerminalCore_compiledLegacyCompatible",
     # Helper-body shape seam: the proof follows the compiler's own
     # validate/returns/body split and then applies the mutually recursive
     # return-free shape-irrelevance lemma. Splitting would duplicate that
@@ -148,10 +142,6 @@ ALLOWLIST: set[str] = {
     # event/error catalogs off the contract surface; one mechanical arm per
     # statement constructor (~35 cases), so splitting would only duplicate it.
     "compileStmt_eventsErrorsAgnostic_aux",
-    # Constructor mode equivalence is a structural expression-constructor split;
-    # each case is direct, but splitting further would duplicate the same
-    # surface-closure plumbing across dozens of one-line cases.
-    "compileExpr_constructor_mode_eq",
     # --- Statement-level compiled step proofs ---
     "compiledStmtStep_letVar",
     "compiledStmtStep_assignVar",
@@ -198,12 +188,6 @@ ALLOWLIST: set[str] = {
     # user body. This deliberately stays private until the execution bridge is
     # closed.
     "selectedUserBodyClosureAndMatchedFresh_of_compile_ok_supported_switchFresh",
-    # --- Helper-aware result packaging bridge ---
-    "interpretFunctionWithHelpers_eq_execResultToIRResultWithInternals_of_body",
-    # #2080 phase 21 function-level WithInternals bridge: threads generated ABI
-    # param-load execution into the helper-aware compiled body while preserving
-    # the exact fuel equality needed by `execIRFunctionWithInternals`.
-    "exec_compiledFunctionIR_withInternals_of_body_extraFuel",
     # #2205 selector dispatch with populated internal tables: these two proofs
     # mirror the same payable/argument-length case split as the legacy dispatch
     # theorem while threading the helper-aware interpreter. Splitting either
@@ -213,18 +197,9 @@ ALLOWLIST: set[str] = {
     # equation (hinterp) that pins the interpreter's fallback records.
     "interpretContractWithInternals_correct_of_compiled_functions",
     "interpretContractWithHelpersWithInternals_correct_of_compiled_functions",
-    # #2205 helper-rich function seam: source/IR rollback states, parameter
-    # prefix execution, and the exact helper/body fuel equality form one coupled
-    # witness. Factoring the cases would only move that witness into wrappers.
-    "supported_function_correct_with_helper_rich_support_body_goal_with_internals",
     # #2205 contract-facing adapter: the body is one application; its length is
     # dominated by the mirrored helper-rich function premises and named types.
     "compileFunctionSpec_correct_with_helper_rich_support_of_body_goal",
-    # #2080 phase 21 direct helper-aware function theorem: packages source
-    # helper semantics, the exact helper-IR body goal, function compilation
-    # shape, rollback state, and param-prefix execution into the final
-    # `execIRFunctionWithInternals` result.
-    "supported_function_correct_with_helper_proofs_body_goal_with_internals",
     # #2080 phase 21 contract-level consumer: exposes the direct helper-aware
     # function theorem through the contract proof API while keeping the
     # generated param-load disjointness premise explicit.
@@ -370,27 +345,15 @@ ALLOWLIST: set[str] = {
     "compatScratch_startsWith_reserved",
     "scopeAvoidsReservedCompilerPrefix_of_validateIdentifierShapes",
     # --- Function-level compilation proofs ---
-    "compileFunctionSpec_correct_of_body",
-    "compileFunctionSpec_correct_of_body_normalized_extraFuel",
     "compileFunctionSpec_correct_generic",
-    "exec_compiledFunctionIR_of_body",
-    "exec_compiledFunctionIR_of_body_extraFuel",
     "exec_genParamLoadBodyFrom_supported_then",
     "exec_genParamLoads_supported_then_extraFuel",
     "bindSupportedParams_lookupBinding",
-    "supported_function_body_correct_from_exact_state_core",
-    "supported_function_body_correct_from_exact_state_core_extraFuel",
-    "supported_function_body_correct_from_exact_state_terminal_core_extraFuel",
     # denote_sound{,_with_helpers}: thin Denote-headed restatements of the
     # generic keystones above; the line count is the inherited hypothesis
     # block, not proof complexity (proof bodies are <10 lines each).
     "denote_sound",
     "denote_sound_with_helpers",
-    "supported_function_correct",
-    "supported_function_correct_except_mapping_writes",
-    "supported_function_correct_except_mapping_writes_stmtSafety",
-    "supported_function_correct_with_body_interface_except_mapping_writes",
-    "supported_function_correct_with_body_interface_except_mapping_writes_stmtSafety",
     # --- Legacy compatibility and dispatch ---
     "interpretContract_correct_of_compiled_functions_except_mapping_writes_and_helper_ir_closed",
     # bounded-loop fuel stability: the induction on remaining iterations must
@@ -410,7 +373,6 @@ ALLOWLIST: set[str] = {
     "compile_preserves_semantics",
     "compile_preserves_semantics_except_mapping_writes",
     "compile_preserves_semantics_except_mapping_writes_stmtSafety",
-    "initialIRStateForTx_matches_runtime",
     "resultsMatch_of_execResultsAligned",
     # --- SimpleStorage native EVMYulLean dispatcher closed forms ---
     # These are concrete generated-code reductions for the store(uint256)
@@ -436,14 +398,6 @@ ALLOWLIST: set[str] = {
     # RBMap erase-self lookup fact in one generated store-body endpoint.
     "primCall_calldataload4_then_sstore0_stop_initialState_arg0_withStore_projectResult_slot0_zero_of_erase",
     # --- Helper-aware theorem stack (Issue #1630 / PR #1633 / PR #1639) ---
-    "supported_function_correct_with_helper_proofs",
-    "supported_function_correct_with_helper_proofs_goal",
-    "supported_function_correct_with_helper_proofs_body_goal",
-    "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir",
-    "supported_function_correct_with_helper_proofs_body_goal_and_helper_ir_of_bodyCallsDisjoint",
-    # Issue #2080: interface-heavy bridge from function compile facts into the
-    # split WithInternals body consumer; state/binding plumbing is factored.
-    "supported_function_body_with_internals_goal_of_compileFunctionSpec_with_internals",
     "compileFunctionSpec_correct_generic_with_helper_proofs",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir",
     "compileFunctionSpec_correct_generic_with_helper_proofs_and_helper_ir_of_bodyCallsDisjoint",
@@ -481,8 +435,7 @@ ALLOWLIST: set[str] = {
     "compileStmt_ok_any_scope_with_surface_aux",
     # --- Contract feature fixtures ---
     "literalMappingWrite_calldataFits",
-    # Constructor-body bridge and its focused fixture for issue #1723.
-    "supported_constructor_body_correct_with_body_interface",
+    # Constructor-body fixture for issue #1723.
     "constructorOnly_noConflict",
     # Call-surface decomposition kept as one structural recursion proof.
     "stmtOrListTouchesUnsupportedCallSurface_eq_featureOr",
