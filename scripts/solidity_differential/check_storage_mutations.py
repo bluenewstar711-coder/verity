@@ -369,6 +369,32 @@ MUTANTS.update({
     'import-governor-slice-proposer-delay-unaligned-tail-offset-guard': ('    let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none\n    unless 1 ≤ k && k ≤ 32 do return none', '    let some k := Compiler.Hex.parseHexNat? raw <|> raw.toNat? | return none\n    unless 1 ≤ k && k ≤ 64 do return none'),
 })
 
+# `unchecked` wrapping and lexical scope, observed through UncheckedSequence.
+MUTANTS.update({
+    'import-unchecked-block-add-wrap': ('let wrapped := if bits < 256 then Expr.bitAnd (.add a.expr b.expr) (.literal (2 ^ bits - 1)) else .add a.expr b.expr',
+                                        'let wrapped := Expr.add a.expr b.expr'),
+    'import-unchecked-block-sub-wrap': ('let wrapped := if bits < 256 then Expr.bitAnd (.sub a.expr b.expr) (.literal (2 ^ bits - 1)) else .sub a.expr b.expr',
+                                        'let wrapped := Expr.sub a.expr b.expr'),
+    'import-unchecked-block-root': ('modify fun e => { e with unchecked := true }\n        let (uncheckedNested, uncheckedReturned) ← lowerRootStatements',
+                                    'let (uncheckedNested, uncheckedReturned) ← lowerRootStatements'),
+    'import-unchecked-block-helper-reset': ('private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do\n  if (← get).stack.contains fnId then\n    if let some v ← trySignFlipSelfCall? fnId args at_ then\n      return v\n    failAt at_ s!"recursive call {fnId}"\n  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"\n  -- External library calls cross an ABI/delegatecall boundary. A root\n  -- descriptor may only be shared with helpers in the same call frame.\n  if optStr fn "visibility" == some "external" then\n    for arg in args do\n      match arg with\n      | .memory _ _ | .abiElement _ _ | .scalarArray _ _ | .byteBuffer _ | .stringBuffer _ | .calldataBytes _ _\n      | .storagePath _ _ _ | .flatStruct _ _ _ _ | .storageBytes _ _ | .storageDynamicArray _ _ _ _ _ | .fnPtr _ _ =>\n          failAt at_ "external reference helper calls are unsupported"\n      | .scalar _ => pure ()\n  let saved := ← get\n  let savedYul := saved.yulNames\n  let savedFile := (← get).currentFile\n  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile\n  let frame := fnId :: (← get).stack\n  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true\n  let some body := (field? fn "body").filter (!·.isNull)\n    | failAt fn "function has no body"\n  unless implemented do failAt fn "function has no body"\n  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := false, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }',
+                                            'private partial def inlineFn (fnId : Nat) (args : Array CallArg) (at_ : Json) : M Val := do\n  if (← get).stack.contains fnId then\n    if let some v ← trySignFlipSelfCall? fnId args at_ then\n      return v\n    failAt at_ s!"recursive call {fnId}"\n  let some fn := (← get).funs.find? fnId | failAt at_ s!"unresolved function {fnId}"\n  -- External library calls cross an ABI/delegatecall boundary. A root\n  -- descriptor may only be shared with helpers in the same call frame.\n  if optStr fn "visibility" == some "external" then\n    for arg in args do\n      match arg with\n      | .memory _ _ | .abiElement _ _ | .scalarArray _ _ | .byteBuffer _ | .stringBuffer _ | .calldataBytes _ _\n      | .storagePath _ _ _ | .flatStruct _ _ _ _ | .storageBytes _ _ | .storageDynamicArray _ _ _ _ _ | .fnPtr _ _ =>\n          failAt at_ "external reference helper calls are unsupported"\n      | .scalar _ => pure ()\n  let saved := ← get\n  let savedYul := saved.yulNames\n  let savedFile := (← get).currentFile\n  let frameFile := (← get).nodeFile.find? fnId |>.getD (← get).currentFile\n  let frame := fnId :: (← get).stack\n  let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true\n  let some body := (field? fn "body").filter (!·.isNull)\n    | failAt fn "function has no body"\n  unless implemented do failAt fn "function has no body"\n  modify fun e => { e with stack := frame, currentFile := frameFile, unchecked := e.unchecked, bodyAssigned := bodyAssignedIds body, zeroInitLocals := #[] }'),
+})
+
+MUTANTS.update({
+    'import-unchecked-block-end': ('    | "VerityUncheckedEnd" =>\n        -- `unchecked` blocks cannot nest and inlined helpers start checked.\n        modify fun e => { e with unchecked := false }\n',
+                                   '    | "VerityUncheckedEnd" =>\n        -- `unchecked` blocks cannot nest and inlined helpers start checked.\n'),
+    'import-unchecked-block-if-restore': ('yulMemoryStructs := saved.yulMemoryStructs,\n                   unchecked := saved.unchecked }\n        let restReturns',
+                                          'yulMemoryStructs := saved.yulMemoryStructs }\n        let restReturns'),
+})
+
+# Literal tuple initializers and skipped declaration components, observed through TupleSequence.
+MUTANTS.update({
+    'import-tuple-destructuring-component-order': ('pre := pre ++ val.pre', 'pre := val.pre ++ pre'),
+    'import-tuple-destructuring-skip': ('        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD i (.literal 0, "")',
+                                        '        | failAt d s!"unsupported tuple local type {ty}"\n      let (retExpr, retTy) := retExprs.getD (decls.size - 1 - i) (.literal 0, "")'),
+})
+
 def run(directory, output, name):
     fixture = "StorageVoidSequence" if name == "import-void-fallthrough" else "StorageSequence"
     if name.startswith("import-governor-slice-proposer-delay-"):
@@ -447,6 +473,10 @@ def run(directory, output, name):
         fixture = "Int256ContractTypeSequence"
     if name.startswith("import-tuple-helper-"):
         fixture = "TupleHelperSequence"
+    if name.startswith("import-tuple-destructuring-"):
+        fixture = "TupleSequence"
+    if name.startswith("import-unchecked-block-"):
+        fixture = "UncheckedSequence"
     if name.startswith("import-modifier-unchecked-"):
         fixture = "ModifierUncheckedCompoundSequence"
     if name.startswith("import-void-helper-"):
@@ -542,6 +572,14 @@ def run(directory, output, name):
         argv[tx_idx + 1] = '24'
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 20])]
+    if fixture == 'UncheckedSequence':
+        tx_idx = argv.index('--transactions')
+        argv[tx_idx + 1] = '48'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 4, 5, 6, 9, 10, 100, 101, 129, 130, 255, 256, (1 << 256) - 1])])
+    if fixture == 'TupleSequence':
+        tx_idx = argv.index('--transactions')
+        argv[tx_idx + 1] = '48'
+        argv.extend(['--change-prefix', *map(str, [0, 1, 2, 3, 86399, 86400, 86401, 604799, 604800, 691199])])
     if fixture == 'EmptyArrayReturnBytesCalldataSequence':
         prefix = argv.index('--change-prefix')
         argv = argv[:prefix] + ['--change-prefix', *map(str, [0, 1, 2, 3, 16, 17, 18, (1 << 256) - 1])]

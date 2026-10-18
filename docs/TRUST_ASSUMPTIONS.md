@@ -178,7 +178,11 @@ every decoded scalar/packed member to zero after rejecting structs with `opaque`
 or array members.
 `UncheckedBlock` switches unsigned `+`, `-`, `*` and `+=`/`-=` within its lexical
 block to wrapping `2^bits` arithmetic while preserving division/modulo-by-zero
-panics and resetting across call boundaries. Scalar assignment expressions
+panics and resetting across call boundaries. In value helpers, an
+`UncheckedBlock` without block-level declarations whose `if` returns early is
+flattened into the continuation; a synthetic end marker, not a Lean proof,
+restores checked arithmetic, and that lexical tracking is validated only by the
+`UncheckedSequence` differential evidence and mutants. Scalar assignment expressions
 `(x = rhs)` require order-independent binary siblings and single-argument call
 contexts. Unnamed multi-return scalar helpers are inlined via continuation-passing
 into fresh zero-initialized result bindings and consumed only by matching tuple

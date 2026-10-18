@@ -2419,4 +2419,77 @@ def stateful_governor_slice_proposer_delay_source(fixture: str, variant: str) ->
     raise ValueError(f'unknown governor-slice-proposer-delay variant: {variant}')
 
 
+def stateful_unchecked_blocks_source(original, variant):
+    """Wrapping arithmetic in split blocks or explicit assignments."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'split': {
+            '            total += value;\n': '            total += value;\n        }\n        unchecked {\n',
+            '            wrapped = value * 3 - 10;\n': '            wrapped = value * 3 - 10;\n        }\n        unchecked {\n',
+        },
+        'explicit': {
+            'total += value;': 'total = total + value;',
+            'small += uint8(value % 256) + 250;': 'small = small + (uint8(value % 256) + 250);',
+            'mid -= uint64(value % 5) + 1;': 'mid = mid - (uint64(value % 5) + 1);',
+            'credit[msg.sender]--;': 'credit[msg.sender] -= 1;',
+            'return x - 10 + 3;': 'uint256 y = x - 10;\n            return y + 3;',
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(f'unknown unchecked-blocks variant: {variant}')
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing unchecked source anchor: {before}')
+        original = original.replace(before, after)
+    return original
 
+
+def stateful_tuple_destructuring_source(original, variant):
+    """Tuple declarations and returns spelled as scalar locals and branches."""
+    if variant == 'baseline':
+        return original
+    replacements = {
+        'expanded': {
+            '(uint128 a, , uint128 c) = split(value);':
+                '(uint128 a, uint128 unused, uint128 c) = split(value);',
+            """        (uint256 start, uint256 end, uint256 lo, uint256 hi) =
+            t < 1 days ? (0 days, 1 days, uint256(a) * 3, uint256(c)) :
+            t < 7 days ? (1 days, 7 days, uint256(c), uint256(a) + (t - 1 days)) :
+                         (7 days, 8 days, a, c);
+""": """        uint256 start;
+        uint256 end;
+        uint256 lo;
+        uint256 hi;
+        if (t < 1 days) {
+            end = 1 days;
+            lo = uint256(a) * 3;
+            hi = c;
+        } else if (t < 7 days) {
+            start = 1 days;
+            end = 7 days;
+            lo = c;
+            hi = uint256(a) + (t - 1 days);
+        } else {
+            start = 7 days;
+            end = 8 days;
+            lo = a;
+            hi = c;
+        }
+""",
+        },
+        'inline': {
+            '(uint256 p, uint256 q) = pair(value % 1000);':
+                '(uint256 p, uint256 q) = (value % 1000, value % 1000 + 1);',
+            '        return triple(total);\n': """        if (total % 2 == 0) return (total, m[0], m[1]);
+        return (m[2], total + 1, m[3]);
+""",
+        },
+    }
+    if variant not in replacements:
+        raise ValueError(f'unknown tuple-destructuring variant: {variant}')
+    for before, after in replacements[variant].items():
+        if original.count(before) != 1:
+            raise ValueError(f'missing tuple source anchor: {before}')
+        original = original.replace(before, after)
+    return original

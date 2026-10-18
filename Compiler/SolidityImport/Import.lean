@@ -3517,6 +3517,11 @@ private def helperListReturns (stmts : Array Json) : M Bool := do
   | some s => helperReturns s
   | none => pure false
 
+/-- Synthetic statement closing an `unchecked` helper block whose statements were
+    flattened into the helper continuation, so that a returning `if` inside the
+    block carries the end of the block into each copied continuation. -/
+private def uncheckedEnd : Json := Json.mkObj [("nodeType", Json.str "VerityUncheckedEnd")]
+
 private inductive AbiDecodeTypeItem where
   | scalar (ty : String) (pty : ParamType) (enumBound? : Option Nat)
   | flatStruct (sid : Nat) (sName : String) (members : Array (String × String))
@@ -10335,12 +10340,23 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           restore
           pure (inner, res)
         else if ← listContainsReturn blockStmts then
-          failAt s "partial return inside a helper block is outside this slice"
+          unless isUnchecked do
+            failAt s "partial return inside a helper block is outside this slice"
+          -- Flattening drops the block scope, so block-level declarations stay
+          -- rejected; nested blocks and `if` branches keep their own scopes.
+          for b in blockStmts do
+            if (← mKind b) == "VariableDeclarationStatement" then
+              failAt b "declarations in a partially returning unchecked helper block are outside this slice"
+          lowerHelperFrom (blockStmts.toList ++ uncheckedEnd :: rest) retName
         else
           let (inner, _) ← lowerHelperFrom blockStmts.toList retName
           restore
           let (tail, res) ← lowerHelperFrom rest retName
           pure (inner ++ tail, res)
+    | "VerityUncheckedEnd" =>
+        -- `unchecked` blocks cannot nest and inlined helpers start checked.
+        modify fun e => { e with unchecked := false }
+        lowerHelperFrom rest retName
     | "VariableDeclarationStatement" =>
         let pre ← lowerLocal s
         let (tail, result) ← lowerHelperFrom rest retName
@@ -10454,7 +10470,8 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
-                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs }
+                   scalarTy := saved.scalarTy, yulNames := saved.yulNames, yulMemoryArrays := saved.yulMemoryArrays, yulMemoryStructs := saved.yulMemoryStructs,
+                   unchecked := saved.unchecked }
         let restReturns ← helperListReturns rest.toArray
         let yesHasReturn ← listContainsReturn yes
         let noHasReturn ← listContainsReturn no
@@ -12558,7 +12575,11 @@ private partial def lowerLocal (s : Json) : M (Array Stmt) := do
         expectedTypes := expectedTypes.push none
       else
         expectedTypes := expectedTypes.push (some (← mType d))
-    let (callPre, retExprs) ← lowerMultiCall init (some expectedTypes)
+    -- A literal tuple initializer evaluates every component left to right, as
+    -- solc does, before the fresh declared locals are bound.
+    let (callPre, retExprs) ← if (← mKind init) == "TupleExpression" then
+        lowerMultiBranch init (some expectedTypes)
+      else lowerMultiCall init (some expectedTypes)
     unless decls.size == retExprs.size do
       failAt s s!"tuple declaration arity {decls.size} does not match helper return arity {retExprs.size}"
     let mut out := callPre

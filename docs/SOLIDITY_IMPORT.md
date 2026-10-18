@@ -636,7 +636,7 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 | Supported Solidity | Lowering boundary |
 | --- | --- |
 | Multi-return internal, private, and internally-called public helpers | Unnamed multi-return scalar helpers (`returnParameters.parameters.size > 1`) allocate fresh `letVar` result bindings initialized to zero, evaluate and convert `Return` tuple components in source order into those bindings, and thread post-`if`/`else` continuations along fallthrough paths via `lowerVoidHelperFrom`. Named or reference return parameters and discarded multi-return calls remain rejected. |
-| Tuple destructuring declarations and assignments (`(uint256 a, uint128 b) = fn(...)`, `(a, b) = fn(...)`) | Supported when the RHS is a multi-return helper call of matching arity; `VariableDeclarationStatement` requires at least one non-null declaration and binds declared components in order; `Assignment` (`=`) evaluates converted components into fresh temporaries and commits each non-elided target to a materialized scalar local or scalar storage field in order after rejecting duplicate local or storage targets. |
+| Tuple destructuring declarations and assignments (`(uint256 a, uint128 b) = fn(...)`, `(a, b) = fn(...)`, `(uint256 a, , uint128 c) = (x, y, z)`) | Supported when the RHS is a multi-return helper call of matching arity, or, for declarations only, a literal `TupleExpression` of matching arity whose components are evaluated left to right (including elided ones, so their panics and reverts keep solc's order) through the conditional-tuple leaf lowering before the fresh locals are bound; `VariableDeclarationStatement` requires at least one non-null declaration and binds declared components in order; `Assignment` (`=`) evaluates converted components into fresh temporaries and commits each non-elided target to a materialized scalar local or scalar storage field in order after rejecting duplicate local or storage targets. |
 | Compound assignments (`+=`, `-=`) on unsigned scalar parameters | When an unsigned scalar parameter is modified by `+=` or `-=` in a root, helper, or modifier body (without direct `=` or `delete` parameter writes), the parameter is materialized into a declaration-bound mutable local copy at frame entry so call-by-value updates are visible within the frame without mutating caller bindings. |
 | Narrow constant event arguments (e.g. `emit Initialized(type(uint8).max)`) | Canonical integer literals `Expr.literal n` with `n < 2 ^ bits` and empty prelude are accepted for `.uintN bits` event parameters in both `Import.lean` and `ValidationEvents.lean`, alongside direct matching `.uintN bits` parameters. |
 
@@ -670,7 +670,7 @@ prerequisite for the measured IdLib path, not an implementation of `storeInCode`
 | --- | --- |
 | Same-contract overloaded function declarations (`overloadedDeclarations` in `refInt`) | When `solc` records non-empty `overloadedDeclarations` on a function reference, `refInt` accepts the resolved `referencedDeclaration` if every candidate in `overloadedDeclarations` either belongs to the same virtual override family (`sameVirtualFamily`) or shares an origin declaring contract across `baseFunctionClosure` (for example `ERC20._approve(3)` and `ERC20._approve(4)` declared in the same contract). Cross-contract overloads with distinct signatures and no override relationship remain rejected (`ambiguous declaration`), and importing two overloaded roots with the same name in a single slice fails closed (`root function name collision`). |
 | Compile-time constant scalar expressions in custom-error arguments (`address(0)`, `type(uintN).max`, named constants) | Alongside decimal literals and direct scalar bindings, `lowerErrorArguments` accepts pure scalar expressions (`numericConstants` identifiers, `typeConversion` casts such as `address(0)`, and `type(T).max`/`min`) whose lowered value has an empty statement prelude (`converted.pre.isEmpty`) and a canonical literal `Expr.literal n` satisfying `Denote.errorScalarValueValid modelType n`. Non-constant or effectful expressions fail closed. |
-| Conditional tuple expressions (`cond ? (a0, ..., ak) : (b0, ..., bk)`) | Supported as the RHS of tuple variable declarations (`lowerLocal`) and tuple assignments (`lowerEffect`), including nested `Conditional` branches whose leaves are `TupleExpression`s or multi-return helper calls of matching arity. Target component types are threaded into each leaf so integer constants (such as `0 days`, `1 days`) convert to the declared component type before branch joining via fresh temporaries and `Stmt.ite`. Stateful or assignment expressions inside tuple components and bare top-level `TupleExpression` RHSs fail closed. |
+| Conditional tuple expressions (`cond ? (a0, ..., ak) : (b0, ..., bk)`) | Supported as the RHS of tuple variable declarations (`lowerLocal`) and tuple assignments (`lowerEffect`), including nested `Conditional` branches whose leaves are `TupleExpression`s or multi-return helper calls of matching arity. Target component types are threaded into each leaf so integer constants (such as `0 days`, `1 days`) convert to the declared component type before branch joining via fresh temporaries and `Stmt.ite`. Stateful or assignment expressions inside tuple components fail closed, as do bare top-level `TupleExpression` RHSs of tuple assignments. |
 | Transient storage `tload(slot)` in single-assignment `InlineAssembly` | `lowerYul` lowers `tload(a)` to `Expr.tload`, covered by `Coverage.exprCovered`, `Quote.quoteExpr`, and `TransactionAccess.expressionAccesses` (evaluating `DenoteState.transientStorage`). `tstore` and multi-statement assembly blocks remain outside this slice. |
 
 ### Development slice: fixed-size unsigned scalar array members in mapping structs and root fixed-size array returns
@@ -967,3 +967,21 @@ equivalence. Those account inputs, complete gas/memory integration and the
 remaining source-admission obligations still have to be implemented.
 
 Stateful differential implementation snapshots bind the recorded Git HEAD to the campaign workspace and recheck it during replay. A commit switch with byte-identical sources still invalidates the campaign; an unavailable Git revision is an instrumentation error. This supplements source/artifact identity checks and does not certify unexecuted test phases.
+
+### Regression evidence: `unchecked` blocks and tuple destructuring
+
+`UncheckedSequence` and `TupleSequence` add stateful A/B/C fixtures for already
+supported constructs: narrow `uint8`/`uint64` wrapping, unchecked mapping
+decrements, `require` inside unchecked helper blocks, checked helpers called
+from unchecked code, elided tuple components, conditional tuple selection,
+literal tuple declarations, and multi-value root returns. An `unchecked` block
+in a value helper may now contain a returning `if` when the block has no
+block-level declarations: its statements are lowered into the helper
+continuation followed by a synthetic block-end marker that restores checked
+arithmetic, and each `if` branch restores the lexical `unchecked` flag. Plain
+helper blocks with partial returns and such unchecked blocks with declarations
+still reject with located diagnostics. Each fixture has
+metamorphic source variants (`check_storage --fixture unchecked-blocks` /
+`tuple-destructuring`) and scheduled importer mutants
+(`import-unchecked-block-*`, `import-tuple-destructuring-*`). Literal tuples on
+the right of tuple assignments remain rejected.
