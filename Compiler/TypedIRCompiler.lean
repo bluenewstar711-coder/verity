@@ -2027,12 +2027,12 @@ theorem compileStmts_setMappingUint_params_stop_run
     lookupVar, asUInt256, liftExcept, hSlot, emit,
     List.find?, hne]; rfl
 
-/-- Compilation shape for the Morpho `setOwner` pattern:
+/-- Compilation shape for the owner-guarded set-owner pattern:
 `letVar senderVar caller ; letVar ownerVar (storage ownerField) ;
  require (eq (localVar senderVar) (localVar ownerVar)) msg1 ;
  require (logicalNot (eq (param paramName) (localVar ownerVar))) msg2 ;
  setStorage ownerField (param paramName) ; stop`.
-This pattern is used by Morpho Blue's `setOwner` and `setFeeRecipient` admin functions. -/
+This is the owner-guarded single-address-slot setter (e.g. owner or fee recipient). -/
 theorem compileStmts_letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop_run
     (fields : List Field) (ownerField senderVar ownerVar paramName msg1 msg2 : String)
     (ownerSlot : Nat)
@@ -2084,13 +2084,13 @@ theorem compileStmts_letCallerLetStorageAddrReqEqReqNeqSetStorageAddrParamStop_r
     emitSSABind, freshVar, bindVar, pushLocal, lookupVar, asBool,
     liftExcept, emit, List.find?, h1, h2, h3, monadLift]; rfl
 
-/-- Compilation shape for the Morpho `setFeeRecipient` owner-auth pattern:
+/-- Compilation shape for the owner-authorized set-address-field pattern:
 `letVar senderVar caller ; letVar ownerVar (storage ownerField) ;
  require (eq (localVar senderVar) (localVar ownerVar)) msg1 ;
  letVar targetVar (storage targetField) ;
  require (logicalNot (eq (param paramName) (localVar targetVar))) msg2 ;
  setStorage targetField (param paramName) ; stop`. -/
-def morphoSetFeeRecipientOwnerAuthStmts
+def ownerAuthSetFeeRecipientStmts
     (ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2 : String) : List Stmt :=
   [ Stmt.letVar senderVar Expr.caller
   , Stmt.letVar ownerVar (Expr.storage ownerField)
@@ -2101,7 +2101,7 @@ def morphoSetFeeRecipientOwnerAuthStmts
   , Stmt.stop
   ]
 
-def morphoSetFeeRecipientOwnerAuthExpectedState
+def ownerAuthSetFeeRecipientExpectedState
     (ownerSlot targetSlot : Nat)
     (senderVar ownerVar targetVar paramName msg1 msg2 : String) : CompileState :=
   { nextId := 4
@@ -2142,14 +2142,14 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageA
     (hne_tv_sv : targetVar ≠ senderVar)
     (hne_tv_ov : targetVar ≠ ownerVar) :
     (compileStmts fields
-      (morphoSetFeeRecipientOwnerAuthStmts
+      (ownerAuthSetFeeRecipientStmts
         ownerField targetField senderVar ownerVar targetVar paramName msg1 msg2)).run
       (CompileState.mk 1
         [(paramName, { id := 0, ty := Ty.address })]
         #[{ id := 0, ty := Ty.address }]
         #[] #[]) =
       Except.ok ((),
-        morphoSetFeeRecipientOwnerAuthExpectedState
+        ownerAuthSetFeeRecipientExpectedState
           ownerSlot targetSlot senderVar ownerVar targetVar paramName msg1 msg2) := by
   have h1 : (senderVar == paramName) = false := beq_false_of_ne hne_sv_p
   have h2 : (ownerVar == paramName) = false := beq_false_of_ne hne_ov_p
@@ -2163,7 +2163,7 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetStorageAddrReqNeqSetStorageA
   have hsrTarget : compileStorageRead fields targetField =
       Except.ok ⟨Ty.address, TExpr.getStorageAddr targetSlot⟩ := by
     simp [compileStorageRead, hTarget, fieldTypeToTy]; rfl
-  simp [morphoSetFeeRecipientOwnerAuthStmts, morphoSetFeeRecipientOwnerAuthExpectedState,
+  simp [ownerAuthSetFeeRecipientStmts, ownerAuthSetFeeRecipientExpectedState,
     compileStmts, compileStmt, hsrOwner, hsrTarget, hTarget, fieldTypeToTy,
     emitSSABind, freshVar, bindVar, pushLocal, lookupVar, asBool,
     liftExcept, emit, List.find?, h1, h2, h3, h4, monadLift]; rfl
@@ -2269,13 +2269,12 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingLetStorageSetMappingA
     liftExcept, emit, List.find?, hMapping, h0, h1, h2, h3, h4, h5, h6, h7, h10, h11, h14]
   rfl
 
-/-- Compilation shape for the Morpho `enableIrm` pattern:
+/-- Compilation shape for the owner-guarded enable-flag pattern:
 `letVar senderVar caller ; letVar ownerVar (storage ownerField) ;
  require (eq (localVar senderVar) (localVar ownerVar)) msg1 ;
  letVar currentVar (mapping mappingField (param keyParam)) ;
  require (eq (localVar currentVar) (literal 0)) msg2 ;
- setMapping mappingField (param keyParam) (literal writeVal) ; stop`.
-This pattern is used by Morpho Blue's `enableIrm` admin function. -/
+ setMapping mappingField (param keyParam) (literal writeVal) ; stop`. -/
 theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingStop_run
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam msg1 msg2 : String)
     (ownerSlot mappingSlot : Nat) (writeVal : Nat)
@@ -2337,14 +2336,13 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingReqEqLitSetMappingSto
     bindVar, pushLocal, lookupVar, asAddress, asBool, asUInt256, liftExcept,
     hMapping, emit, List.find?, h1, h2, h3, h4]; rfl
 
-/-- Compilation shape for the Morpho `enableLltv` pattern:
+/-- Compilation shape for the owner-guarded bounded enable-threshold pattern:
 `letVar senderVar caller ; letVar ownerVar (storage ownerField) ;
  require (eq (localVar senderVar) (localVar ownerVar)) msg1 ;
  letVar currentVar (mappingUint mappingField (param keyParam)) ;
  require (eq (localVar currentVar) (literal 0)) msg2 ;
  require (lt (param keyParam) (literal bound)) msg3 ;
- setMappingUint mappingField (param keyParam) (literal writeVal) ; stop`.
-This pattern is used by Morpho Blue's `enableLltv` admin function. -/
+ setMappingUint mappingField (param keyParam) (literal writeVal) ; stop`. -/
 theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetMappingUintStop_run
     (fields : List Field) (ownerField mappingField senderVar ownerVar currentVar keyParam msg1 msg2 msg3 : String)
     (ownerSlot mappingSlot : Nat) (bound writeVal : Nat)
@@ -2411,7 +2409,7 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetM
     bindVar, pushLocal, lookupVar, asBool, asUInt256, liftExcept, hMapping,
     emit, List.find?, h1, h2, h3, h4]; rfl
 
-/-- Compilation shape for the Morpho `setAuthorization` pattern:
+/-- Compilation shape for the caller-keyed delegate-authorization pattern:
 `letVar senderVar caller ;
  letVar currentVar (mapping2 mappingField (localVar senderVar) (param authParam)) ;
  ite (param boolParam)
@@ -2419,8 +2417,7 @@ theorem compileStmts_letCallerLetStorageAddrReqEqLetMappingUintReqEqLitReqLtSetM
     setMapping2 mappingField (localVar senderVar) (param authParam) (literal 1)]
    [require (logicalNot (eq (localVar currentVar) (literal 0))) msg2,
     setMapping2 mappingField (localVar senderVar) (param authParam) (literal 0)] ;
- stop`.
-This pattern is used by Morpho Blue's `setAuthorization` admin function. -/
+ stop`. -/
 theorem compileStmts_letCallerLetMapping2IteParamReqSetMapping2Stop_run
     (fields : List Field) (mappingField senderVar currentVar authParam boolParam msg1 msg2 : String)
     (mappingSlot : Nat)

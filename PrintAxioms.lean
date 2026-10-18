@@ -405,8 +405,8 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.InitCodeExecution.codeCopy_zero
   Compiler.CompilationModel.InitCodeExecution.run_succ
   Compiler.CompilationModel.InitCodeExecution.run_after_step
-  Compiler.CompilationModel.InitCodeExecution.midnightInitcode_length
-  Compiler.CompilationModel.InitCodeExecution.hasMidnightPrefix_initcode
+  Compiler.CompilationModel.InitCodeExecution.push11CopyReturnInitcode_length
+  Compiler.CompilationModel.InitCodeExecution.hasPush11CopyReturnPrefix_initcode
   Compiler.CompilationModel.InitCodeExecution.expandedLength_ge
   Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_at
   Compiler.CompilationModel.InitCodeExecution.copyFrom_readByte_outside
@@ -422,10 +422,10 @@ end Verity.AxiomAudit
   -- Compiler.CompilationModel.InitCodeExecution.step7  -- private
   -- Compiler.CompilationModel.InitCodeExecution.step8  -- private
   -- Compiler.CompilationModel.InitCodeExecution.step9  -- private
-  Compiler.CompilationModel.InitCodeExecution.midnight_run
-  Compiler.CompilationModel.InitCodeExecution.midnight_codeByte
-  Compiler.CompilationModel.InitCodeExecution.midnight_slice
-  Compiler.CompilationModel.InitCodeExecution.midnight_returns_payload
+  Compiler.CompilationModel.InitCodeExecution.push11CopyReturn_run
+  Compiler.CompilationModel.InitCodeExecution.push11CopyReturn_codeByte
+  Compiler.CompilationModel.InitCodeExecution.push11CopyReturn_slice
+  Compiler.CompilationModel.InitCodeExecution.push11CopyReturn_returns_payload
 
   -- Contracts/SolidityImportSmoke/InitCodeExecutionChecks.lean
   SolidityImportSmoke.InitCodeExecutionChecks.unsupported_opcode_rejected
