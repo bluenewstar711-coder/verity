@@ -19,8 +19,12 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
    - External benchmark contracts (such as Morpho Midnight, Uniswap, OpenZeppelin, Pareto) belong **only** in `scripts/solidity_import_corpus/manifest.json` (to prioritize which generic Solidity constructs to implement next) or in their own downstream verification repositories (e.g., `morpho-midnight-verity`).
 4. **Required Pre-Merge Gates (Run on the Exact PR Head)**:
    ```bash
-   export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
-   export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+   if [ -d /var/lib/sandboxed-node/caches ]; then
+     export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+     export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+   else
+     export TURBO_LEAN_HOME="${TURBO_LEAN_HOME:-$HOME/.cache/turbo-lean}"
+   fi
    export LEAN_NUM_THREADS=$(nproc)
    turbo-lean pr-verify --base origin/main --json
    turbo-lean pr-verify --base origin/main --project-dir . --receipt .lake/turbo-receipt.json
@@ -42,10 +46,14 @@ Because each agent shell tool call runs in a fresh subshell, running `lake build
 **Every Lean agent MUST exclusively use `turbo-lean` and its persistent in-memory Zygote REPL daemon (`TurboLean.ZygoteWorker` + `lean-native-core`), NEVER raw `lake build`, `lake env lean`, or `lake env repl` in edit loops:**
 
 ### Rule 1 — Mandatory Shared CAS & Persistent Worker Environment
-Always export `TURBO_LEAN_HOME=/var/lib/sandboxed-node/caches/turbo-lean` and `PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"` in every shell invocation so all agents and worktrees share the two-level `InterfaceCAS` and `TheoremProofCAS`, the `/dev/shm` `cone_env_hash` dependency-cone cache, and the persistent `ZygoteWorker` + `lean-native-core` JSON-RPC worker (`0.07 ms/req`, `13,973 req/s`):
+On `sandboxed-node` hosts, always export `TURBO_LEAN_HOME=/var/lib/sandboxed-node/caches/turbo-lean` and `PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"` (falling back to `${TURBO_LEAN_HOME:-$HOME/.cache/turbo-lean}` on standard local machines) in every shell invocation so all agents and worktrees share the two-level `InterfaceCAS` and `TheoremProofCAS`, the `/dev/shm` `cone_env_hash` dependency-cone cache, and the persistent `ZygoteWorker` + `lean-native-core` JSON-RPC worker (`0.07 ms/req`, `13,973 req/s`):
 ```bash
-export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
-export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+if [ -d /var/lib/sandboxed-node/caches ]; then
+  export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+  export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+else
+  export TURBO_LEAN_HOME="${TURBO_LEAN_HOME:-$HOME/.cache/turbo-lean}"
+fi
 ```
 
 ### Rule 2 — Mandatory Fail-Fast Pre-Proof Gate with `fast-check`
@@ -90,7 +98,7 @@ Note: `scripts/lean_repl_daemon.py check --file F --decl D` is retained only as 
 ## 3. Agent Speed & Efficiency: What To Do vs. What To Avoid
 
 ### DO (Fast & Reliable)
-- **Always export `TURBO_LEAN_HOME=/var/lib/sandboxed-node/caches/turbo-lean` and `PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"`** so all subagents share the warm `InterfaceCAS` and `TheoremProofCAS`.
+- **Always configure `TURBO_LEAN_HOME` (`/var/lib/sandboxed-node/caches/turbo-lean` on fleet nodes or `${TURBO_LEAN_HOME:-$HOME/.cache/turbo-lean}` locally) and `/var/lib/sandboxed-node/caches/elan/bin` in `PATH`** so all subagents share the warm `InterfaceCAS` and `TheoremProofCAS`.
 - **Always run `turbo-lean fast-check --transpile-lean <File.lean> --decl <lemma_name>`** on every new helper lemma (`:= by sorry`) before writing tactics (`0.1 ms - 4 ms` via `lean-native-core`).
 - **Always use `turbo-lean check <File.lean> --decl <name> --disallow-statement-changes --json`** during proof refactoring and `--project-dir .` for interactive edits (`~18–45 ms` via the persistent Zygote REPL daemon, `~4 ms` on warm CAS hit).
 - **Always use `turbo-lean pr-verify --base origin/main --json` + `python3 scripts/check_proof_length.py`** to validate PR diffs and in-kernel `collectAxioms` before committing/pushing.
@@ -156,8 +164,12 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
 ## 6. Core Commands & Reference Docs
 
 ```bash
-export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
-export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+if [ -d /var/lib/sandboxed-node/caches ]; then
+  export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+  export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+else
+  export TURBO_LEAN_HOME="${TURBO_LEAN_HOME:-$HOME/.cache/turbo-lean}"
+fi
 export LEAN_NUM_THREADS=$(nproc)
 turbo-lean fast-check --transpile-lean F.lean --decl NAME                 # 0.1-4ms SIMD/PTX counterexample gate
 turbo-lean check F.lean --decl NAME --disallow-statement-changes --json   # ~18-45ms Zygote REPL check (0 interface drift)

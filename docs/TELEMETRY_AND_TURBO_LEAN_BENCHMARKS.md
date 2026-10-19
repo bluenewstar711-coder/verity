@@ -12,11 +12,11 @@ This document records the empirical system telemetry and developer-velocity benc
 - **Dataset**: **2,396 continuous samples** at `2 s` intervals (**79.9 minutes** of continuous multi-agent execution, `6.8 MB` JSONL archive in `/var/lib/sandboxed-node/telemetry-archive/`)
 
 ### Work Delivered During the 80-Minute Telemetry Window
-1. **PR `#2550` (Track S22 — `Projection.lean`)**: Decomposed **55** monolithic proofs (`> 50` lines) into **227** modular theorems (`<= 50` lines), removing **`-4,035` net lines**.
-2. **PR `#2552` (Track S23 — `EndToEnd/Base.lean`)**: Decomposed **179** monolithic proofs (`> 50` lines) into **627** modular theorems (`<= 50` lines) across 6 parallel sub-slices, removing **`-10,777` net lines** and emptying the `scripts/check_proof_length.py` `ALLOWLIST` to **0 entries across all 9,170 proofs**.
-3. **PR `#2551` (Family C) & PR `#2553` (Family E)**: Raised `Midnight.sol` construct coverage to **45 / 45 (`100%` excluding `multicall`)**.
+1. **PR `#2550` (`6d99ba3d5`, Track S22 — `Projection.lean`)**: Decomposed **55** monolithic proofs (`> 50` lines) into **227** modular theorems (`<= 50` lines), removing **`-4,035` net lines** during the active telemetry slice and **`-5,277` net lines** (`+2,363 / -7,640` in `Projection.lean`) in the final merged commit.
+2. **PR `#2552` (`cb6785f7a`, Track S23 — `EndToEnd/Base.lean`)**: Decomposed **179** monolithic proofs (`> 50` lines) into **627** modular theorems (`<= 50` lines) across 6 parallel sub-slices, removing **`-10,777` net lines** (`+8,643 / -19,420` in `EndToEnd/Base.lean`) and emptying the `scripts/check_proof_length.py` `ALLOWLIST` to **0 entries** across all **9,170 proofs** at commit `cb6785f7a` (**9,207 proofs** after `6d99ba3d5` and `74b6ad364` merged).
+3. **PR `#2551` (`74b6ad364`, Family C) & PR `#2553` (Family E)**: Raised `Midnight.sol` construct coverage to **45 / 45 (`100%` excluding `multicall`)**.
 
-In total, **234 giant proofs** were refactored into **854 modular theorems** (**`-14,812` net lines**) alongside two `SolidityImport` construct families in **1 hour 20 minutes** of wall-clock time.
+In total, **234 giant proofs** were refactored into **854 modular theorems** (**`-14,812` net lines** during the telemetry slice; **`-16,054` net lines** across the merged `Projection.lean` + `EndToEnd/Base.lean` commits) alongside two `SolidityImport` construct families in **1 hour 20 minutes** of wall-clock time.
 
 ---
 
@@ -59,7 +59,7 @@ In total, **234 giant proofs** were refactored into **854 modular theorems** (**
 | **Physical RAM for 7 concurrent agents** | `~21 – 35 GB` (immediate OOM on `8 GB` node) | `~14 – 22 GB` (unshared LSP/REPL heaps per worktree) | **`3.4 GB` median / `6.19 GB` peak PSS** (`14.89 GB` RSS at `4.16x` CoW) | **`3.5x` to `5x` lower physical RAM** |
 | **Max concurrent agents on an `8 GB` node** | `1` (frequent OOM on `Base.lean` / `Import.lean`) | `2` (`~3.5 GB` unshared RSS each) | **`7 to 10 agents`** (`0` OOMs) | **`4x` to `8x` higher parallelism** |
 | **Full PR verification (`pr-verify` vs. `lake build`)** | `12 min – 35 min` | `8 min – 20 min` | **`25 ms – 800 ms`** (modified shards + in-kernel `collectAxioms`) | **`> 1,000x` on proof PRs** |
-| **[Actual] S22 + S23 Campaign (`234` giant proofs $\to$ `854` modular theorems, `-14,812` lines)** | Estimated **`28 – 36 hours`** (sequential, 1–2 workers max before OOM) | Estimated **`7 – 10 hours`** (2–3 workers, frequent reloads, no `cone_env_hash`) | **`1 h 20 min` actual** (7 parallel agents, `0` OOMs) | **`~22x–24x` vs. `lake`<br>`~6x–6.5x` vs. `lean-mcp`** |
+| **[Actual] S22 + S23 Campaign (`234` giant proofs $\to$ `854` modular theorems, `-14,812` slice / `-16,054` merged net lines)** | Estimated **`28 – 36 hours`** (sequential, 1–2 workers max before OOM) | Estimated **`7 – 10 hours`** (2–3 workers, frequent reloads, no `cone_env_hash`) | **`1 h 20 min` actual** (7 parallel agents, `0` OOMs) | **`~22x–24x` vs. `lake`<br>`~6x–6.5x` vs. `lean-mcp`** |
 
 ---
 
