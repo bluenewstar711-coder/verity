@@ -194,13 +194,34 @@ structure ExternalCallModule where
   summaryMutability : StatefulExternal.Mutability :=
     if writesState then .call else .staticcall
 
+  /-- Optional 0-based index into `args` carrying the callee target address
+      for `CallSite.target` at the `ecmCall*` / `ecmDo` boundary. Defaults to
+      `none` (`target = 0`) so modules without an address argument remain
+      backwards-compatible. -/
+  targetArg : Option Nat := none
+
+  /-- Optional 0-based index into `args` carrying the ETH value (in wei)
+      transferred by a `.call` at the `ecmCall*` / `ecmDo` boundary. When set,
+      `ecmCall*` / `ecmDo` populates `CallSite.value` and debits `selfBalance`
+      via `debitSelfBalance` before running `commonExternalCall` (reverting on
+      insufficient balance and rolling back the debit if the call fails). -/
+  valueArg : Option Nat := none
+
 instance : BEq ExternalCallModule where
-  beq a b := a.name == b.name && a.numArgs == b.numArgs &&
-    a.resultVars == b.resultVars && a.writesState == b.writesState &&
-    a.readsState == b.readsState && a.axioms == b.axioms &&
-    a.proofStatus == b.proofStatus && a.summaryName == b.summaryName &&
-    a.summarySelector == b.summarySelector && a.summaryMutability == b.summaryMutability &&
-    a.byteTransport == b.byteTransport
+  beq a b :=
+    (a.numArgs == b.numArgs) &&
+    ((a.byteTransport == b.byteTransport) &&
+    ((a.resultVars == b.resultVars) &&
+    ((a.summarySelector == b.summarySelector) &&
+    ((a.name == b.name) &&
+    ((a.writesState == b.writesState) &&
+    ((a.readsState == b.readsState) &&
+    ((a.axioms == b.axioms) &&
+    ((a.proofStatus == b.proofStatus) &&
+    ((a.summaryName == b.summaryName) &&
+    ((a.summaryMutability == b.summaryMutability) &&
+    ((a.targetArg == b.targetArg) &&
+    (a.valueArg == b.valueArg))))))))))))
 
 instance : Repr ExternalCallModule where
   reprPrec m _ := s!"ECM[{m.name}]"

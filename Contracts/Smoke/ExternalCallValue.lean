@@ -400,4 +400,52 @@ example :
     r.fst = (0 : Uint256) ∧ r.snd.returndata = [] ∧ r.snd.calls = [] := by
   native_decide
 
+/-! ### Value-bearing ECM `selfBalance` debit (#2561) -/
+
+private def fundedValueEcmWorks : Bool :=
+  match execStmtWithCalls identityEnv [] staleCaller
+      (.ecm Compiler.Modules.Calls.callWithValueModule
+        [.literal 9, .literal 40, .literal 0, .literal 0]) with
+  | .continue post =>
+      post.world.selfBalance == (60 : Uint256) &&
+        post.world.calls.length == 1
+  | _ => false
+
+example : fundedValueEcmWorks = true := by
+  native_decide
+
+private def unfundedValueEcmReverts : Bool :=
+  match execStmtWithCalls identityEnv [] staleCaller
+      (.ecm Compiler.Modules.Calls.callWithValueModule
+        [.literal 9, .literal 200, .literal 0, .literal 0]) with
+  | .revert => true
+  | _ => false
+
+example : unfundedValueEcmReverts = true := by
+  native_decide
+
+example :
+    let r := (Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule
+      .stub [9, 40, 0, 0] 0).run memState
+    r.snd.selfBalance = (60 : Uint256) ∧ r.snd.calls.length = 1 := by
+  native_decide
+
+private def fundedSelfCallEcmPreservesBalance : Bool :=
+  match execStmtWithCalls identityEnv [] staleCaller
+      (.ecm Compiler.Modules.Calls.callWithValueModule
+        [.literal 0, .literal 40, .literal 0, .literal 0]) with
+  | .continue post =>
+      post.world.selfBalance == (100 : Uint256) &&
+        post.world.calls.length == 1
+  | _ => false
+
+example : fundedSelfCallEcmPreservesBalance = true := by
+  native_decide
+
+example :
+    let r := (Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule
+      .stub [0, 40, 0, 0] 0).run memState
+    r.snd.selfBalance = (100 : Uint256) ∧ r.snd.calls.length = 1 := by
+  native_decide
+
 end Contracts.Smoke.ExternalCallValue

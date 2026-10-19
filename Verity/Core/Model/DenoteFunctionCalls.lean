@@ -82,6 +82,22 @@ def debitSelfBalance (w : ContractState) (value : Nat) : Option ContractState :=
   else
     none
 
+/-- Debit `value` from `selfBalance` for an ECM call to `target`.
+    An unfunded call (`w.selfBalance.val < value`) returns `none`.
+    A funded self-call (`Verity.Core.Address.ofNat target == w.thisAddress`)
+    transfers `value` from `thisAddress` back to `thisAddress`, leaving
+    `selfBalance` unchanged (`some w`); a funded distinct-target call
+    debits `selfBalance`. -/
+def debitEcmSelfBalance (w : ContractState) (target value : Nat) : Option ContractState :=
+  if value ≤ w.selfBalance.val then
+    if Verity.Core.Address.ofNat target == w.thisAddress then
+      some w
+    else
+      some { w with selfBalance := w.selfBalance - (value : Core.Uint256) }
+  else
+    none
+
+
 /-- Successful `call` commits the adversary transition, journals, debits
     ETH, and writes returndata into memory. Failure / revert keeps the
     pre-call balance and still journals. Every outcome installs the observed
@@ -423,22 +439,33 @@ mutual
               if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
                 CallKind.staticcall
               else CallKind.call
-            let site : CallSite :=
-              { siteId := post.externalCallIndex, kind := kind, target := 0,
-                value := 0, calldata := argWords, name := mod.summaryName,
-                returnArity := mod.resultVars.length, gas := post.world.selfBalance.val }
-            let obs := denoteCallJournaled env.adversary site
-              { world := post.world, gasRemaining := site.gas }
-            match obs.result with
-            | .success data =>
-                if data.length != mod.resultVars.length then .revert
-                else .continue
-                  { post with
-                    world := { mod.committedWorld (some obs.state.world) post.world with
-                      returndata := data.map wordNormalize }
-                    bindings := bindResultWords post.bindings mod.resultVars data
-                    externalCallIndex := post.externalCallIndex + 1 }
-            | .failure _ | .revert _ => .revert
+            let target := match mod.targetArg with
+              | some i => argWords.getD i 0
+              | none => 0
+            let value := if kind == .call then
+              match mod.valueArg with
+              | some i => argWords.getD i 0
+              | none => 0
+            else 0
+            match debitEcmSelfBalance post.world target value with
+            | none => .revert
+            | some paid =>
+                let site : CallSite :=
+                  { siteId := post.externalCallIndex, kind := kind, target := target,
+                    value := value, calldata := argWords, name := mod.summaryName,
+                    returnArity := mod.resultVars.length, gas := paid.selfBalance.val }
+                let obs := denoteCallJournaled env.adversary site
+                  { world := paid, gasRemaining := site.gas }
+                match obs.result with
+                | .success data =>
+                    if data.length != mod.resultVars.length then .revert
+                    else .continue
+                      { post with
+                        world := { mod.committedWorld (some obs.state.world) paid with
+                          returndata := data.map wordNormalize }
+                        bindings := bindResultWords post.bindings mod.resultVars data
+                        externalCallIndex := post.externalCallIndex + 1 }
+                | .failure _ | .revert _ => .revert
         | none => .revert
     | state, .ite cond thenBranch elseBranch =>
         match evalExprCall env fields state cond with
@@ -631,6 +658,34 @@ theorem debitSelfBalance_some (w : ContractState) (value : Nat)
     debitSelfBalance w value =
       some { w with selfBalance := w.selfBalance - (value : Core.Uint256) } := by
   simp [debitSelfBalance, h]
+
+theorem debitEcmSelfBalance_none_of_lt (w : ContractState) (target value : Nat)
+    (h : w.selfBalance.val < value) :
+    debitEcmSelfBalance w target value = none := by
+  simp [debitEcmSelfBalance, Nat.not_le_of_gt h]
+
+theorem debitEcmSelfBalance_some (w : ContractState) (target value : Nat)
+    (h : value ≤ w.selfBalance.val) :
+    debitEcmSelfBalance w target value =
+      if Verity.Core.Address.ofNat target == w.thisAddress then
+        some w
+      else
+        some { w with selfBalance := w.selfBalance - (value : Core.Uint256) } := by
+  simp [debitEcmSelfBalance, h]
+
+theorem debitEcmSelfBalance_some_self (w : ContractState) (target value : Nat)
+    (h : value ≤ w.selfBalance.val)
+    (hself : Verity.Core.Address.ofNat target = w.thisAddress) :
+    debitEcmSelfBalance w target value = some w := by
+  simp [debitEcmSelfBalance, h, hself]
+
+theorem debitEcmSelfBalance_some_of_ne (w : ContractState) (target value : Nat)
+    (h : value ≤ w.selfBalance.val)
+    (hne : Verity.Core.Address.ofNat target ≠ w.thisAddress) :
+    debitEcmSelfBalance w target value =
+      some { w with selfBalance := w.selfBalance - (value : Core.Uint256) } := by
+  simp [debitEcmSelfBalance, h, hne]
+
 
 theorem evalExpr_call_still_none (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState)

@@ -40,12 +40,13 @@ def compileSpecsWithOptions
     (layoutCompatibilityReportPath : Option String := none)
     (denyLayoutIncompatibility : Bool := false)
     (denyUnsafe : Bool := false)
+    (maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals)
     (strictBoundary : Bool := false) : IO Unit :=
   Compiler.CompileDriverCommon.compileSpecsWithOptions
     backend specs outDir verbose libraryPaths options patchReportPath trustReportPath assumptionReportPath abiOutDir
     denyUncheckedDependencies denyAssumedDependencies denyAxiomatizedPrimitives denyLocalObligations denyLinearMemoryMechanics
     denyEventEmission denyLowLevelMechanics denyRuntimeIntrospection denyProxyUpgradeability layoutReportPath
-    layoutCompatibilityReportPath denyLayoutIncompatibility denyUnsafe strictBoundary
+    layoutCompatibilityReportPath denyLayoutIncompatibility denyUnsafe maxStackLocals strictBoundary
 
 unsafe def compileModulesWithOptions
     (outDir : String)
@@ -70,12 +71,13 @@ unsafe def compileModulesWithOptions
     (layoutCompatibilityReportPath : Option String := none)
     (denyLayoutIncompatibility : Bool := false)
     (denyUnsafe : Bool := false)
+    (maxStackLocals : Nat := Compiler.Yul.TempReuse.defaultMaxStackLocals)
     (strictBoundary : Bool := false) : IO Unit := do
   Compiler.CompileDriverCommon.compileModulesWithOptions
     backend outDir modules verbose libraryPaths options patchReportPath trustReportPath assumptionReportPath
     abiOutDir denyUncheckedDependencies denyAssumedDependencies denyAxiomatizedPrimitives denyLocalObligations
     denyLinearMemoryMechanics denyEventEmission denyLowLevelMechanics denyRuntimeIntrospection
     denyProxyUpgradeability layoutReportPath layoutCompatibilityReportPath denyLayoutIncompatibility denyUnsafe
-    strictBoundary
+    maxStackLocals strictBoundary
 
 end Compiler

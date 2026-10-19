@@ -389,6 +389,8 @@ def bubblingValueCallModule : ExternalCallModule where
   writesState := true
   readsState := true
   axioms := ["generic_low_level_value_call_interface"]
+  targetArg := some 0
+  valueArg := some 1
   compile := fun _ctx args => do
     let (targetExpr, valueExpr, inputOffsetExpr, inputSizeExpr, outputOffsetExpr, outputSizeExpr) ←
       match args with
@@ -411,6 +413,8 @@ def bubblingValueCallNoOutputModule : ExternalCallModule where
   writesState := true
   readsState := true
   axioms := ["generic_low_level_value_call_interface"]
+  targetArg := some 0
+  valueArg := some 1
   compile := fun _ctx args => do
     let (targetExpr, valueExpr, inputOffsetExpr, inputSizeExpr) ←
       match args with
@@ -449,6 +453,8 @@ def callWithValueModule : ExternalCallModule where
   writesState := true
   readsState := true
   axioms := ["generic_call_with_value_interface"]
+  targetArg := some 0
+  valueArg := some 1
   compile := fun _ctx args => do
     match args with
     | [targetExpr, valueExpr, inOffsetExpr, inSizeExpr] =>
@@ -493,6 +499,8 @@ def callWithValueBytesModule (bytesParam : String) : ExternalCallModule where
   writesState := true
   readsState := true
   axioms := ["generic_call_with_value_interface"]
+  targetArg := some 0
+  valueArg := some 1
   compile := fun ctx args => do
     if bytesParam.isEmpty then
       throw "callWithValueBytes: bytesParam must be non-empty"
