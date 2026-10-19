@@ -8,12 +8,13 @@ This document records the empirical system telemetry and developer-velocity benc
 
 - **Capture Date**: October 19, 2026
 - **Execution Node**: `babylon` (`8 GiB` target physical RAM envelope, up to 10 concurrent subagents)
+- **Toolchain Provenance**: `Th0rgal/turbo-lean` @ `0be49df` (Season 5) + `Th0rgal/lean-native` @ `375a5ae` (`v0.3.0`) deployed in `/var/lib/sandboxed-node/caches/elan/bin/` on the `sandboxed-node` fleet (ahead of the `.github/workflows/turbo-lean-cache.yml` CI action pin `33f83860`)
 - **Telemetry Collector**: `/proc/<pid>/smaps_rollup` (RSS vs. PSS), Linux cgroup v2 (`memory.current`, `memory.events`, `cpu.stat`), parent-process compliance auditing (`turbo-lean` vs. raw `lean`/`lake`), and `turbo-lean status --json` CAS/Zygote counters
-- **Dataset**: **2,396 continuous samples** at `2 s` intervals (**79.9 minutes** of continuous multi-agent execution, `6.8 MB` JSONL archive in `/var/lib/sandboxed-node/telemetry-archive/`)
+- **Dataset**: **2,396 continuous samples** at `2 s` intervals (**79.9 minutes** of continuous multi-agent execution, `6.8 MB` JSONL host archive in `/var/lib/sandboxed-node/telemetry-archive/`)
 
 ### Work Delivered During the 80-Minute Telemetry Window
-1. **PR `#2550` (`6d99ba3d5`, Track S22 — `Projection.lean`)**: Decomposed **55** monolithic proofs (`> 50` lines) into **227** modular theorems (`<= 50` lines), removing **`-4,035` net lines** during the active telemetry slice and **`-5,277` net lines** (`+2,363 / -7,640` in `Projection.lean`) in the final merged commit.
-2. **PR `#2552` (`cb6785f7a`, Track S23 — `EndToEnd/Base.lean`)**: Decomposed **179** monolithic proofs (`> 50` lines) into **627** modular theorems (`<= 50` lines) across 6 parallel sub-slices, removing **`-10,777` net lines** (`+8,643 / -19,420` in `EndToEnd/Base.lean`) and emptying the `scripts/check_proof_length.py` `ALLOWLIST` to **0 entries** across all **9,170 proofs** at commit `cb6785f7a` (**9,207 proofs** after `6d99ba3d5` and `74b6ad364` merged).
+1. **PR `#2552` (`cb6785f7a`, Track S23 — `EndToEnd/Base.lean`)**: Decomposed **179** monolithic proofs (`> 50` lines) into **627** modular theorems (`<= 50` lines) across 6 parallel sub-slices, removing **`-10,777` net lines** (`+8,643 / -19,420` in `EndToEnd/Base.lean`; `9,170` total proofs scanned at `cb6785f7a`, leaving only the 55 `Projection.lean` entries in `ALLOWLIST`).
+2. **PR `#2550` (`6d99ba3d5`, Track S22 — `Projection.lean`)**: Decomposed the remaining **55** monolithic proofs (`> 50` lines) into **227** modular theorems (`<= 50` lines), removing **`-4,035` net lines** during the active telemetry slice and **`-5,277` net lines** (`+2,363 / -7,640` in `Projection.lean`) in the final merged commit `6d99ba3d5`, which emptied the `scripts/check_proof_length.py` `ALLOWLIST` to **0 entries** across all **9,207 proofs** (with `74b6ad364`).
 3. **PR `#2551` (`74b6ad364`, Family C) & PR `#2553` (Family E)**: Raised `Midnight.sol` construct coverage to **45 / 45 (`100%` excluding `multicall`)**.
 
 In total, **234 giant proofs** were refactored into **854 modular theorems** (**`-14,812` net lines** during the telemetry slice; **`-16,054` net lines** across the merged `Projection.lean` + `EndToEnd/Base.lean` commits) alongside two `SolidityImport` construct families in **1 hour 20 minutes** of wall-clock time.
@@ -28,11 +29,13 @@ In total, **234 giant proofs** were refactored into **854 modular theorems** (**
 | **Aggregate CPU Utilization (`turbo-lean` + `lean`)** | `152.1%` | `376.0%` | **`920.7%`** | Up to ~9.2 active cores during parallel shard sweeps |
 | **Aggregate RSS (Apparent Resident Virtual Memory)** | `7,286.0 MB` | `11,698.8 MB` | **`14,888.9 MB` (`14.89 GB`)** | Memory cost without `ZygoteWorker` CoW / `mmap` sharing |
 | **Aggregate PSS (True Physical Memory Consumed)** | `3,435.9 MB` | `4,822.7 MB` | **`6,192.4 MB` (`6.19 GB`)** | Comfortably below the `8 GB` node budget throughout the run |
-| **Physical RAM Saved via Zygote CoW (`RSS - PSS`)** | `3,343.3 MB` | `7,529.1 MB` | **`10,820.6 MB` (`10.82 GB`)** | Up to **`10.82 GB` of physical RAM saved** instantaneously |
-| **Effective RAM Multiplier (`RSS / PSS`)** | **`1.98x`** | `3.12x` | **`4.16x`** | **`4.16x` more concurrent Lean agents** inside the same physical RAM |
+| **Physical RAM Saved via Zygote CoW (`RSS - PSS`)** | `3,343.3 MB` | `7,529.1 MB` | **`10,820.6 MB` (`10.82 GB`)** | Per-sample `RSS_t - PSS_t` distribution (up to **`10.82 GB` saved** on a single tick) |
+| **Effective RAM Multiplier (`RSS / PSS`)** | **`1.98x`** | `3.12x` | **`4.16x`** | Per-sample `RSS_t / PSS_t` distribution (**`4.16x` peak CoW sharing ratio**) |
 | **Cgroup `oom_kill` Events (`memory.events`)** | `0` | `0` | **`0`** | **Zero OOM kills** across the entire 80-minute campaign |
 | **Agent `turbo-lean` Protocol Compliance** | `100%` | `100%` | **`100%`** | `0` direct calls to raw `lake build` or `lean_repl_daemon.py` |
 | **Shared CAS (`InterfaceCAS` / `TheoremProofCAS`)** | — | — | **`1,393` blobs / `654` actions** | **`515.8 s` of pure elaboration CPU time saved** via shard hits |
+
+*Note on order statistics*: Each row's `Median`, `P95`, and `Peak (Max)` are independent per-sample quantiles computed across the `2,396` time-series ticks `t` (for example, `RSS_t - PSS_t` and `RSS_t / PSS_t` are evaluated at each `2 s` sample `t` before taking the median, P95, and maximum, rather than subtracting or dividing the marginal row maxima).
 
 ---
 
