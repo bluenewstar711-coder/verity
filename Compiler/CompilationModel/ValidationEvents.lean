@@ -102,19 +102,12 @@ def validateEventArgShapesNode (fnName : String) (params : List Param)
         match eventParam.ty with
         | .uintN bits =>
             match arg with
-            | .param _ => pure ()
             | .literal n =>
                 if n < 2 ^ bits then
                   pure ()
                 else
                   throw s!"Compilation error: function '{fnName}' event '{eventName}' narrow param '{eventParam.name}' literal {n} does not fit in uint{bits}."
-            | _ =>
-                throw s!"Compilation error: function '{fnName}' event '{eventName}' narrow param '{eventParam.name}' currently requires a direct parameter reference so executable and generated event words agree."
-        | .intN _ | .bytesN _ =>
-            match arg with
-            | .param _ => pure ()
-            | _ =>
-                throw s!"Compilation error: function '{fnName}' event '{eventName}' narrow param '{eventParam.name}' currently requires a direct parameter reference so executable and generated event words agree."
+            | _ => pure ()
         | _ => pure ()
         match arg with
         | Expr.param name =>

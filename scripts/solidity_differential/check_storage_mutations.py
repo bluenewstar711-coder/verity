@@ -372,7 +372,7 @@ MUTANTS.update({
     'import-access-manager-target-role-calldata-helper-slice-size-zero': ('      else if let some buf := (← get).byteBuffers.find? id.toNat then\n        if (← mType base) == "bytes calldata" then\n          pure (some (buf.pre, buf.pointer, buf.size, false, false))\n        else\n          pure none', '      else if let some buf := (← get).byteBuffers.find? id.toNat then\n        if (← mType base) == "bytes calldata" then\n          pure (some (buf.pre, buf.pointer, .literal 0, false, false))\n        else\n          pure none'),
     'import-access-manager-target-role-packed-bytes1-pad-shift': ('    let padded := if ty == "bytes4" || ty == "bytes1" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))', '    let padded := if ty == "bytes4" then value.expr else Expr.mul value.expr (.literal (2^(8*(32-size))))'),
     'import-access-manager-target-role-mapping-bytes4-key-zero': ('      let convKey ← if baseTy.startsWith "mapping(bytes4 =>" then\n        convert "bytes4" (← mType indexExpression) rawKey indexExpression\n      else\n        pure rawKey', '      let convKey ← if baseTy.startsWith "mapping(bytes4 =>" then\n        pure { pre := rawKey.pre, expr := .literal 0 }\n      else\n        pure rawKey'),
-    'import-access-manager-target-role-narrow-bytes-event-guard': ('    | .bytesN _ =>\n        unless (match value.expr with\n                | .param _ => true\n                | _ => false) && value.pre.isEmpty do\n          failAt argument "narrow event arguments currently require a matching direct parameter"', '    | .bytesN _ =>\n        unless true do\n          failAt argument "narrow event arguments currently require a matching direct parameter"'),
+    'import-access-manager-target-role-narrow-bytes-event-guard': ('          match modelType with\n          | .uintN _ | .bytesN _ => failAt argument "event direct parameter type differs from its declaration"', '          match modelType with\n          | .uintN _ => failAt argument "event direct parameter type differs from its declaration"'),
 })
 
 # `unchecked` wrapping and lexical scope, observed through UncheckedSequence.
@@ -1164,14 +1164,13 @@ contract C {
 }
 ''')
     elif name == 'import-access-manager-target-role-narrow-bytes-event-guard':
-        diagnostic = 'narrow event arguments currently require a matching direct parameter'
+        diagnostic = 'event direct parameter type differs from its declaration'
         (target / 'Fixture.sol').write_text('''pragma solidity 0.8.34;
 contract C {
  event E(bytes4 sel);
- function checked(uint256 x) external returns (uint256) {
-  bytes4 sel = bytes4(uint32(x));
-  emit E(sel);
-  return x;
+ function checked(bytes1 x) external returns (uint256) {
+  emit E(bytes4(x));
+  return uint256(uint8(x));
  }
 }
 ''')

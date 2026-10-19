@@ -2785,7 +2785,7 @@ private partial def lowerYul (j : Json) : M Val := do
       let expectedArity? : Option Nat := match fname with
         | "caller" | "address" | "timestamp" | "number" | "chainid"
         | "selfbalance" | "origin" => some 0
-        | "iszero" | "not" | "tload" | "clz" => some 1
+        | "iszero" | "not" | "tload" | "sload" | "clz" => some 1
         | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
         | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
         | "lt" | "gt" | "slt" | "sgt" | "eq" | "keccak256" => some 2
@@ -2831,6 +2831,9 @@ private partial def lowerYul (j : Json) : M Val := do
       | "iszero", #[a] => pure { pre, expr := .logicalNot a }
       | "not", #[a] => pure { pre, expr := .bitNot a }
       | "tload", #[a] => pure { pre, expr := .tload a }
+      | "sload", #[a] => do
+          modify fun e => { e with usedRawStorage := true }
+          pure { pre, expr := .storageArrayElement rawStorageFieldName a }
       | "caller", #[] => pure { pre, expr := .caller }
       | "address", #[] => pure { pre, expr := .contractAddress }
       | "timestamp", #[] => pure { pre, expr := .blockTimestamp }
@@ -3437,6 +3440,12 @@ private partial def lowerYulStmtSlice (j : Json) (stmts refs : Array Json) (retN
           let slotVal ← lowerYul args[0]!
           let valVal ← lowerYul args[1]!
           out := out ++ slotVal.pre ++ valVal.pre |>.push (.tstore slotVal.expr valVal.expr)
+        else if fname == "sstore" then
+          unless args.size == 2 do failAt expr "sstore requires two arguments"
+          let slotVal ← lowerYul args[0]!
+          let valVal ← lowerYul args[1]!
+          modify fun e => { e with usedRawStorage := true }
+          out := out ++ slotVal.pre ++ valVal.pre |>.push (.setStorageArrayElement rawStorageFieldName slotVal.expr valVal.expr)
         else if fname == "mstore" then
           unless args.size == 2 do failAt expr "mstore requires two arguments"
           let offVal ← lowerYul args[0]!
@@ -8592,7 +8601,10 @@ private partial def bindHelperParams (params : Array Json) (args : Array CallArg
         else
           failAt p s!"unsupported storage struct helper parameter location {location}"
         if pname != "" then
-          yul := yul.erase pname
+          yul := match location, path with
+            | "storage", .rawSlot _ baseSlot | "storage", .bytesSlot (_, baseSlot) _ =>
+                yul.erase pname |>.insert s!"{pname}.slot" baseSlot
+            | _, _ => yul.erase pname
     | .flatStruct argSid sName memberVals effects =>
         unless pty.startsWith "struct " && !pty.contains "[" do
           failAt p "flat struct argument requires a struct parameter"
@@ -13446,12 +13458,12 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
                 | .param _ => true
                 | .literal n => n < 2 ^ bits
                 | _ => false) && value.pre.isEmpty do
-          failAt argument "narrow event arguments currently require a matching direct parameter"
+          value := { value with expr := cleanHelperResultExpr ty value }
     | .bytesN _ =>
         unless (match value.expr with
                 | .param _ => true
                 | _ => false) && value.pre.isEmpty do
-          failAt argument "narrow event arguments currently require a matching direct parameter"
+          value := { value with expr := cleanHelperResultExpr ty value }
     | _ => pure ()
     let boundValue ← atom value
     params := params ++ [{ name := parameterName, ty := modelType, kind := if indexed then .indexed else .unindexed }]
@@ -14181,8 +14193,12 @@ private partial def lowerLocalCore (s : Json) : M (Array Stmt) := do
               let (spre, frozenSlot) ← capture slotExpr
               pure (spre, SPath.bytesSlot (fieldName, frozenSlot) isString)
         modify fun e =>
+          let nextYul := match frozen with
+            | .rawSlot _ frozenSlot | .bytesSlot (_, frozenSlot) _ =>
+                if name == "" then e.yulNames else e.yulNames.erase name |>.insert s!"{name}.slot" frozenSlot
+            | _ => e.yulNames.erase name
           { e with paths := e.paths.insert id frozen,
-                   yulNames := e.yulNames.erase name }
+                   yulNames := nextYul }
         pure (pre ++ keys)
     | _ => failAt s "storage local is not a resolved read path"
   else if (loc == "memory" || loc == "calldata") && (← mType d).startsWith "struct " && !(← mType d).contains "[" then
