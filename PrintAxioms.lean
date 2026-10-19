@@ -616,6 +616,8 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.evalExpr_contractAddress_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_selfBalance_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_txOrigin_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_baseFee_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_gasPrice_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_add_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_sub_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_mul_arm
@@ -5953,6 +5955,8 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_txOrigin  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_msgValue  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_selfBalance  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_baseFee  -- private
+  -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_gasPrice  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_blockTimestamp  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_blockNumber  -- private
   -- Compiler.Proofs.IRGeneration.SourceSemantics.evalExpr_storage  -- private
@@ -9308,4 +9312,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8584 theorems/lemmas (5569 public, 3015 private, 0 sorry'd)
+-- Total: 8588 theorems/lemmas (5571 public, 3017 private, 0 sorry'd)
