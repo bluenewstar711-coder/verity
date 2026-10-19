@@ -118,7 +118,7 @@
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 451,
+      "line": 455,
       "name": "generic_call_with_value_interface"
     },
     {
@@ -143,7 +143,7 @@
     },
     {
       "file": "Compiler/Modules/Calls.lean",
-      "line": 556,
+      "line": 564,
       "name": "self_delegate_multicall_bytes_revert_bubbling"
     },
     {
@@ -168,7 +168,7 @@
   },
   "mechanisms": {
     "@[implemented_by": 4,
-    "native_decide": 479,
+    "native_decide": 484,
     "partial def": 362
   },
   "notes": "native_decide trusts Lean.ofReduceBool or Lean 4.31 generated per-proof native_decide axioms + Lean.trustCompiler. Prose registry: docs/AXIOMS.md, docs/TRUST_ASSUMPTIONS.md (enforced by scripts/check_trust_surface_registry.py).",
