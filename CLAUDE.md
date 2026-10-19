@@ -19,9 +19,13 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
    - External benchmark contracts (such as Morpho Midnight, Uniswap, OpenZeppelin, Pareto) belong **only** in `scripts/solidity_import_corpus/manifest.json` (to prioritize which generic Solidity constructs to implement next) or in their own downstream verification repositories (e.g., `morpho-midnight-verity`).
 4. **Required Pre-Merge Gates (Run on the Exact PR Head)**:
    ```bash
+   export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+   export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
    export LEAN_NUM_THREADS=$(nproc)
+   turbo-lean pr-verify --base origin/main --json
    turbo-lean pr-verify --base origin/main --project-dir . --receipt .lake/turbo-receipt.json
    turbo-lean verify-receipt .lake/turbo-receipt.json
+   python3 scripts/check_proof_length.py
    make check
    python3 scripts/solidity_import_mutations.py
    # Plus smoke + loss + programs differential campaigns & PrintAxioms check:
@@ -31,39 +35,49 @@ Both `AGENTS.md` and `CLAUDE.md` are authoritative for all coding agents (`claud
 
 ---
 
-## 2. Fast & Persistent `turbo-lean` Zygote REPL Workflow (Mandatory for All Lean Edits)
+## 2. Turbo-Lean Season 5 (`0be49df`) + `lean-native v0.3.0` (`375a5ae`) Productivity Protocol (Mandatory for All Lean Edits)
 
 Because each agent shell tool call runs in a fresh subshell, running `lake build <TargetFile>` or `lake env repl` in an edit loop wastes 2–10 minutes per edit re-loading `.olean` imports and bloats RAM (8–16 GiB RSS per worktree).
 
-**Every Lean agent MUST exclusively use `turbo-lean` and its persistent in-memory Zygote REPL daemon (`TurboLean.ZygoteWorker`), NEVER raw `lake build`, `lake env lean`, or `lake env repl` in edit loops:**
+**Every Lean agent MUST exclusively use `turbo-lean` and its persistent in-memory Zygote REPL daemon (`TurboLean.ZygoteWorker` + `lean-native-core`), NEVER raw `lake build`, `lake env lean`, or `lake env repl` in edit loops:**
 
-### Step 1 — Check a single theorem or definition via the `turbo-lean` Zygote REPL (~18–45 ms)
-`turbo-lean check` automatically starts/reuses the persistent `TurboLean.ZygoteWorker` REPL daemon on the host (`Shared_Clean` `.olean` memory across workers, `0 ms` re-import overhead), slices the file into its unchanged prefix skeleton (`PrefixEnvHash`) + target declaration shard (`StmtHash`, `ProofHash`), and checks only the target declaration with two-level CAS + `Singleflight` deduplication:
+### Rule 1 — Mandatory Shared CAS & Persistent Worker Environment
+Always export `TURBO_LEAN_HOME=/var/lib/sandboxed-node/caches/turbo-lean` and `PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"` in every shell invocation so all agents and worktrees share the two-level `InterfaceCAS` and `TheoremProofCAS`, the `/dev/shm` `cone_env_hash` dependency-cone cache, and the persistent `ZygoteWorker` + `lean-native-core` JSON-RPC worker (`0.07 ms/req`, `13,973 req/s`):
 ```bash
-# Check a single theorem or lemma after editing Path/To/Target.lean:
-turbo-lean check Path/To/Target.lean --decl <theorem_name> --project-dir .
+export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
+```
 
-# Enforce zero statement drift during proof-decomposition tracks (S20–S23):
-turbo-lean check Path/To/Target.lean --decl <theorem_name> --disallow-statement-changes --project-dir .
+### Rule 2 — Mandatory Fail-Fast Pre-Proof Gate with `fast-check`
+Before spending any time writing tactics for a new auxiliary lemma (`theorem` / `private theorem` over `Uint256`, `BitVec`, offsets, masks, memory/calldata bounds, or state invariants), agents **MUST** first write the lemma statement with `:= by sorry` and run:
+```bash
+turbo-lean fast-check --transpile-lean Path/To/File.lean --decl <lemma_name>
+```
+**Why this is mandatory**: Empirical telemetry shows that ~30–40% of LLM proof time is wasted attempting to prove a false helper lemma missing an overflow (`offset + 32 <= 2^256`), alignment, or slot-disjointness precondition. `fast-check` (backed by `lean-native v0.3.0` equality constraint propagation, LLVM 18 SIMD `i256`/`i512`, and NVIDIA PTX 8.0 `sm_90`) falsifies untrue lemmas and produces a certified counterexample (`certifyCounterexample_no_false_positive`) in `0.1 ms - 4 ms`.
+
+### Rule 3 — Incremental Declaration Checking & Interface Hash Preservation
+`turbo-lean check` automatically starts/reuses the persistent `TurboLean.ZygoteWorker` REPL daemon on the host (`Shared_Clean` `.olean` memory across workers, `0 ms` re-import overhead), computes the declaration's BLAKE3 dependency cone (`cone_env_hash`), and checks only the target declaration (`~18–45 ms`, or `~4 ms` on warm CAS hit). Use `--disallow-statement-changes --json` during proof decomposition/refactoring so `.olean` interfaces never invalidate downstream dependents:
+```bash
+# Enforce zero statement drift during proof decomposition/refactoring:
+turbo-lean check Path/To/File.lean --decl <theorem_name> --disallow-statement-changes --json
+
+# Check a single theorem or definition interactively:
+turbo-lean check Path/To/Target.lean --decl <theorem_name> --project-dir .
 
 # Check all uncached theorem shards in a file in parallel:
 turbo-lean check Path/To/Target.lean --parallel-shards --project-dir .
 ```
 
-### Step 2 — Fast CPU/GPU counterexample search before proving (`turbo-lean fast-check`)
-Before spending time proving a new arithmetic/word/storage lemma, falsify or sanity-check it in milliseconds (`--transpile-lean` transpiles Lean 4 `Prop` theorems directly to CUDA / C++):
+### Rule 4 — Pre-PR Verification & In-Kernel Axiom Gate (`< 1 s`)
+Before opening or updating a PR, run `turbo-lean pr-verify --base origin/main --json` (which verifies all modified theorem shards against `origin/main` and runs the in-kernel `collectAxioms` gate inside `ZygoteWorker` in `< 1 s`, preventing any macro or transitive `sorryAx` bypass) alongside `python3 scripts/check_proof_length.py`:
 ```bash
-turbo-lean fast-check --transpile-lean Path/To/Target.lean --decl <theorem_name>
-```
-
-### Step 3 — Incremental PR verification (`turbo-lean pr-verify`, ~25–100 ms)
-To verify all modified proofs across the worktree against `origin/main` and emit a cryptographic BLAKE3 receipt:
-```bash
+turbo-lean pr-verify --base origin/main --json
 turbo-lean pr-verify --base origin/main --project-dir . --receipt .lake/turbo-receipt.json
 turbo-lean verify-receipt .lake/turbo-receipt.json
+python3 scripts/check_proof_length.py
 ```
 
-### Step 4 — Rebuild `.olean` interfaces ONLY when module signatures/imports change
+### Step 5 — Rebuild `.olean` interfaces ONLY when module signatures/imports change
 When you add or change a public `def`, `structure`, `inductive`, or theorem statement imported by downstream modules, run `turbo-lean build` (which wraps Lake with CAS caching and seeds theorem shards):
 ```bash
 export LEAN_NUM_THREADS=$(nproc)
@@ -76,8 +90,10 @@ Note: `scripts/lean_repl_daemon.py check --file F --decl D` is retained only as 
 ## 3. Agent Speed & Efficiency: What To Do vs. What To Avoid
 
 ### DO (Fast & Reliable)
-- **Always use `turbo-lean check <File.lean> --decl <name> --project-dir .`** for every interactive theorem/proof edit (`~18–45 ms` via the persistent Zygote REPL daemon, `~4 ms` on warm CAS hit).
-- **Always use `turbo-lean pr-verify --base origin/main --project-dir .`** to validate PR diffs before committing/pushing.
+- **Always export `TURBO_LEAN_HOME=/var/lib/sandboxed-node/caches/turbo-lean` and `PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"`** so all subagents share the warm `InterfaceCAS` and `TheoremProofCAS`.
+- **Always run `turbo-lean fast-check --transpile-lean <File.lean> --decl <lemma_name>`** on every new helper lemma (`:= by sorry`) before writing tactics (`0.1 ms - 4 ms` via `lean-native-core`).
+- **Always use `turbo-lean check <File.lean> --decl <name> --disallow-statement-changes --json`** during proof refactoring and `--project-dir .` for interactive edits (`~18–45 ms` via the persistent Zygote REPL daemon, `~4 ms` on warm CAS hit).
+- **Always use `turbo-lean pr-verify --base origin/main --json` + `python3 scripts/check_proof_length.py`** to validate PR diffs and in-kernel `collectAxioms` before committing/pushing.
 - **Reuse local `.lake` build caches on worker nodes**: In a fresh workspace clone, run `scripts/ci_local_persistence.sh restore-lean` or copy/hardlink an existing `/var/lib/sandboxed-node/*/verity/.lake` cache before running `turbo-lean`.
 - **Search existing lemmas first** (`git grep`) before proving arithmetic, bitvector, memory, or storage frame properties from scratch.
 - **Test single fixtures/mutants during development** (e.g., `python3 scripts/solidity_import_mutations.py --task <name>`) and use `--jobs auto` (or `--shard I/N --jobs auto`) for full campaigns.
@@ -86,6 +102,7 @@ Note: `scripts/lean_repl_daemon.py check --file F --decl D` is retained only as 
 
 ### AVOID (Slow & Error-Prone Anti-Patterns Observed in Subagents)
 - **NEVER run raw `lake build`, `lake env lean`, or `lake env repl` in an edit loop**. Every agent is monitored for rogue `lean`/`lake`/`repl` processes not spawned by `turbo-lean`.
+- **NEVER attempt to prove a new arithmetic/word/memory helper lemma without first running `turbo-lean fast-check --transpile-lean`**.
 - **NEVER poll background builds with `sleep 60` / `sleep 240` loops**. Debug tactics exclusively with `turbo-lean check <File.lean> --decl <name> --project-dir .`.
 - **NEVER run serial unsharded 293-mutant loops or two concurrent full mutation campaigns on the same host** (each mutant rebuilds `Import.lean` using ~2.7 GiB RAM; running two full suites concurrently starves CPU/RAM and hits 600s timeouts).
 - **NEVER rely on `cd` persisting across separate `Bash` tool calls** (each tool call resets `cwd` to the workspace root; always pass `--project-dir` / `-C <dir>` or chain `cd <dir> && ...` in the same command).
@@ -139,19 +156,23 @@ When writing or refactoring compiler passes, specifications (`Denote`), and proo
 ## 6. Core Commands & Reference Docs
 
 ```bash
+export PATH="/var/lib/sandboxed-node/caches/elan/bin:$PATH"
+export TURBO_LEAN_HOME="/var/lib/sandboxed-node/caches/turbo-lean"
 export LEAN_NUM_THREADS=$(nproc)
-turbo-lean check F.lean --decl NAME --project-dir .                 # ~18-45ms Zygote REPL check
-turbo-lean check F.lean --parallel-shards --project-dir .           # Parallel file shard sweep
-turbo-lean fast-check --transpile-lean F.lean --decl NAME           # GPU/CPU counterexample check
-turbo-lean pr-verify --base origin/main --project-dir .             # ~25-100ms incremental PR verify
-turbo-lean build --seed-shards --project-dir .                      # Full CAS build when interfaces change
-make check                                                          # Run local CI-equivalent validation
-make test-python                                                    # Run Python unit tests
-make test-foundry                                                   # Run Foundry differential tests
+turbo-lean fast-check --transpile-lean F.lean --decl NAME                 # 0.1-4ms SIMD/PTX counterexample gate
+turbo-lean check F.lean --decl NAME --disallow-statement-changes --json   # ~18-45ms Zygote REPL check (0 interface drift)
+turbo-lean check F.lean --parallel-shards --project-dir .                 # Parallel file shard sweep
+turbo-lean pr-verify --base origin/main --json                            # <1s incremental PR + in-kernel collectAxioms gate
+python3 scripts/check_proof_length.py                                     # Verify all proofs <= 50 lines
+turbo-lean build --seed-shards --project-dir .                            # Full CAS build when interfaces change
+make check                                                                # Run local CI-equivalent validation
+make test-python                                                          # Run Python unit tests
+make test-foundry                                                         # Run Foundry differential tests
 ```
 
 - Project overview and review order: [README.md](README.md)
 - Contribution conventions: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
+- Telemetry & `turbo-lean` benchmarks: [docs/TELEMETRY_AND_TURBO_LEAN_BENCHMARKS.md](docs/TELEMETRY_AND_TURBO_LEAN_BENCHMARKS.md)
 - Solidity import guide & per-family checklist: [docs/SOLIDITY_IMPORT.md](docs/SOLIDITY_IMPORT.md)
 - Trust assumptions & axioms: [docs/TRUST_ASSUMPTIONS.md](docs/TRUST_ASSUMPTIONS.md), [docs/AXIOMS.md](docs/AXIOMS.md)
