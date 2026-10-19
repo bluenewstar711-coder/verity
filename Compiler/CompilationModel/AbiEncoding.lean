@@ -38,25 +38,323 @@ Static members take their flattened word count × 32; dynamic members take 32 (o
 def abiHeadSize (tys : List ParamType) : Nat :=
   tys.foldl (fun acc ty => acc + eventHeadWordSize ty) 0
 
-/-- Recursively ABI-encode a dynamic composite type into memory at `dstBase`.
-    Reads input from `dynamicSource` at `srcBase`.
-    Returns `(stmts, totalLenExpr)` where `totalLenExpr` is the total bytes written. -/
-partial def compileUnindexedAbiEncode
-    (dynamicSource : DynamicDataSource) (ty : ParamType)
-    (srcBase dstBase : YulExpr) (stem : String) :
-    Except String (List YulStmt × YulExpr) := do
-  match ty with
-  | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
-  | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
-  | ParamType.address | ParamType.bool | ParamType.bytes32 =>
-      let loaded := dynamicWordLoad dynamicSource srcBase
-      pure ([
-        YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
-      ], YulExpr.lit 32)
-  | ParamType.bytes | ParamType.string =>
+mutual
+  /-- Recursively ABI-encode a dynamic composite type into memory at `dstBase`.
+      Reads input from `dynamicSource` at `srcBase`.
+      Returns `(stmts, totalLenExpr)` where `totalLenExpr` is the total bytes written. -/
+  def compileUnindexedAbiEncode
+      (dynamicSource : DynamicDataSource) (ty : ParamType)
+      (srcBase dstBase : YulExpr) (stem : String) :
+      Except String (List YulStmt × YulExpr) := do
+    match ty with
+    | ParamType.uint256 | ParamType.int256 | ParamType.uint8 | ParamType.uint16
+    | ParamType.uintN _ | ParamType.intN _ | ParamType.bytesN _
+    | ParamType.address | ParamType.bool | ParamType.bytes32 =>
+        let loaded := dynamicWordLoad dynamicSource srcBase
+        pure ([
+          YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, normalizeEventWord ty loaded])
+        ], YulExpr.lit 32)
+    | ParamType.bytes | ParamType.string =>
+        let lenName := s!"{stem}_len"
+        let paddedName := s!"{stem}_padded"
+        pure ([
+          YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase),
+          YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
+        ] ++ dynamicCopyData dynamicSource
+          (YulExpr.call "add" [dstBase, YulExpr.lit 32])
+          (YulExpr.call "add" [srcBase, YulExpr.lit 32])
+          (YulExpr.ident lenName) ++ [
+          YulStmt.let_ paddedName (YulExpr.call "and" [
+            YulExpr.call "add" [YulExpr.ident lenName, YulExpr.lit 31],
+            YulExpr.call "not" [YulExpr.lit 31]
+          ]),
+          YulStmt.exprStmt (YulExpr.call "mstore" [
+            YulExpr.call "add" [
+              YulExpr.call "add" [dstBase, YulExpr.lit 32],
+              YulExpr.ident lenName
+            ],
+            YulExpr.lit 0
+          ])
+        ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident paddedName])
+    | ParamType.tuple elemTys =>
+        let headSize := abiHeadSize elemTys
+        let tailLenName := s!"{stem}_tail_len"
+        let initStmts := [YulStmt.let_ tailLenName (YulExpr.lit headSize)]
+        let memberStmts ←
+          compileUnindexedAbiEncodeTupleMembers dynamicSource elemTys srcBase dstBase stem
+            tailLenName 0 0
+        pure (initStmts ++ memberStmts, YulExpr.ident tailLenName)
+    | ParamType.fixedArray elemTy n =>
+        if eventIsDynamicType elemTy then
+          let tailLenName := s!"{stem}_fa_tail_len"
+          let headSize := n * 32
+          let initStmts := [YulStmt.let_ tailLenName (YulExpr.lit headSize)]
+          let elemStmts ←
+            compileUnindexedAbiEncodeFixedDynamicElems dynamicSource elemTy n srcBase dstBase stem
+              tailLenName 0
+          pure (initStmts ++ elemStmts, YulExpr.ident tailLenName)
+        else
+          let elemWordSize := eventHeadWordSize elemTy
+          let elemStmts ←
+            compileUnindexedAbiEncodeFixedStaticElems dynamicSource elemTy n srcBase dstBase stem
+              elemWordSize 0
+          pure (elemStmts, YulExpr.lit (n * elemWordSize))
+    | ParamType.array elemTy =>
+        let lenName := s!"{stem}_arr_len"
+        let lenStmt := YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase)
+        let storeLenStmt :=
+          YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
+        if eventIsDynamicType elemTy then
+          let headLenName := s!"{stem}_arr_head_len"
+          let tailLenName := s!"{stem}_arr_tail_len"
+          let loopIdxName := s!"{stem}_arr_i"
+          let elemRelName := s!"{stem}_arr_elem_rel"
+          let elemSrcName := s!"{stem}_arr_elem_src"
+          let elemDstName := s!"{stem}_arr_elem_dst"
+          let (innerStmts, innerLen) ←
+            compileUnindexedAbiEncode dynamicSource elemTy
+              (YulExpr.ident elemSrcName)
+              (YulExpr.ident elemDstName)
+              s!"{stem}_arr_e"
+          let loopBody := [
+            YulStmt.let_ elemRelName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
+              YulExpr.call "add" [srcBase, YulExpr.lit 32],
+              YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit 32]
+            ])),
+            YulStmt.let_ elemSrcName (YulExpr.call "add" [
+              YulExpr.call "add" [srcBase, YulExpr.lit 32],
+              YulExpr.ident elemRelName
+            ]),
+            YulStmt.exprStmt (YulExpr.call "mstore" [
+              YulExpr.call "add" [
+                YulExpr.call "add" [dstBase, YulExpr.lit 32],
+                YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit 32]
+              ],
+              YulExpr.ident tailLenName
+            ]),
+            YulStmt.let_ elemDstName (YulExpr.call "add" [
+              YulExpr.call "add" [dstBase, YulExpr.lit 32],
+              YulExpr.ident tailLenName
+            ])
+          ] ++ innerStmts ++ [
+            YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
+          ]
+          let loopStmt := YulStmt.for_
+            [YulStmt.let_ loopIdxName (YulExpr.lit 0)]
+            (YulExpr.call "lt" [YulExpr.ident loopIdxName, YulExpr.ident lenName])
+            [YulStmt.assign loopIdxName
+              (YulExpr.call "add" [YulExpr.ident loopIdxName, YulExpr.lit 1])]
+            loopBody
+          pure ([lenStmt, storeLenStmt,
+            YulStmt.let_ headLenName (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit 32]),
+            YulStmt.let_ tailLenName (YulExpr.ident headLenName),
+            loopStmt
+          ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident tailLenName])
+        else
+          let elemWordSize := eventHeadWordSize elemTy
+          let byteLenName := s!"{stem}_arr_byte_len"
+          let loopIdxName := s!"{stem}_arr_i"
+          let elemSrcName := s!"{stem}_arr_elem_src"
+          let (innerStmts, _) ←
+            compileUnindexedAbiEncode dynamicSource elemTy
+              (YulExpr.ident elemSrcName)
+              (YulExpr.call "add" [
+                YulExpr.call "add" [dstBase, YulExpr.lit 32],
+                YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit elemWordSize]
+              ])
+              s!"{stem}_arr_e"
+          let loopBody := [
+            YulStmt.let_ elemSrcName (YulExpr.call "add" [
+              YulExpr.call "add" [srcBase, YulExpr.lit 32],
+              YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit elemWordSize]
+            ])
+          ] ++ innerStmts
+          let loopStmt := YulStmt.for_
+            [YulStmt.let_ loopIdxName (YulExpr.lit 0)]
+            (YulExpr.call "lt" [YulExpr.ident loopIdxName, YulExpr.ident lenName])
+            [YulStmt.assign loopIdxName
+              (YulExpr.call "add" [YulExpr.ident loopIdxName, YulExpr.lit 1])]
+            loopBody
+          let paddedName := s!"{stem}_arr_padded"
+          pure ([lenStmt, storeLenStmt,
+              YulStmt.let_ byteLenName
+                (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit elemWordSize]),
+              loopStmt,
+              YulStmt.let_ paddedName (YulExpr.call "and" [
+                YulExpr.call "add" [YulExpr.ident byteLenName, YulExpr.lit 31],
+                YulExpr.call "not" [YulExpr.lit 31]
+              ])
+            ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident paddedName])
+
+    | ParamType.adt _ maxFields =>
+        -- ADTs are ABI-encoded as (uint8 tag, uint256 field0, ..., uint256 fieldN)
+        -- Tag word: load and mask to uint8
+        let tagLoaded := dynamicWordLoad dynamicSource srcBase
+        let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
+          dstBase, YulExpr.call "and" [tagLoaded, YulExpr.lit 0xFF]
+        ])
+        -- Field words: load consecutive words from source
+        let fieldStores := (List.range maxFields).map fun i =>
+          let srcOff := YulExpr.call "add" [srcBase, YulExpr.lit ((i + 1) * 32)]
+          let dstOff := YulExpr.call "add" [dstBase, YulExpr.lit ((i + 1) * 32)]
+          YulStmt.exprStmt (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
+        let totalBytes := 32 * (1 + maxFields)
+        pure (tagStore :: fieldStores, YulExpr.lit totalBytes)
+
+    | ParamType.newtypeOf _ baseType =>
+        -- Newtypes erased to base type (#1727 Step 3b)
+        compileUnindexedAbiEncode dynamicSource baseType srcBase dstBase stem
+  termination_by (2 * sizeOf ty + 1, 0)
+  decreasing_by all_goals simp_wf; all_goals omega
+
+  def compileUnindexedAbiEncodeTupleMembers
+      (dynamicSource : DynamicDataSource) (remaining : List ParamType)
+      (srcBase dstBase : YulExpr) (stem tailLenName : String) (elemIdx headOffset : Nat) :
+      Except String (List YulStmt) := do
+    match remaining with
+    | [] => pure []
+    | elemTy :: rest =>
+        let elemSrcName := s!"{stem}_m{elemIdx}_src"
+        let elemDstName := s!"{stem}_m{elemIdx}_dst"
+        let srcStmts :=
+          if eventIsDynamicType elemTy then
+            let relName := s!"{stem}_m{elemIdx}_rel"
+            [
+              YulStmt.let_ relName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
+                srcBase, YulExpr.lit headOffset
+              ])),
+              YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.ident relName])
+            ]
+          else
+            [YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.lit headOffset])]
+        let encStmts ←
+          if eventIsDynamicType elemTy then do
+            let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
+              YulExpr.call "add" [dstBase, YulExpr.lit headOffset],
+              YulExpr.ident tailLenName
+            ])
+            let (innerStmts, innerLen) ←
+              compileUnindexedAbiEncode dynamicSource elemTy
+                (YulExpr.ident elemSrcName)
+                (YulExpr.ident elemDstName)
+                s!"{stem}_m{elemIdx}"
+            pure ([storeOffset,
+              YulStmt.let_ elemDstName (YulExpr.call "add" [dstBase, YulExpr.ident tailLenName])
+            ] ++ innerStmts ++ [
+              YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
+            ])
+          else do
+            let (innerStmts, _) ←
+              compileUnindexedAbiEncode dynamicSource elemTy
+                (YulExpr.ident elemSrcName)
+                (YulExpr.call "add" [dstBase, YulExpr.lit headOffset])
+                s!"{stem}_m{elemIdx}"
+            pure innerStmts
+        let restStmts ←
+          compileUnindexedAbiEncodeTupleMembers dynamicSource rest srcBase dstBase stem tailLenName
+            (elemIdx + 1) (headOffset + eventHeadWordSize elemTy)
+        pure (srcStmts ++ encStmts ++ restStmts)
+  termination_by (2 * sizeOf remaining, 0)
+  decreasing_by all_goals simp_wf; all_goals omega
+
+  def compileUnindexedAbiEncodeFixedDynamicElems
+      (dynamicSource : DynamicDataSource) (elemTy : ParamType) (n : Nat)
+      (srcBase dstBase : YulExpr) (stem tailLenName : String) (i : Nat) :
+      Except String (List YulStmt) := do
+    if _h : i < n then
+      let elemSrcName := s!"{stem}_fa{i}_src"
+      let elemDstName := s!"{stem}_fa{i}_dst"
+      let relName := s!"{stem}_fa{i}_rel"
+      let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
+        YulExpr.call "add" [dstBase, YulExpr.lit (i * 32)],
+        YulExpr.ident tailLenName
+      ])
+      let srcStmts := [
+        YulStmt.let_ relName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
+          srcBase, YulExpr.lit (i * 32)
+        ])),
+        YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.ident relName])
+      ]
+      let (innerStmts, innerLen) ←
+        compileUnindexedAbiEncode dynamicSource elemTy
+          (YulExpr.ident elemSrcName)
+          (YulExpr.ident elemDstName)
+          s!"{stem}_fa{i}"
+      let restStmts ←
+        compileUnindexedAbiEncodeFixedDynamicElems dynamicSource elemTy n srcBase dstBase stem
+          tailLenName (i + 1)
+      pure (srcStmts ++ [storeOffset,
+        YulStmt.let_ elemDstName (YulExpr.call "add" [dstBase, YulExpr.ident tailLenName])
+      ] ++ innerStmts ++ [
+        YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
+      ] ++ restStmts)
+    else
+      pure []
+  termination_by (2 * sizeOf elemTy + 1, n - i)
+  decreasing_by all_goals simp_wf; all_goals omega
+
+  def compileUnindexedAbiEncodeFixedStaticElems
+      (dynamicSource : DynamicDataSource) (elemTy : ParamType) (n : Nat)
+      (srcBase dstBase : YulExpr) (stem : String) (elemWordSize i : Nat) :
+      Except String (List YulStmt) := do
+    if _h : i < n then
+      let elemSrcName := s!"{stem}_fa{i}_src"
+      let srcStmt := YulStmt.let_ elemSrcName (YulExpr.call "add" [
+        srcBase, YulExpr.lit (i * elemWordSize)
+      ])
+      let (innerStmts, _) ←
+        compileUnindexedAbiEncode dynamicSource elemTy
+          (YulExpr.ident elemSrcName)
+          (YulExpr.call "add" [dstBase, YulExpr.lit (i * elemWordSize)])
+          s!"{stem}_fa{i}"
+      let restStmts ←
+        compileUnindexedAbiEncodeFixedStaticElems dynamicSource elemTy n srcBase dstBase stem
+          elemWordSize (i + 1)
+      pure ([srcStmt] ++ innerStmts ++ restStmts)
+    else
+      pure []
+  termination_by (2 * sizeOf elemTy + 1, n - i)
+  decreasing_by all_goals simp_wf; all_goals omega
+end
+
+@[simp] theorem compileUnindexedAbiEncode_uint256
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .uint256 srcBase dstBase stem =
+      .ok ([YulStmt.exprStmt (YulExpr.call "mstore"
+        [dstBase, normalizeEventWord .uint256 (dynamicWordLoad dynamicSource srcBase)])],
+        YulExpr.lit 32) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_address
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .address srcBase dstBase stem =
+      .ok ([YulStmt.exprStmt (YulExpr.call "mstore"
+        [dstBase, normalizeEventWord .address (dynamicWordLoad dynamicSource srcBase)])],
+        YulExpr.lit 32) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_bool
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .bool srcBase dstBase stem =
+      .ok ([YulStmt.exprStmt (YulExpr.call "mstore"
+        [dstBase, normalizeEventWord .bool (dynamicWordLoad dynamicSource srcBase)])],
+        YulExpr.lit 32) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_bytes32
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .bytes32 srcBase dstBase stem =
+      .ok ([YulStmt.exprStmt (YulExpr.call "mstore"
+        [dstBase, normalizeEventWord .bytes32 (dynamicWordLoad dynamicSource srcBase)])],
+        YulExpr.lit 32) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_bytes
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .bytes srcBase dstBase stem =
       let lenName := s!"{stem}_len"
       let paddedName := s!"{stem}_padded"
-      pure ([
+      .ok ([
         YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase),
         YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
       ] ++ dynamicCopyData dynamicSource
@@ -74,211 +372,79 @@ partial def compileUnindexedAbiEncode
           ],
           YulExpr.lit 0
         ])
-      ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident paddedName])
-  | ParamType.tuple elemTys =>
+      ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident paddedName]) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_string
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource .string srcBase dstBase stem =
+      compileUnindexedAbiEncode dynamicSource .bytes srcBase dstBase stem := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_tuple
+    (dynamicSource : DynamicDataSource) (elemTys : List ParamType)
+    (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource (.tuple elemTys) srcBase dstBase stem = (do
       let headSize := abiHeadSize elemTys
       let tailLenName := s!"{stem}_tail_len"
       let initStmts := [YulStmt.let_ tailLenName (YulExpr.lit headSize)]
-      let rec goMembers (remaining : List ParamType) (elemIdx headOffset : Nat) :
-          Except String (List YulStmt) := do
-        match remaining with
-        | [] => pure []
-        | elemTy :: rest =>
-            let elemSrcName := s!"{stem}_m{elemIdx}_src"
-            let elemDstName := s!"{stem}_m{elemIdx}_dst"
-            let srcStmts :=
-              if eventIsDynamicType elemTy then
-                let relName := s!"{stem}_m{elemIdx}_rel"
-                [
-                  YulStmt.let_ relName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
-                    srcBase, YulExpr.lit headOffset
-                  ])),
-                  YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.ident relName])
-                ]
-              else
-                [YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.lit headOffset])]
-            let encStmts ←
-              if eventIsDynamicType elemTy then do
-                let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
-                  YulExpr.call "add" [dstBase, YulExpr.lit headOffset],
-                  YulExpr.ident tailLenName
-                ])
-                let (innerStmts, innerLen) ←
-                  compileUnindexedAbiEncode dynamicSource elemTy
-                    (YulExpr.ident elemSrcName)
-                    (YulExpr.ident elemDstName)
-                    s!"{stem}_m{elemIdx}"
-                pure ([storeOffset,
-                  YulStmt.let_ elemDstName (YulExpr.call "add" [dstBase, YulExpr.ident tailLenName])
-                ] ++ innerStmts ++ [
-                  YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
-                ])
-              else do
-                let (innerStmts, _) ←
-                  compileUnindexedAbiEncode dynamicSource elemTy
-                    (YulExpr.ident elemSrcName)
-                    (YulExpr.call "add" [dstBase, YulExpr.lit headOffset])
-                    s!"{stem}_m{elemIdx}"
-                pure innerStmts
-            let restStmts ← goMembers rest (elemIdx + 1) (headOffset + eventHeadWordSize elemTy)
-            pure (srcStmts ++ encStmts ++ restStmts)
-      let memberStmts ← goMembers elemTys 0 0
-      pure (initStmts ++ memberStmts, YulExpr.ident tailLenName)
-  | ParamType.fixedArray elemTy n =>
-      if eventIsDynamicType elemTy then
+      let memberStmts ←
+        compileUnindexedAbiEncodeTupleMembers dynamicSource elemTys srcBase dstBase stem
+          tailLenName 0 0
+      pure (initStmts ++ memberStmts, YulExpr.ident tailLenName)) := by
+  unfold compileUnindexedAbiEncode; rfl
+
+@[simp] theorem compileUnindexedAbiEncode_fixedArray
+    (dynamicSource : DynamicDataSource) (elemTy : ParamType) (n : Nat)
+    (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource (.fixedArray elemTy n) srcBase dstBase stem =
+      (if eventIsDynamicType elemTy then do
         let tailLenName := s!"{stem}_fa_tail_len"
         let headSize := n * 32
         let initStmts := [YulStmt.let_ tailLenName (YulExpr.lit headSize)]
-        let rec goElems (i : Nat) : Except String (List YulStmt) := do
-          if i < n then
-            let elemSrcName := s!"{stem}_fa{i}_src"
-            let elemDstName := s!"{stem}_fa{i}_dst"
-            let relName := s!"{stem}_fa{i}_rel"
-            let storeOffset := YulStmt.exprStmt (YulExpr.call "mstore" [
-              YulExpr.call "add" [dstBase, YulExpr.lit (i * 32)],
-              YulExpr.ident tailLenName
-            ])
-            let srcStmts := [
-              YulStmt.let_ relName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
-                srcBase, YulExpr.lit (i * 32)
-              ])),
-              YulStmt.let_ elemSrcName (YulExpr.call "add" [srcBase, YulExpr.ident relName])
-            ]
-            let (innerStmts, innerLen) ←
-              compileUnindexedAbiEncode dynamicSource elemTy
-                (YulExpr.ident elemSrcName)
-                (YulExpr.ident elemDstName)
-                s!"{stem}_fa{i}"
-            let restStmts ← goElems (i + 1)
-            pure (srcStmts ++ [storeOffset,
-              YulStmt.let_ elemDstName (YulExpr.call "add" [dstBase, YulExpr.ident tailLenName])
-            ] ++ innerStmts ++ [
-              YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
-            ] ++ restStmts)
-          else
-            pure []
-        let elemStmts ← goElems 0
+        let elemStmts ←
+          compileUnindexedAbiEncodeFixedDynamicElems dynamicSource elemTy n srcBase dstBase stem
+            tailLenName 0
         pure (initStmts ++ elemStmts, YulExpr.ident tailLenName)
-      else
+      else do
         let elemWordSize := eventHeadWordSize elemTy
-        let rec goStaticElems (i : Nat) : Except String (List YulStmt) := do
-          if i < n then
-            let elemSrcName := s!"{stem}_fa{i}_src"
-            let srcStmt := YulStmt.let_ elemSrcName (YulExpr.call "add" [
-              srcBase, YulExpr.lit (i * elemWordSize)
-            ])
-            let (innerStmts, _) ←
-              compileUnindexedAbiEncode dynamicSource elemTy
-                (YulExpr.ident elemSrcName)
-                (YulExpr.call "add" [dstBase, YulExpr.lit (i * elemWordSize)])
-                s!"{stem}_fa{i}"
-            let restStmts ← goStaticElems (i + 1)
-            pure ([srcStmt] ++ innerStmts ++ restStmts)
-          else
-            pure []
-        let elemStmts ← goStaticElems 0
-        pure (elemStmts, YulExpr.lit (n * elemWordSize))
-  | ParamType.array elemTy =>
-      let lenName := s!"{stem}_arr_len"
-      let lenStmt := YulStmt.let_ lenName (dynamicWordLoad dynamicSource srcBase)
-      let storeLenStmt := YulStmt.exprStmt (YulExpr.call "mstore" [dstBase, YulExpr.ident lenName])
-      if eventIsDynamicType elemTy then
-        let headLenName := s!"{stem}_arr_head_len"
-        let tailLenName := s!"{stem}_arr_tail_len"
-        let loopIdxName := s!"{stem}_arr_i"
-        let elemRelName := s!"{stem}_arr_elem_rel"
-        let elemSrcName := s!"{stem}_arr_elem_src"
-        let elemDstName := s!"{stem}_arr_elem_dst"
-        let (innerStmts, innerLen) ←
-          compileUnindexedAbiEncode dynamicSource elemTy
-            (YulExpr.ident elemSrcName)
-            (YulExpr.ident elemDstName)
-            s!"{stem}_arr_e"
-        let loopBody := [
-          YulStmt.let_ elemRelName (dynamicWordLoad dynamicSource (YulExpr.call "add" [
-            YulExpr.call "add" [srcBase, YulExpr.lit 32],
-            YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit 32]
-          ])),
-          YulStmt.let_ elemSrcName (YulExpr.call "add" [
-            YulExpr.call "add" [srcBase, YulExpr.lit 32],
-            YulExpr.ident elemRelName
-          ]),
-          YulStmt.exprStmt (YulExpr.call "mstore" [
-            YulExpr.call "add" [
-              YulExpr.call "add" [dstBase, YulExpr.lit 32],
-              YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit 32]
-            ],
-            YulExpr.ident tailLenName
-          ]),
-          YulStmt.let_ elemDstName (YulExpr.call "add" [
-            YulExpr.call "add" [dstBase, YulExpr.lit 32],
-            YulExpr.ident tailLenName
-          ])
-        ] ++ innerStmts ++ [
-          YulStmt.assign tailLenName (YulExpr.call "add" [YulExpr.ident tailLenName, innerLen])
-        ]
-        let loopStmt := YulStmt.for_
-          [YulStmt.let_ loopIdxName (YulExpr.lit 0)]
-          (YulExpr.call "lt" [YulExpr.ident loopIdxName, YulExpr.ident lenName])
-          [YulStmt.assign loopIdxName (YulExpr.call "add" [YulExpr.ident loopIdxName, YulExpr.lit 1])]
-          loopBody
-        pure ([lenStmt, storeLenStmt,
-          YulStmt.let_ headLenName (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit 32]),
-          YulStmt.let_ tailLenName (YulExpr.ident headLenName),
-          loopStmt
-        ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident tailLenName])
-      else
-        let elemWordSize := eventHeadWordSize elemTy
-        let byteLenName := s!"{stem}_arr_byte_len"
-        let loopIdxName := s!"{stem}_arr_i"
-        let elemSrcName := s!"{stem}_arr_elem_src"
-        let (innerStmts, _) ←
-          compileUnindexedAbiEncode dynamicSource elemTy
-            (YulExpr.ident elemSrcName)
-            (YulExpr.call "add" [
-              YulExpr.call "add" [dstBase, YulExpr.lit 32],
-              YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit elemWordSize]
-            ])
-            s!"{stem}_arr_e"
-        let loopBody := [
-          YulStmt.let_ elemSrcName (YulExpr.call "add" [
-            YulExpr.call "add" [srcBase, YulExpr.lit 32],
-            YulExpr.call "mul" [YulExpr.ident loopIdxName, YulExpr.lit elemWordSize]
-          ])
-        ] ++ innerStmts
-        let loopStmt := YulStmt.for_
-          [YulStmt.let_ loopIdxName (YulExpr.lit 0)]
-          (YulExpr.call "lt" [YulExpr.ident loopIdxName, YulExpr.ident lenName])
-          [YulStmt.assign loopIdxName (YulExpr.call "add" [YulExpr.ident loopIdxName, YulExpr.lit 1])]
-          loopBody
-        let paddedName := s!"{stem}_arr_padded"
-        pure ([lenStmt, storeLenStmt,
-            YulStmt.let_ byteLenName (YulExpr.call "mul" [YulExpr.ident lenName, YulExpr.lit elemWordSize]),
-            loopStmt,
-            YulStmt.let_ paddedName (YulExpr.call "and" [
-              YulExpr.call "add" [YulExpr.ident byteLenName, YulExpr.lit 31],
-              YulExpr.call "not" [YulExpr.lit 31]
-            ])
-          ], YulExpr.call "add" [YulExpr.lit 32, YulExpr.ident paddedName])
+        let elemStmts ←
+          compileUnindexedAbiEncodeFixedStaticElems dynamicSource elemTy n srcBase dstBase stem
+            elemWordSize 0
+        pure (elemStmts, YulExpr.lit (n * elemWordSize))) := by
+  unfold compileUnindexedAbiEncode; rfl
 
-  | ParamType.adt _ maxFields =>
-      -- ADTs are ABI-encoded as (uint8 tag, uint256 field0, ..., uint256 fieldN)
-      -- Tag word: load and mask to uint8
-      let tagLoaded := dynamicWordLoad dynamicSource srcBase
-      let tagStore := YulStmt.exprStmt (YulExpr.call "mstore" [
-        dstBase, YulExpr.call "and" [tagLoaded, YulExpr.lit 0xFF]
-      ])
-      -- Field words: load consecutive words from source
-      let fieldStores := (List.range maxFields).map fun i =>
-        let srcOff := YulExpr.call "add" [srcBase, YulExpr.lit ((i + 1) * 32)]
-        let dstOff := YulExpr.call "add" [dstBase, YulExpr.lit ((i + 1) * 32)]
-        YulStmt.exprStmt (YulExpr.call "mstore" [dstOff, dynamicWordLoad dynamicSource srcOff])
-      let totalBytes := 32 * (1 + maxFields)
-      pure (tagStore :: fieldStores, YulExpr.lit totalBytes)
+@[simp] theorem compileUnindexedAbiEncode_newtypeOf
+    (dynamicSource : DynamicDataSource) (name : String) (baseType : ParamType)
+    (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource (.newtypeOf name baseType) srcBase dstBase stem =
+      compileUnindexedAbiEncode dynamicSource baseType srcBase dstBase stem := by
+  conv => lhs; unfold compileUnindexedAbiEncode
 
-  | ParamType.newtypeOf _ baseType =>
-      -- Newtypes erased to base type (#1727 Step 3b)
-      compileUnindexedAbiEncode dynamicSource baseType srcBase dstBase stem
+@[simp] theorem compileUnindexedAbiEncodeTupleMembers_nil
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr)
+    (stem tailLenName : String) (elemIdx headOffset : Nat) :
+    compileUnindexedAbiEncodeTupleMembers dynamicSource [] srcBase dstBase
+      stem tailLenName elemIdx headOffset = .ok [] := by
+  unfold compileUnindexedAbiEncodeTupleMembers; rfl
+
+@[simp] theorem compileUnindexedAbiEncodeFixedDynamicElems_ge
+    (dynamicSource : DynamicDataSource) (elemTy : ParamType) (n : Nat)
+    (srcBase dstBase : YulExpr) (stem tailLenName : String) (i : Nat)
+    (h : ¬ i < n) :
+    compileUnindexedAbiEncodeFixedDynamicElems dynamicSource elemTy n srcBase dstBase
+      stem tailLenName i = .ok [] := by
+  unfold compileUnindexedAbiEncodeFixedDynamicElems
+  simp [h]; rfl
+
+@[simp] theorem compileUnindexedAbiEncodeFixedStaticElems_ge
+    (dynamicSource : DynamicDataSource) (elemTy : ParamType) (n : Nat)
+    (srcBase dstBase : YulExpr) (stem : String) (elemWordSize i : Nat)
+    (h : ¬ i < n) :
+    compileUnindexedAbiEncodeFixedStaticElems dynamicSource elemTy n srcBase dstBase
+      stem elemWordSize i = .ok [] := by
+  unfold compileUnindexedAbiEncodeFixedStaticElems
+  simp [h]; rfl
 
 def revertWithCustomError (dynamicSource : DynamicDataSource)
     (errorDef : ErrorDef) (sourceArgs : List Expr) (args : List YulExpr) :

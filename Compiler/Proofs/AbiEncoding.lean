@@ -1136,4 +1136,66 @@ example :
 
 end Examples
 
+section UnindexedAndIndexedAbiEncodingBridge
+
+theorem compileUnindexedAbiEncode_scalar_exec
+    (dynamicSource : DynamicDataSource) (ty : ParamType)
+    (srcBase dstBase : YulExpr) (stem : String)
+    (hty : ty = .uint256 ∨ ty = .address ∨ ty = .bool ∨ ty = .bytes32)
+    (s : IRState) (dstAddr wordVal : Nat)
+    (hdst : evalIRExpr s dstBase = some dstAddr)
+    (hload : evalIRExpr s (normalizeEventWord ty (dynamicWordLoad dynamicSource srcBase)) =
+      some wordVal) :
+    ∃ stmts lenExpr,
+      compileUnindexedAbiEncode dynamicSource ty srcBase dstBase stem =
+        .ok (stmts, lenExpr) ∧
+      lenExpr = YulExpr.lit 32 ∧
+      execIRStmts 2 s stmts =
+        .continue
+          (s.writePhysicalMemoryValue (dstAddr % Compiler.Constants.evmModulus) wordVal) := by
+  rcases hty with rfl | rfl | rfl | rfl <;>
+    (simp [execIRStmts, execIRStmt, hdst, hload]; rfl)
+
+theorem compileIndexedInPlaceEncoding_scalar_exec
+    (dynamicSource : DynamicDataSource) (ty : ParamType)
+    (srcBase dstBase : YulExpr) (stem : String)
+    (hty : ty = .uint256 ∨ ty = .address ∨ ty = .bool ∨ ty = .bytes32)
+    (s : IRState) (dstAddr wordVal : Nat)
+    (hdst : evalIRExpr s dstBase = some dstAddr)
+    (hload : evalIRExpr s (normalizeEventWord ty (dynamicWordLoad dynamicSource srcBase)) =
+      some wordVal) :
+    ∃ stmts lenExpr,
+      compileIndexedInPlaceEncoding dynamicSource ty srcBase dstBase stem =
+        .ok (stmts, lenExpr) ∧
+      lenExpr = YulExpr.lit 32 ∧
+      execIRStmts 2 s stmts =
+        .continue
+          (s.writePhysicalMemoryValue (dstAddr % Compiler.Constants.evmModulus) wordVal) := by
+  rcases hty with rfl | rfl | rfl | rfl <;>
+    (simp [execIRStmts, execIRStmt, hdst, hload]; rfl)
+
+@[simp] theorem compileUnindexedAbiEncode_tuple_nil
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileUnindexedAbiEncode dynamicSource (.tuple []) srcBase dstBase stem =
+      .ok ([YulStmt.let_ s!"{stem}_tail_len" (YulExpr.lit 0)],
+        YulExpr.ident s!"{stem}_tail_len") := by
+  simp [abiHeadSize]
+
+@[simp] theorem compileIndexedInPlaceEncoding_tuple_nil
+    (dynamicSource : DynamicDataSource) (srcBase dstBase : YulExpr) (stem : String) :
+    compileIndexedInPlaceEncoding dynamicSource (.tuple []) srcBase dstBase stem =
+      .ok ([YulStmt.let_ s!"{stem}_tuple_out_len" (YulExpr.lit 0)],
+        YulExpr.ident s!"{stem}_tuple_out_len") := by
+  simp
+
+@[simp] theorem compileIndexedInPlaceEncoding_fixedArray_zero
+    (dynamicSource : DynamicDataSource) (elemTy : ParamType)
+    (srcBase dstBase : YulExpr) (stem : String) :
+    compileIndexedInPlaceEncoding dynamicSource (.fixedArray elemTy 0) srcBase dstBase stem =
+      .ok ([YulStmt.let_ s!"{stem}_fixed_out_len" (YulExpr.lit 0)],
+        YulExpr.ident s!"{stem}_fixed_out_len") := by
+  simp
+
+end UnindexedAndIndexedAbiEncodingBridge
+
 end Compiler.Proofs.AbiEncoding
