@@ -16,9 +16,8 @@ def main():
         ('number', 'uint256', 'block.number', 'view', None),
         ('chainid', 'uint256', 'block.chainid', 'view', None),
         ('timestamp', 'uint256', 'block.timestamp', 'view', None),
-        ('value', 'uint256', 'msg.value', 'payable', None),
-        ('payable-constant', 'uint256', '1', 'payable', None),
-        ('payable-sig', 'bytes4', 'msg.sig', 'payable', 'unsupported message context member sig'),
+        ('value', 'uint256', 'msg.value', 'payable', 'payable'),
+        ('payable-constant', 'uint256', '1', 'payable', 'payable'),
         ('basefee', 'uint256', 'block.basefee', 'view', None),
         ('prevrandao', 'uint256', 'block.prevrandao', 'view', 'unsupported block context member prevrandao'),
         ('coinbase', 'address', 'block.coinbase', 'view', 'unsupported block context member coinbase'),
@@ -59,14 +58,8 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
             source = source.replace('contract C {',
                 'contract C { function safe() external pure returns (uint256) { return 1; }')
             (directory / 'Fixture.sol').write_text(source)
-            extra = ''
-            if expected is None:
-                extra = (
-                    '\nexample : (tested.model.functions.find? (·.name == "safe")).map (·.isPayable) = some false := rfl'
-                    '\nexample : (tested.model.functions.find? (·.name == "checked")).map (·.isPayable) = some true := rfl\n'
-                )
             driver.write_text(driver.read_text().replace('  function checked()',
-                '  function safe()\n  function checked()') + extra)
+                '  function safe()\n  function checked()'))
         artifact = directory / 'Check.olean' 
         result = subprocess.run(['lake', 'env', 'lean', str(driver), '-o', str(artifact)],
                                 cwd=root, text=True, capture_output=True, timeout=120)
@@ -78,7 +71,7 @@ solidity_import tested from "{directory}" entry "Fixture.sol"
         elif (result.returncode == 0 or artifact.exists() or expected not in text or
               not re.search(r'Fixture\.sol:\d+:\d+:', text)):
             raise RuntimeError(f'{name}: expected located importer rejection {expected!r}\n{text}')
-        if mutability == 'payable' and expected is not None and 'closure: C.checked' not in text:
+        if mutability == 'payable' and 'closure: C.checked' not in text:
             raise RuntimeError(f'{name}: payable rejection names the wrong root\n{text}')
         print(f'pass environment-{name}', flush=True)
     print(output)

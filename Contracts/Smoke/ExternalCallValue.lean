@@ -430,5 +430,22 @@ example :
     r.snd.selfBalance = (60 : Uint256) ∧ r.snd.calls.length = 1 := by
   native_decide
 
-end Contracts.Smoke.ExternalCallValue
+private def fundedSelfCallEcmPreservesBalance : Bool :=
+  match execStmtWithCalls identityEnv [] staleCaller
+      (.ecm Compiler.Modules.Calls.callWithValueModule
+        [.literal 0, .literal 40, .literal 0, .literal 0]) with
+  | .continue post =>
+      post.world.selfBalance == (100 : Uint256) &&
+        post.world.calls.length == 1
+  | _ => false
 
+example : fundedSelfCallEcmPreservesBalance = true := by
+  native_decide
+
+example :
+    let r := (Contracts.ecmDoWords Compiler.Modules.Calls.callWithValueModule
+      .stub [0, 40, 0, 0] 0).run memState
+    r.snd.selfBalance = (100 : Uint256) ∧ r.snd.calls.length = 1 := by
+  native_decide
+
+end Contracts.Smoke.ExternalCallValue

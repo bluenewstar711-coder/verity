@@ -97,9 +97,8 @@ these lowerings; names alone do not identify a builtin. The stateful harness
 provides the same transaction context to each route and compares returned ABI
 bytes. Direct, local-binding, and helper variants are separately imported and
 checked for identical observations. This remains sampled differential evidence,
-not a proof of frontend correctness. Payable entry points set
-`FunctionSpec.isPayable := true` and lower `msg.value` / Yul `callvalue()` to
-`Expr.msgValue`, while unsupported context members fail import.
+not a proof of frontend correctness. Payable entry points and unsupported context
+members fail import rather than inheriting incomplete value-transfer behavior.
 The campaign identity includes the actual imported Solidity fixture alongside
 the Lean driver and implementation artifacts, detecting local source edits or
 removal during replay. It does not defend against a malicious filesystem.
@@ -282,9 +281,8 @@ converting the argument tuple components to their declared parameter types), and
 and `Stmt.returnBytes`, reading 32-byte words from memory and right-zero-padding the final partial
 word (`32 :: length :: paddedWords`) in both `Denote.returnBytesWords` and `Compile.compileStmt`.
 `address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
-`Expr.selfBalance`, `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, and `payable`
-root functions set `FunctionSpec.isPayable := true` with `msg.value` and Yul `callvalue()`
-lowering to `Expr.msgValue`, while external `<addr>.balance` reads and `tx.gasprice` are rejected.
+`Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
+`<addr>.balance` reads and `tx.gasprice` are rejected.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears

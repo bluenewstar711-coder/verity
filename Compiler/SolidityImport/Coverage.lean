@@ -44,7 +44,7 @@ def exprCovered : Expr → Bool
   | .storage _ => true
   | .localVar _ => true
   | .blockTimestamp => true
-  | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin | .baseFee | .gasPrice | .msgValue => true
+  | .blockNumber | .chainid | .caller | .contractAddress | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | .structMember _ key _ => exprCovered key
   | .structMember2 _ key1 key2 _ => exprCovered key1 && exprCovered key2
   | .storageArrayElement _ index => exprCovered index
@@ -616,10 +616,6 @@ theorem evalExpr_baseFee_arm (oracle : DenoteOracle) (fields : List Field)
 theorem evalExpr_gasPrice_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) :
     evalExpr oracle fields s .gasPrice = some s.world.gasPrice.val := rfl
-
-theorem evalExpr_msgValue_arm (oracle : DenoteOracle) (fields : List Field)
-    (s : DenoteState) :
-    evalExpr oracle fields s .msgValue = some s.world.msgValue.val := rfl
 
 theorem evalExpr_add_arm (oracle : DenoteOracle) (fields : List Field)
     (s : DenoteState) (a b : Expr) :

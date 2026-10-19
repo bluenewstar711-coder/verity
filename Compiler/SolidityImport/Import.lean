@@ -684,7 +684,7 @@ private def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
 
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
-  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice | .msgValue => true
+  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 
 private partial def targetAssignedIds (t : Json) : List Nat :=
@@ -868,7 +868,7 @@ end
 
 private def isOrderIndependentSibling : Expr → Bool
   | .literal _ | .param _ | .blockTimestamp | .blockNumber
-  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice | .msgValue => true
+  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 
 private partial def evalConstExpr? (env : RBMap String Nat compare) : Expr → Option Nat
@@ -2784,7 +2784,7 @@ private partial def lowerYul (j : Json) : M Val := do
         failAt j "Yul create2 must be the whole value of a Yul assignment or variable declaration"
       let expectedArity? : Option Nat := match fname with
         | "caller" | "address" | "timestamp" | "number" | "chainid"
-        | "selfbalance" | "origin" | "basefee" | "gasprice" | "callvalue" => some 0
+        | "selfbalance" | "origin" => some 0
         | "iszero" | "not" | "tload" | "sload" | "clz" => some 1
         | "add" | "sub" | "mul" | "div" | "sdiv" | "mod" | "smod" | "exp"
         | "and" | "or" | "xor" | "byte" | "shl" | "shr" | "sar" | "signextend"
@@ -2843,7 +2843,6 @@ private partial def lowerYul (j : Json) : M Val := do
       | "origin", #[] => pure { pre, expr := .txOrigin }
       | "basefee", #[] => pure { pre, expr := .baseFee }
       | "gasprice", #[] => pure { pre, expr := .gasPrice }
-      | "callvalue", #[] => pure { pre, expr := .msgValue }
       | "keccak256", #[a, b] => do
           let (.literal off, .literal size) := (a, b)
             | failAt j "only scratch-space keccak256 over 0x00..0x3f is supported"
@@ -4734,12 +4733,8 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if (← mKind base) == "Identifier" && optStr base "name" == some "msg" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_message" then
         unless (← refInt base) == -15 do failAt base "msg does not resolve to the Solidity builtin"
-        if member == "sender" then
-          pure (.expr { pre := #[], expr := .caller })
-        else if member == "value" then
-          pure (.expr { pre := #[], expr := .msgValue })
-        else
-          failAt j s!"unsupported message context member {member}"
+        unless member == "sender" do failAt j s!"unsupported message context member {member}"
+        pure (.expr { pre := #[], expr := .caller })
       else if (← mKind base) == "Identifier" && optStr base "name" == some "tx" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_transaction" then
         unless (← refInt base) == -26 do failAt base "tx does not resolve to the Solidity builtin"
@@ -15324,6 +15319,8 @@ private def lowerRoot (fn : Json) : M (Array Stmt × Array SrcParam) := do
     return ← lowerPublicVarGetter fn
   let rootId ← mNat (← mField fn "id")
   modify fun e => { e with stack := [rootId] }
+  if optStr fn "stateMutability" == some "payable" then
+    failAt fn "payable entry points require value-transfer semantics and are unsupported"
   let srcParams ← bindRoot fn
   let implemented := (field? fn "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? fn "body").filter (!·.isNull)
@@ -16043,15 +16040,15 @@ private def importSlice
         let some pty := paramType ty | failAt r s!"unsupported return type {ty}"
         out := out.push pty
       pure out) |>.run' env
-    let (isView, isPayable) ←
+    let isView ←
       if optStr fn "nodeType" == some "VariableDeclaration" then
-        pure (true, false)
+        pure true
       else do
         let mutability ← str (← field fn "stateMutability")
-        pure (mutability == "view" || mutability == "pure", mutability == "payable")
+        pure (mutability == "view" || mutability == "pure")
     specs := specs.push
       { name := functionName, params := modelParams.toList, returnType := none,
-        returns := returns.toList, isPayable, isView, body := body.toList,
+        returns := returns.toList, isView, body := body.toList,
         abiDecoding := if env.explicitAbi then .explicitPrelude else .standard,
         allowPostInteractionWrites := onlyStaticCallCEIBarriers body.toList ||
           onlyClosedTransportCEIBarriers body.toList,

@@ -1440,7 +1440,7 @@ def ecmCallTypedWords {α : Type} [ExternalResult α]
   else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
   let target := ecmTargetWord mod args
   let value := ecmValueWord mod args
-  match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance state value with
+  match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance state target value with
   | none => .revert "insufficient balance" state
   | some paid =>
       match (commonExternalCall adv
@@ -2481,7 +2481,7 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
       else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
       let target := ecmTargetWord mod args
       let value := ecmValueWord mod args
-      match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value with
+      match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target value with
       | none => ContractResult.revert "insufficient balance" s
       | some paid =>
           match (commonExternalCall adv
@@ -2497,7 +2497,8 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
     | .success a s' => ContractResult.success a s'
     | .revert msg _ => ContractResult.revert msg s) = _
   dsimp only [ecmCallTypedWords]
-  cases Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s (ecmValueWord mod args) with
+  cases Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s
+      (ecmTargetWord mod args) (ecmValueWord mod args) with
   | none => rfl
   | some paid =>
       dsimp only
@@ -2522,7 +2523,7 @@ theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
     (siteId : Nat) (s : ContractState) :
     (ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
         [target, value, inOffset, inSize] siteId).run s =
-      match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value.val with
+      match Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target.val value.val with
       | none => ContractResult.revert "insufficient balance" s
       | some paid =>
           match (commonExternalCall adv
@@ -2547,11 +2548,12 @@ theorem ecmCallTypedWords_revert_of_lt_selfBalance {α : Type} [ExternalResult �
     (ecmCallTypedWords (α := α) mod adv args siteId).run s =
       ContractResult.revert "insufficient balance" s := by
   rw [ecmCallTypedWords_apply]
-  simp only [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s
-    (ecmValueWord mod args) hlt]
+  simp only [Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s
+    (ecmTargetWord mod args) (ecmValueWord mod args) hlt]
 
 /-- Under `.stub`, `ecmDoWords callWithValueModule` debits `selfBalance` by
-`value` when `value ≤ s.selfBalance` and reverts on insufficient balance. -/
+`value` on distinct targets (`target ≠ s.thisAddress`), preserves `selfBalance`
+on self-calls (`target = s.thisAddress`), and reverts on insufficient balance. -/
 theorem ecmDoWords_callWithValueModule_stub_run
     (target value inOffset inSize : Uint256) (s : ContractState) :
     (ecmDoWords Compiler.Modules.Calls.callWithValueModule .stub
@@ -2559,7 +2561,11 @@ theorem ecmDoWords_callWithValueModule_stub_run
       if value ≤ s.selfBalance then
         ContractResult.success ()
           { s with
-            selfBalance := s.selfBalance - value
+            selfBalance :=
+              if Verity.Core.Address.ofNat target.val == s.thisAddress then
+                s.selfBalance
+              else
+                s.selfBalance - value
             calls := s.calls ++
               [Compiler.CompilationModel.DenoteExternalCalls.journalEntry
                 (linkedCallSite "callWithValue" [target, value, inOffset, inSize] 0 .call
@@ -2570,25 +2576,33 @@ theorem ecmDoWords_callWithValueModule_stub_run
         ContractResult.revert "insufficient balance" s := by
   by_cases hbal : value ≤ s.selfBalance
   · have hbal' : value.val ≤ s.selfBalance.val := hbal
-    rw [ecmDoWords_callWithValueModule,
-      Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s value.val hbal',
-      if_pos hbal, uint256_ofNat_val]
-    rfl
+    by_cases hself : Verity.Core.Address.ofNat target.val = s.thisAddress
+    · rw [ecmDoWords_callWithValueModule,
+        Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_self s target.val value.val hbal' hself,
+        if_pos hbal]
+      simp [hself]
+      rfl
+    · rw [ecmDoWords_callWithValueModule,
+        Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_of_ne s target.val value.val hbal' hself,
+        if_pos hbal, uint256_ofNat_val]
+      simp [hself]
+      rfl
   · have hbal' : s.selfBalance.val < value.val := Nat.lt_of_not_ge hbal
     rw [ecmDoWords_callWithValueModule,
-      Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s value.val hbal',
+      Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s target.val value.val hbal',
       if_neg hbal]
 
-private theorem debitSelfBalance_eq_some_selfBalance_val
-    (s paid : ContractState) (value : Nat)
-    (hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value = some paid) :
+private theorem debitEcmSelfBalance_eq_some_selfBalance_val
+    (s paid : ContractState) (target value : Nat)
+    (hne : Verity.Core.Address.ofNat target ≠ s.thisAddress)
+    (hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target value = some paid) :
     value ≤ s.selfBalance.val ∧ paid.selfBalance.val = s.selfBalance.val - value := by
   have hbal : value ≤ s.selfBalance.val := by
     by_contra hnot
-    have hnone := Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt
-      s value (Nat.lt_of_not_ge hnot)
+    have hnone := Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt
+      s target value (Nat.lt_of_not_ge hnot)
     rw [hnone] at hdeb; cases hdeb
-  have hsome := Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s value hbal
+  have hsome := Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_of_ne s target value hbal hne
   rw [hsome] at hdeb
   cases Option.some.inj hdeb.symm
   have hval_lt : value < Core.Uint256.modulus := Nat.lt_of_le_of_lt hbal s.selfBalance.isLt
@@ -2598,21 +2612,25 @@ private theorem debitSelfBalance_eq_some_selfBalance_val
   exact ⟨hbal, (Core.Uint256.subNoWrap hbal_u).trans (by omega)⟩
 
 /-- If the adversary never increases `selfBalance` across a call transition,
-then any successful `ecmDoWords` execution requires `value ≤ s.selfBalance`
-and leaves `s'.selfBalance + value ≤ s.selfBalance`. -/
+then any successful `ecmDoWords` execution to a distinct target
+(`target ≠ s.thisAddress`) requires `value ≤ s.selfBalance` and leaves
+`s'.selfBalance + value ≤ s.selfBalance`. -/
 theorem ecmDoWords_selfBalance_le (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256) (siteId : Nat) (s s' : ContractState)
+    (hne : Verity.Core.Address.ofNat (ecmTargetWord mod args) ≠ s.thisAddress)
     (hadv : ∀ site w, (adv.stateTransition site w).selfBalance.val ≤ w.selfBalance.val)
     (hrun : (ecmDoWords mod adv args siteId).run s = ContractResult.success () s') :
     ecmValueWord mod args ≤ s.selfBalance.val ∧
       s'.selfBalance.val + ecmValueWord mod args ≤ s.selfBalance.val := by
   rw [ecmDoWords, ecmCallTypedWords_apply] at hrun
   dsimp only at hrun
-  cases hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s (ecmValueWord mod args) with
+  cases hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s
+      (ecmTargetWord mod args) (ecmValueWord mod args) with
   | none => rw [hdeb] at hrun; cases hrun
   | some paid =>
       rw [hdeb] at hrun
-      obtain ⟨hbal, hpaid_bal⟩ := debitSelfBalance_eq_some_selfBalance_val s paid (ecmValueWord mod args) hdeb
+      obtain ⟨hbal, hpaid_bal⟩ := debitEcmSelfBalance_eq_some_selfBalance_val s paid
+        (ecmTargetWord mod args) (ecmValueWord mod args) hne hdeb
       simp only [Contract.run, commonExternalCall_apply] at hrun
       revert hrun
       by_cases hstat : mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall
@@ -2644,6 +2662,18 @@ theorem ecmDoWords_selfBalance_le (mod : Compiler.ECM.ExternalCallModule)
               exact ⟨hbal, by omega⟩
             · simp only [if_neg hlen]; intro h; cases h
 
+private theorem debitEcmSelfBalance_some_inv (spec : Verity.Core.Reentrancy.ReentrancySpec)
+    (s : ContractState) (target value : Nat) (hInv : spec.Inv s)
+    (hbal : value ≤ s.selfBalance.val)
+    (hDebited : value ≤ s.selfBalance.val →
+      spec.Inv { s with selfBalance := s.selfBalance - (value : Core.Uint256) }) :
+    ∃ paid,
+      Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance s target value = some paid ∧
+      spec.Inv paid := by
+  by_cases hself : Verity.Core.Address.ofNat target = s.thisAddress
+  · exact ⟨s, Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_self s target value hbal hself, hInv⟩
+  · exact ⟨_, Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_some_of_ne s target value hbal hself, hDebited hbal⟩
+
 /-- Under a `CallbackBounded` adversary for `spec`, `ecmDoWords` preserves
 `spec.Inv` whenever `spec.Inv` is insensitive to `calls`/`returndata` updates,
 holds on `s`, and holds on the pre-call debited world. -/
@@ -2659,9 +2689,9 @@ theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.Reen
     spec.Inv ((ecmDoWords mod adv args siteId).run s).snd := by
   rw [ecmDoWords, ecmCallTypedWords_apply]; dsimp only
   by_cases hbal : ecmValueWord mod args ≤ s.selfBalance.val
-  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s (ecmValueWord mod args) hbal]
-    dsimp only; simp only [Contract.run, commonExternalCall_apply]
-    set paid : ContractState := { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }
+  · obtain ⟨paid, hdeb, hpaid_inv⟩ := debitEcmSelfBalance_some_inv spec s
+      (ecmTargetWord mod args) (ecmValueWord mod args) hInv hbal hDebited
+    rw [hdeb]; dsimp only; simp only [Contract.run, commonExternalCall_apply]
     set kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
       Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
     else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
@@ -2675,10 +2705,10 @@ theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.Reen
           exact hframe
             (Compiler.CompilationModel.DenoteExternalCalls.denoteCall adv site
               { world := paid, gasRemaining := site.gas }).state.world _ _
-            (hbound.denoteCall_preserves spec site { world := paid, gasRemaining := site.gas } (hDebited hbal))
+            (hbound.denoteCall_preserves spec site { world := paid, gasRemaining := site.gas } hpaid_inv)
         · simp only [if_neg hlen]; exact hInv
-  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s
-      (ecmValueWord mod args) (Nat.lt_of_not_ge hbal)]
+  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitEcmSelfBalance_none_of_lt s
+      (ecmTargetWord mod args) (ecmValueWord mod args) (Nat.lt_of_not_ge hbal)]
     exact hInv
 
 /-! #### Pull-payment Vault solvency across `ecmDo (Calls.callWithValueModule)` (#2561)

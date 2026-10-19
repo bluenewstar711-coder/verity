@@ -54,7 +54,6 @@ partial def quoteExpr : Expr → m Term
   | .txOrigin => `(Compiler.CompilationModel.Expr.txOrigin)
   | .baseFee => `(Compiler.CompilationModel.Expr.baseFee)
   | .gasPrice => `(Compiler.CompilationModel.Expr.gasPrice)
-  | .msgValue => `(Compiler.CompilationModel.Expr.msgValue)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do
@@ -273,7 +272,7 @@ def quoteFunction (f : FunctionSpec) : m Term := do
     `(({ name := $(quote obligation.name), obligation := $(quote obligation.obligation),
          proofStatus := $status } : Compiler.CompilationModel.LocalObligation))
   `(({ name := $(quote f.name), params := $(← list params), abiDecoding := $abiDecoding, returnType := none,
-       returns := $(← list (← f.returns.mapM quoteParamType)), isPayable := $(quote f.isPayable), isView := $(quote f.isView),
+       returns := $(← list (← f.returns.mapM quoteParamType)), isView := $(quote f.isView),
        allowPostInteractionWrites := $(quote f.allowPostInteractionWrites),
        reentrancyTrusted := $(quote f.reentrancyTrusted),
        body := $(← list (← f.body.mapM quoteStmt)), localObligations := $(← list obligations) } : Compiler.CompilationModel.FunctionSpec))
