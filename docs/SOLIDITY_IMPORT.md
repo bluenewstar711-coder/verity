@@ -95,7 +95,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Construct | Lowering |
 | --- | --- |
 | Multiple selected entry points | One model with independently resolved root closures |
-| `msg.sender`, `address(this)` | Dedicated caller and current-contract expressions, resolved by solc builtin declaration ids |
+| `msg.sender`, `msg.value`, `address(this)` | Dedicated caller, call-value (`Expr.msgValue`, including Yul `callvalue()`), and current-contract expressions, resolved by solc builtin declaration ids; `payable` roots set `FunctionSpec.isPayable := true` |
 | `block.timestamp`, `block.number`, `block.chainid`, `block.basefee`, `tx.origin`, `tx.gasprice`, `address(this).balance` | Dedicated transaction- and account-context expressions (`Expr.blockTimestamp`, `Expr.blockNumber`, `Expr.chainid`, `Expr.baseFee`, `Expr.txOrigin`, `Expr.gasPrice`, `Expr.selfBalance`), including `payable(address(this)).balance` and Yul `selfbalance()` / `origin()` / `basefee()` / `gasprice()` |
 | Ordinary nested root blocks | Ordered recursive lowering with unique local bindings, lexical lookup restoration, and propagated unconditional returns; unsupported nested control flow and statements after return reject with source locations |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
@@ -137,8 +137,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | Internal struct reference arguments | Root memory-to-memory and calldata-to-calldata references retain the exact ABI descriptor and nominal struct declaration identity across acyclic single-return helpers, including internal library receivers. External reference helper calls and raw Yul pointer access reject. Static and dynamic roots preserve eager memory/lazy calldata validation. Cross-location copies, storage references and unsupported reference expressions reject with source locations. Twenty A/B/C cases across four equivalent variants and a wrong-root mutation cover this rule; located rejection mutations cover external-call boundaries, location conversions and Yul name shadowing. |
 | Single assignment to a named assembly return | `xor`, `mul`, `lt`, as in `UtilsLib.min` |
 
-Non-empty roots with unnamed return parameters must return explicitly on every non-reverting path. Payable roots are rejected until value-transfer
-semantics are supported. Other `msg`, `block`, and `tx` context members are
+Non-empty roots with unnamed return parameters must return explicitly on every non-reverting path. Other `msg`, `block`, and `tx` context members are
 rejected when reached. Loops, mapping-to-struct writes, compound assignments, external calls
 (other than the typed-interface staticcall, checked-template `create2`, optional-bool
 low-level `.call` and `<address>.code` rows above),

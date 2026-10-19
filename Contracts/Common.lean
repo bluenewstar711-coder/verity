@@ -7,6 +7,7 @@ import Verity.Core.Model.DenoteFunctionCalls
 import Verity.Core.Model.Denote
 import Verity.EVM.Uint256
 import Verity.Macro
+import Verity.Proofs.Stdlib.UnfoldSet
 import Verity.Stdlib.Math
 
 namespace Contracts
@@ -494,6 +495,8 @@ instance (α : Type) : CoeTC (Contract (Array α)) EventArg where
 def emit (name : String) (args : List EventArg) : Contract Unit := do
   let words ← args.mapM EventArg.toWord
   emitEvent name words
+
+attribute [verity_unfold_simps] emit EventArg.toWord
 def setPackedStorage {α : Type} (rootSlot : StorageSlot α) (wordOffset : Nat)
     (word : Uint256) : Contract Unit := fun state =>
   let targetSlot := (rootSlot.slot + wordOffset) % Compiler.Constants.evmModulus
@@ -1406,8 +1409,28 @@ def tryExternalCallWordsResolved {α : Type} [ExternalResult α] [Inhabited α]
       .success (false, failedExternalResult returndata) post
   | .revert message _ => .revert message state
 
+/-- Extract the target address word (as `Nat`) for an `ExternalCallModule`
+from its runtime word arguments according to `mod.targetArg`. -/
+def ecmTargetWord (mod : Compiler.ECM.ExternalCallModule) (args : List Uint256) : Nat :=
+  match mod.targetArg with
+  | some i => (args.getD i 0).val
+  | none => 0
+
+/-- Extract the ETH value word (as `Nat`, in wei) transferred by an
+`ExternalCallModule` from its runtime word arguments according to
+`mod.valueArg` (zero for `.staticcall` modules). -/
+def ecmValueWord (mod : Compiler.ECM.ExternalCallModule) (args : List Uint256) : Nat :=
+  if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then 0
+  else
+    match mod.valueArg with
+    | some i => (args.getD i 0).val
+    | none => 0
+
 /-- Mutable ECM executable crossing: consults the caller adversary instead of
-the no-op `ecmCall` syntax fallback. -/
+the no-op `ecmCall` syntax fallback. When the module specifies `targetArg` or
+`valueArg`, the call site carries those runtime arguments and `selfBalance` is
+debited via `debitSelfBalance` before invoking `commonExternalCall` (reverting
+on insufficient balance and rolling back the debit if the call fails). -/
 def ecmCallTypedWords {α : Type} [ExternalResult α]
     (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
@@ -1415,15 +1438,20 @@ def ecmCallTypedWords {α : Type} [ExternalResult α]
   let kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
     Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
   else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
-  match (commonExternalCall adv
-      (linkedCallSite mod.summaryName args mod.resultVars.length kind 0 0 [] siteId)).run state with
-  | .success (.success returndata) post =>
-      if returndata.length = mod.resultVars.length then
-        .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
-      else .revert "ECM returned malformed data" state
-  | .success (.failure _) _ | .success (.revert _) _ =>
-      .revert "ECM call failed" state
-  | .revert message _ => .revert message state
+  let target := ecmTargetWord mod args
+  let value := ecmValueWord mod args
+  match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance state value with
+  | none => .revert "insufficient balance" state
+  | some paid =>
+      match (commonExternalCall adv
+          (linkedCallSite mod.summaryName args mod.resultVars.length kind target value [] siteId)).run paid with
+      | .success (.success returndata) post =>
+          if returndata.length = mod.resultVars.length then
+            .success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+          else .revert "ECM returned malformed data" state
+      | .success (.failure _) _ | .success (.revert _) _ =>
+          .revert "ECM call failed" state
+      | .revert message _ => .revert message state
 
 def ecmCallWords (mod : Compiler.ECM.ExternalCallModule)
     (adv : AdversaryModel) (args : List Uint256)
@@ -2410,5 +2438,348 @@ theorem transientStorage_setMappingN {α : Type} (field : StorageSlot α)
     (state.writeMapChain field.slot (MappingKeyWord.words keys) 0 value).transientStorage n =
       state.transientStorage n := by
   simp
+
+/-! ### Value-bearing ECM unfolding, `selfBalance` debit, and solvency laws (#2561) -/
+
+@[simp] theorem ecmTargetWord_callWithValueModule
+    (target value inOffset inSize : Uint256) :
+    ecmTargetWord Compiler.Modules.Calls.callWithValueModule
+      [target, value, inOffset, inSize] = target.val := rfl
+
+@[simp] theorem ecmValueWord_callWithValueModule
+    (target value inOffset inSize : Uint256) :
+    ecmValueWord Compiler.Modules.Calls.callWithValueModule
+      [target, value, inOffset, inSize] = value.val := rfl
+
+@[simp] theorem ecmTargetWord_callWithValueBytesModule
+    (bytesParam : String) (target value : Uint256) :
+    ecmTargetWord (Compiler.Modules.Calls.callWithValueBytesModule bytesParam)
+      [target, value] = target.val := rfl
+
+@[simp] theorem ecmValueWord_callWithValueBytesModule
+    (bytesParam : String) (target value : Uint256) :
+    ecmValueWord (Compiler.Modules.Calls.callWithValueBytesModule bytesParam)
+      [target, value] = value.val := rfl
+
+@[simp] theorem ecmTargetWord_bubblingValueCallNoOutputModule
+    (target value inOffset inSize : Uint256) :
+    ecmTargetWord Compiler.Modules.Calls.bubblingValueCallNoOutputModule
+      [target, value, inOffset, inSize] = target.val := rfl
+
+@[simp] theorem ecmValueWord_bubblingValueCallNoOutputModule
+    (target value inOffset inSize : Uint256) :
+    ecmValueWord Compiler.Modules.Calls.bubblingValueCallNoOutputModule
+      [target, value, inOffset, inSize] = value.val := rfl
+
+theorem ecmCallTypedWords_apply {α : Type} [ExternalResult α]
+    (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat) (s : ContractState) :
+    (ecmCallTypedWords (α := α) mod adv args siteId).run s =
+      let kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+        Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
+      else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
+      let target := ecmTargetWord mod args
+      let value := ecmValueWord mod args
+      match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value with
+      | none => ContractResult.revert "insufficient balance" s
+      | some paid =>
+          match (commonExternalCall adv
+              (linkedCallSite mod.summaryName args mod.resultVars.length kind target value [] siteId)).run paid with
+          | .success (.success returndata) post =>
+              if returndata.length = mod.resultVars.length then
+                ContractResult.success (ExternalResult.fromWords (returndata.map Core.Uint256.ofNat)) post
+              else ContractResult.revert "ECM returned malformed data" s
+          | .success (.failure _) _ | .success (.revert _) _ =>
+              ContractResult.revert "ECM call failed" s
+          | .revert message _ => ContractResult.revert message s := by
+  change (match ecmCallTypedWords (α := α) mod adv args siteId s with
+    | .success a s' => ContractResult.success a s'
+    | .revert msg _ => ContractResult.revert msg s) = _
+  dsimp only [ecmCallTypedWords]
+  cases Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s (ecmValueWord mod args) with
+  | none => rfl
+  | some paid =>
+      dsimp only
+      cases (commonExternalCall adv
+          (linkedCallSite mod.summaryName args mod.resultVars.length
+            (if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+              Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
+            else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call)
+            (ecmTargetWord mod args) (ecmValueWord mod args) [] siteId)).run paid with
+      | «revert» _ _ => rfl
+      | success res post =>
+          cases res with
+          | failure _ => rfl
+          | «revert» _ => rfl
+          | success returndata =>
+              dsimp only
+              by_cases h : returndata.length = mod.resultVars.length <;>
+                simp only [h, ite_true, ite_false]
+
+@[simp] theorem ecmDoWords_callWithValueModule
+    (adv : AdversaryModel) (target value inOffset inSize : Uint256)
+    (siteId : Nat) (s : ContractState) :
+    (ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
+        [target, value, inOffset, inSize] siteId).run s =
+      match Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value.val with
+      | none => ContractResult.revert "insufficient balance" s
+      | some paid =>
+          match (commonExternalCall adv
+              (linkedCallSite "callWithValue" [target, value, inOffset, inSize] 0 .call
+                target.val value.val [] siteId)).run paid with
+          | .success (.success returndata) post =>
+              if returndata.length = 0 then ContractResult.success () post
+              else ContractResult.revert "ECM returned malformed data" s
+          | .success (.failure _) _ | .success (.revert _) _ =>
+              ContractResult.revert "ECM call failed" s
+          | .revert message _ => ContractResult.revert message s := by
+  rw [ecmDoWords, ecmCallTypedWords_apply]
+  rfl
+
+/-- When the caller cannot fund `ecmValueWord mod args`, `ecmCallTypedWords`
+reverts with `"insufficient balance"` and leaves the pre-call state unchanged. -/
+theorem ecmCallTypedWords_revert_of_lt_selfBalance {α : Type} [ExternalResult α]
+    (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat) (s : ContractState)
+    (hlt : s.selfBalance.val < ecmValueWord mod args) :
+    (ecmCallTypedWords (α := α) mod adv args siteId).run s =
+      ContractResult.revert "insufficient balance" s := by
+  rw [ecmCallTypedWords_apply]
+  simp only [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s
+    (ecmValueWord mod args) hlt]
+
+/-- Under `.stub`, `ecmDoWords callWithValueModule` debits `selfBalance` by
+`value` when `value ≤ s.selfBalance` and reverts on insufficient balance. -/
+theorem ecmDoWords_callWithValueModule_stub_run
+    (target value inOffset inSize : Uint256) (s : ContractState) :
+    (ecmDoWords Compiler.Modules.Calls.callWithValueModule .stub
+        [target, value, inOffset, inSize] 0).run s =
+      if value ≤ s.selfBalance then
+        ContractResult.success ()
+          { s with
+            selfBalance := s.selfBalance - value
+            calls := s.calls ++
+              [Compiler.CompilationModel.DenoteExternalCalls.journalEntry
+                (linkedCallSite "callWithValue" [target, value, inOffset, inSize] 0 .call
+                  target.val value.val [] 0)
+                (.success [])]
+            returndata := [] }
+      else
+        ContractResult.revert "insufficient balance" s := by
+  by_cases hbal : value ≤ s.selfBalance
+  · have hbal' : value.val ≤ s.selfBalance.val := hbal
+    rw [ecmDoWords_callWithValueModule,
+      Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s value.val hbal',
+      if_pos hbal, uint256_ofNat_val]
+    rfl
+  · have hbal' : s.selfBalance.val < value.val := Nat.lt_of_not_ge hbal
+    rw [ecmDoWords_callWithValueModule,
+      Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s value.val hbal',
+      if_neg hbal]
+
+private theorem debitSelfBalance_eq_some_selfBalance_val
+    (s paid : ContractState) (value : Nat)
+    (hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s value = some paid) :
+    value ≤ s.selfBalance.val ∧ paid.selfBalance.val = s.selfBalance.val - value := by
+  have hbal : value ≤ s.selfBalance.val := by
+    by_contra hnot
+    have hnone := Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt
+      s value (Nat.lt_of_not_ge hnot)
+    rw [hnone] at hdeb; cases hdeb
+  have hsome := Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s value hbal
+  rw [hsome] at hdeb
+  cases Option.some.inj hdeb.symm
+  have hval_lt : value < Core.Uint256.modulus := Nat.lt_of_le_of_lt hbal s.selfBalance.isLt
+  have hofNat : (Core.Uint256.ofNat value).val = value := by
+    simp [Core.Uint256.val_ofNat, Nat.mod_eq_of_lt hval_lt]
+  have hbal_u : (Core.Uint256.ofNat value).val ≤ s.selfBalance.val := by omega
+  exact ⟨hbal, (Core.Uint256.subNoWrap hbal_u).trans (by omega)⟩
+
+/-- If the adversary never increases `selfBalance` across a call transition,
+then any successful `ecmDoWords` execution requires `value ≤ s.selfBalance`
+and leaves `s'.selfBalance + value ≤ s.selfBalance`. -/
+theorem ecmDoWords_selfBalance_le (mod : Compiler.ECM.ExternalCallModule)
+    (adv : AdversaryModel) (args : List Uint256) (siteId : Nat) (s s' : ContractState)
+    (hadv : ∀ site w, (adv.stateTransition site w).selfBalance.val ≤ w.selfBalance.val)
+    (hrun : (ecmDoWords mod adv args siteId).run s = ContractResult.success () s') :
+    ecmValueWord mod args ≤ s.selfBalance.val ∧
+      s'.selfBalance.val + ecmValueWord mod args ≤ s.selfBalance.val := by
+  rw [ecmDoWords, ecmCallTypedWords_apply] at hrun
+  dsimp only at hrun
+  cases hdeb : Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance s (ecmValueWord mod args) with
+  | none => rw [hdeb] at hrun; cases hrun
+  | some paid =>
+      rw [hdeb] at hrun
+      obtain ⟨hbal, hpaid_bal⟩ := debitSelfBalance_eq_some_selfBalance_val s paid (ecmValueWord mod args) hdeb
+      simp only [Contract.run, commonExternalCall_apply] at hrun
+      revert hrun
+      by_cases hstat : mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall
+      · simp only [hstat, ite_true]
+        cases hres : adv.result (linkedCallSite mod.summaryName args mod.resultVars.length .staticcall
+            (ecmTargetWord mod args) (ecmValueWord mod args) [] siteId) paid with
+        | failure _ | «revert» _ => intro h; cases h
+        | success data =>
+            by_cases hlen : data.length = mod.resultVars.length
+            · simp only [if_pos hlen, ContractResult.success.injEq, true_and]
+              rintro rfl
+              simp only [Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+                Compiler.CompilationModel.DenoteExternalCalls.denoteCall, linkedCallSite]
+              exact ⟨hbal, by omega⟩
+            · simp only [if_neg hlen]; intro h; cases h
+      · simp only [hstat, Bool.false_eq_true, ite_false]
+        set site := linkedCallSite mod.summaryName args mod.resultVars.length .call
+          (ecmTargetWord mod args) (ecmValueWord mod args) [] siteId
+        have hkind : site.kind = .call := rfl
+        cases hres : adv.result site paid with
+        | failure _ | «revert» _ => intro h; cases h
+        | success data =>
+            by_cases hlen : data.length = mod.resultVars.length
+            · simp only [if_pos hlen, ContractResult.success.injEq, true_and]
+              rintro rfl
+              simp only [Compiler.CompilationModel.DenoteExternalCalls.denoteCallJournaled,
+                Compiler.CompilationModel.DenoteExternalCalls.denoteCall, hkind, hres]
+              have hle := hadv site paid
+              exact ⟨hbal, by omega⟩
+            · simp only [if_neg hlen]; intro h; cases h
+
+/-- Under a `CallbackBounded` adversary for `spec`, `ecmDoWords` preserves
+`spec.Inv` whenever `spec.Inv` is insensitive to `calls`/`returndata` updates,
+holds on `s`, and holds on the pre-call debited world. -/
+theorem ecmDoWords_callbackBounded_preserves (spec : Verity.Core.Reentrancy.ReentrancySpec)
+    (mod : Compiler.ECM.ExternalCallModule) (adv : AdversaryModel) (args : List Uint256)
+    (siteId : Nat) (s : ContractState)
+    (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded
+      (Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry.ofList spec.entrypoints) adv)
+    (hframe : ∀ w c r, spec.Inv w → spec.Inv { w with calls := c, returndata := r })
+    (hInv : spec.Inv s)
+    (hDebited : ecmValueWord mod args ≤ s.selfBalance.val →
+      spec.Inv { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }) :
+    spec.Inv ((ecmDoWords mod adv args siteId).run s).snd := by
+  rw [ecmDoWords, ecmCallTypedWords_apply]; dsimp only
+  by_cases hbal : ecmValueWord mod args ≤ s.selfBalance.val
+  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_some s (ecmValueWord mod args) hbal]
+    dsimp only; simp only [Contract.run, commonExternalCall_apply]
+    set paid : ContractState := { s with selfBalance := s.selfBalance - (ecmValueWord mod args : Core.Uint256) }
+    set kind := if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
+      Compiler.CompilationModel.DenoteExternalCalls.CallKind.staticcall
+    else Compiler.CompilationModel.DenoteExternalCalls.CallKind.call
+    set site := linkedCallSite mod.summaryName args mod.resultVars.length kind
+      (ecmTargetWord mod args) (ecmValueWord mod args) [] siteId
+    cases hres : adv.result site paid with
+    | failure _ | «revert» _ => exact hInv
+    | success data =>
+        by_cases hlen : data.length = mod.resultVars.length
+        · simp only [if_pos hlen, ContractResult.snd]
+          exact hframe
+            (Compiler.CompilationModel.DenoteExternalCalls.denoteCall adv site
+              { world := paid, gasRemaining := site.gas }).state.world _ _
+            (hbound.denoteCall_preserves spec site { world := paid, gasRemaining := site.gas } (hDebited hbal))
+        · simp only [if_neg hlen]; exact hInv
+  · rw [Compiler.CompilationModel.DenoteFunctionCalls.debitSelfBalance_none_of_lt s
+      (ecmValueWord mod args) (Nat.lt_of_not_ge hbal)]
+    exact hInv
+
+/-! #### Pull-payment Vault solvency across `ecmDo (Calls.callWithValueModule)` (#2561)
+
+Slot `0` tracks total `owed` ETH. `vaultWithdraw` follows Checks-Effects-Interactions:
+1. Check `amount ≤ owed`
+2. Effect: `owed := owed - amount`
+3. Interaction: `ecmDoWords Calls.callWithValueModule adv [recipient, amount, 0, 0]`
+
+Because `ecmDoWords` debits `selfBalance` by `amount` *before* invoking
+`commonExternalCall adv`, the state handed to the reentrant adversary at the
+call window already satisfies `owed ≤ selfBalance`. Any `CallbackBounded`
+adversary whose callbacks preserve `vaultSolvencyInv` therefore preserves
+solvency across the entire withdrawal. -/
+
+/-- Vault solvency invariant: `owed` (slot `0`) never exceeds `selfBalance`. -/
+@[reducible] def vaultSolvencyInv (s : ContractState) : Prop :=
+  (s.storage 0).val ≤ s.selfBalance.val
+
+/-- Pull-payment `withdraw` implemented via `ecmDoWords Calls.callWithValueModule`. -/
+def vaultWithdraw (recipient : Address) (amount : Uint256)
+    (adv : AdversaryModel := .stub) : Contract Unit := do
+  let owed ← getStorage ⟨0⟩
+  require (amount ≤ owed) "exceeds owed"
+  setStorage ⟨0⟩ (owed - amount)
+  ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
+    [Verity.addressToWord recipient, amount, 0, 0]
+
+private theorem vaultSolvencyInv_writeSlot_sub (s : ContractState) (amount : Uint256)
+    (hInv : vaultSolvencyInv s) (hamt : amount.val ≤ (s.storage 0).val) :
+    vaultSolvencyInv (s.writeSlot 0 (s.storage 0 - amount)) := by
+  dsimp [vaultSolvencyInv]
+  simp only [ContractState.storage_writeSlot_same]
+  have hsub : (s.storage 0 - amount).val = (s.storage 0).val - amount.val :=
+    Core.Uint256.subNoWrap hamt
+  have hInv' : (s.storage 0).val ≤ s.selfBalance.val := hInv
+  have hbal_eq : (s.writeSlot 0 (s.storage 0 - amount)).selfBalance = s.selfBalance := rfl
+  omega
+
+private theorem vaultSolvencyInv_writeSlot_sub_debit (s : ContractState) (amount : Uint256)
+    (hInv : vaultSolvencyInv s) (hamt : amount.val ≤ (s.storage 0).val)
+    (hbal : amount.val ≤ s.selfBalance.val) :
+    vaultSolvencyInv { s.writeSlot 0 (s.storage 0 - amount) with
+      selfBalance := (s.writeSlot 0 (s.storage 0 - amount)).selfBalance -
+        Core.Uint256.ofNat amount.val } := by
+  change (s.storage 0 - amount).val ≤ (s.selfBalance - Core.Uint256.ofNat amount.val).val
+  rw [uint256_ofNat_val]
+  have hsub_owed : (s.storage 0 - amount).val = (s.storage 0).val - amount.val :=
+    Core.Uint256.subNoWrap hamt
+  have hsub_bal : (s.selfBalance - amount).val = s.selfBalance.val - amount.val :=
+    Core.Uint256.subNoWrap hbal
+  have hInv' : (s.storage 0).val ≤ s.selfBalance.val := hInv
+  omega
+
+/-- `vaultWithdraw` preserves `vaultSolvencyInv` against any `CallbackBounded`
+adversary for any `ReentrancySpec` whose invariant is `vaultSolvencyInv`. -/
+theorem vaultWithdraw_callbackBounded_preserves_solvency
+    (spec : Verity.Core.Reentrancy.ReentrancySpec) (hspec : spec.Inv = vaultSolvencyInv)
+    (recipient : Address) (amount : Uint256) (adv : AdversaryModel)
+    (hbound : Compiler.CompilationModel.DenoteExternalCalls.CallbackBounded
+      (Compiler.CompilationModel.DenoteExternalCalls.EntrypointRegistry.ofList spec.entrypoints) adv)
+    (s : ContractState) (hInv : vaultSolvencyInv s) :
+    vaultSolvencyInv ((vaultWithdraw recipient amount adv).run s).snd := by
+  unfold vaultWithdraw
+  simp only [Contract.run, Bind.bind, Verity.bind, getStorage, setStorage, require,
+    ContractState.readSlot]
+  by_cases hreq : decide (amount ≤ s.storage 0) = true
+  · simp only [hreq, ite_true]
+    have hamt : amount.val ≤ (s.storage 0).val := of_decide_eq_true hreq
+    set s₁ : ContractState := s.writeSlot 0 (s.storage 0 - amount)
+    have hs₁_inv : spec.Inv s₁ := hspec ▸ vaultSolvencyInv_writeSlot_sub s amount hInv hamt
+    have hs₁_deb :
+        ecmValueWord Compiler.Modules.Calls.callWithValueModule
+          [Verity.addressToWord recipient, amount, 0, 0] ≤ s₁.selfBalance.val →
+        spec.Inv { s₁ with selfBalance := s₁.selfBalance -
+          (ecmValueWord Compiler.Modules.Calls.callWithValueModule
+            [Verity.addressToWord recipient, amount, 0, 0] : Core.Uint256) } := by
+      intro hbal; rw [hspec]
+      simp only [ecmValueWord_callWithValueModule] at hbal ⊢
+      exact vaultSolvencyInv_writeSlot_sub_debit s amount hInv hamt hbal
+    have hframe : ∀ w c r, spec.Inv w → spec.Inv { w with calls := c, returndata := r } := by
+      intro w c r hw; rw [hspec] at hw ⊢; exact hw
+    have hpres := ecmDoWords_callbackBounded_preserves spec
+      Compiler.Modules.Calls.callWithValueModule adv
+      [Verity.addressToWord recipient, amount, 0, 0] 0 s₁ hbound hframe hs₁_inv hs₁_deb
+    rw [hspec] at hpres
+    cases hecm : ecmDoWords Compiler.Modules.Calls.callWithValueModule adv
+        [Verity.addressToWord recipient, amount, 0, 0] 0 s₁ with
+    | success u s₂ => simp only [Contract.run, hecm, ContractResult.snd] at hpres ⊢; exact hpres
+    | «revert» msg s₂ => simp only [ContractResult.snd]; exact hInv
+  · simp only [hreq, Bool.false_eq_true, ite_false, ContractResult.snd]
+    exact hInv
+
+/-- Soundness witness (#2561): a buggy withdrawal that omits the `owed` update
+before `ecmDoWords Calls.callWithValueModule` violates `vaultSolvencyInv` because
+`ecmDoWords` debits `selfBalance`. -/
+example :
+    let s₀ : ContractState := ({ defaultState with selfBalance := 10 }).writeSlot 0 10
+    let buggyWithdraw : Contract Unit :=
+      ecmDoWords Compiler.Modules.Calls.callWithValueModule .stub [1, 10, 0, 0] 0
+    vaultSolvencyInv s₀ ∧ ¬ vaultSolvencyInv ((buggyWithdraw.run s₀).snd) := by
+  decide
 
 end Contracts

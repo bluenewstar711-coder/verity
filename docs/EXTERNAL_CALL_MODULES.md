@@ -27,7 +27,9 @@ ExternalCallModule (Compiler/ECM.lean)
   ├── readsState : Bool
   ├── compile : CompilationContext → List YulExpr → Except String (List YulStmt)
   ├── axioms : List String
-  └── proofStatus : proved | assumed | unchecked
+  ├── proofStatus : proved | assumed | unchecked
+  ├── targetArg : Option Nat := none
+  └── valueArg : Option Nat := none
 
 Stmt.ecm (mod : ExternalCallModule) (args : List Expr)
 ```
@@ -205,6 +207,21 @@ inputSize`. It is backed by the four-argument
 `ecmDo` call sites. Trust reports surface the distinct
 `bubblingValueCallNoOutput` module name with the same
 `generic_low_level_value_call_interface` assumption.
+
+All four value-carrying call modules (`callWithValueModule`,
+`callWithValueBytesModule`, `bubblingValueCallModule`, and
+`bubblingValueCallNoOutputModule`) set `targetArg := some 0` and
+`valueArg := some 1`. In both the executable EDSL (`Contracts.ecmCallTypedWords` /
+`ecmDo`) and the compilation-model denotation
+(`Verity.Core.Model.DenoteFunctionCalls.execStmtWithCalls`), `Stmt.ecm` extracts
+the target address and ETH value from those argument indices and runs
+`Verity.Core.Model.debitSelfBalance` before dispatching the external call:
+calls with `selfBalance < value` revert before entering the adversary/callback
+window, failed calls roll back the debit along with the pre-call state, and
+non-self calls (`target != thisAddress`) enter the callback window with
+`selfBalance` already debited by `value` (`Contracts.ecmDoWords_selfBalance_le`,
+`Contracts.ecmDoWords_callbackBounded_preserves`, and
+`Contracts.vaultWithdraw_callbackBounded_preserves_solvency`, #2561).
 
 ### Self-Delegate Multicall
 

@@ -97,8 +97,9 @@ these lowerings; names alone do not identify a builtin. The stateful harness
 provides the same transaction context to each route and compares returned ABI
 bytes. Direct, local-binding, and helper variants are separately imported and
 checked for identical observations. This remains sampled differential evidence,
-not a proof of frontend correctness. Payable entry points and unsupported context
-members fail import rather than inheriting incomplete value-transfer behavior.
+not a proof of frontend correctness. Payable entry points set
+`FunctionSpec.isPayable := true` and lower `msg.value` / Yul `callvalue()` to
+`Expr.msgValue`, while unsupported context members fail import.
 The campaign identity includes the actual imported Solidity fixture alongside
 the Lean driver and implementation artifacts, detecting local source edits or
 removal during replay. It does not defend against a malicious filesystem.
@@ -281,8 +282,9 @@ converting the argument tuple components to their declared parameter types), and
 and `Stmt.returnBytes`, reading 32-byte words from memory and right-zero-padding the final partial
 word (`32 :: length :: paddedWords`) in both `Denote.returnBytesWords` and `Compile.compileStmt`.
 `address(this).balance`, `payable(address(this)).balance`, and Yul `selfbalance()` lower to
-`Expr.selfBalance`, and `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, while external
-`<addr>.balance` reads and `tx.gasprice` are rejected.
+`Expr.selfBalance`, `tx.origin` and Yul `origin()` lower to `Expr.txOrigin`, and `payable`
+root functions set `FunctionSpec.isPayable := true` with `msg.value` and Yul `callvalue()`
+lowering to `Expr.msgValue`, while external `<addr>.balance` reads and `tx.gasprice` are rejected.
 `UtilsLib`-style `min` is the Yul term `xor`/`mul`/`lt`, not a renamed `Expr.min`.
 Generated scalar bindings are hygienic, and helper-local bindings are scoped.
 Only reached storage fields are decoded; state variables whose label appears
@@ -484,6 +486,7 @@ Current theorem totals, property-test coverage, and proof status live in [docs/V
 - **Mitigation**: Axiom aggregation at compile time (`--verbose`), machine-readable trust-surface emission via `--trust-report <path>`, and a fail-closed verification gate via `--deny-unchecked-dependencies` when unchecked foreign surfaces must be excluded. See [docs/EXTERNAL_CALL_MODULES.md](EXTERNAL_CALL_MODULES.md).
 - **Summary conformance bridge**: `Verity.Core.Model.SummaryBridge` defines `Conforms`, connecting `StatefulExternal.Summary` (the typed ECM interface contract) to the executable `AdversaryModel` boundary: caller proofs may quantify over summary-conforming adversaries, in which case each summary's `pre`/`post`/`revert` relations and its declared mutability become *proof obligations on the modeled adversary*, not axioms. The staticcall no-external-mutation law is derived from conformance. An adversary's `failure` response carries no summary obligation (opaque exceptional failure; never committed). Whether a given real callee satisfies its summary remains the per-summary trust assumption listed via `assumptionNames`.
 - **Caller-frame preservation**: The EVM frame condition (external `CALL` cannot mutate caller storage / transient storage / memory outside the declared output buffer) is now a *theorem* of `Verity.EVM.Frame` rather than an assumption. Downstream proofs consume `external_call_preserves_caller_storage` etc. directly. The abstract memory model used by these theorems is `Verity.EVM.MemoryModel`; the solc memory-layout schema and call-buffer-disjoint-from-heap result are in `Verity.EVM.Layout`. EvmYul ↔ abstract-model correspondence remains the open follow-up.
+- **Value-carrying ECM `selfBalance` debit (#2561)**: `ExternalCallModule` carries optional `targetArg` and `valueArg` indices (`some 0` and `some 1` on `callWithValueModule`, `callWithValueBytesModule`, `bubblingValueCallModule`, and `bubblingValueCallNoOutputModule`). Both `Contracts.ecmCallTypedWords` (`ecmDo`) and `Verity.Core.Model.DenoteFunctionCalls.execStmtWithCalls` debit `selfBalance` via `debitSelfBalance` before entering `commonExternalCall`, reverting when `selfBalance < value`, rolling back the debit on call failure, and preserving `selfBalance` on self-calls (`target == thisAddress`).
 
 ### 8. Lean Kernel
 - **Role**: Proof checker soundness. Foundational assumption for all Lean-based verification.

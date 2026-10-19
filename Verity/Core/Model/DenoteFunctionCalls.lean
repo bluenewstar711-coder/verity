@@ -423,22 +423,33 @@ mutual
               if mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.staticcall then
                 CallKind.staticcall
               else CallKind.call
-            let site : CallSite :=
-              { siteId := post.externalCallIndex, kind := kind, target := 0,
-                value := 0, calldata := argWords, name := mod.summaryName,
-                returnArity := mod.resultVars.length, gas := post.world.selfBalance.val }
-            let obs := denoteCallJournaled env.adversary site
-              { world := post.world, gasRemaining := site.gas }
-            match obs.result with
-            | .success data =>
-                if data.length != mod.resultVars.length then .revert
-                else .continue
-                  { post with
-                    world := { mod.committedWorld (some obs.state.world) post.world with
-                      returndata := data.map wordNormalize }
-                    bindings := bindResultWords post.bindings mod.resultVars data
-                    externalCallIndex := post.externalCallIndex + 1 }
-            | .failure _ | .revert _ => .revert
+            let target := match mod.targetArg with
+              | some i => argWords.getD i 0
+              | none => 0
+            let value := if kind == .call then
+              match mod.valueArg with
+              | some i => argWords.getD i 0
+              | none => 0
+            else 0
+            match debitSelfBalance post.world value with
+            | none => .revert
+            | some paid =>
+                let site : CallSite :=
+                  { siteId := post.externalCallIndex, kind := kind, target := target,
+                    value := value, calldata := argWords, name := mod.summaryName,
+                    returnArity := mod.resultVars.length, gas := paid.selfBalance.val }
+                let obs := denoteCallJournaled env.adversary site
+                  { world := paid, gasRemaining := site.gas }
+                match obs.result with
+                | .success data =>
+                    if data.length != mod.resultVars.length then .revert
+                    else .continue
+                      { post with
+                        world := { mod.committedWorld (some obs.state.world) paid with
+                          returndata := data.map wordNormalize }
+                        bindings := bindResultWords post.bindings mod.resultVars data
+                        externalCallIndex := post.externalCallIndex + 1 }
+                | .failure _ | .revert _ => .revert
         | none => .revert
     | state, .ite cond thenBranch elseBranch =>
         match evalExprCall env fields state cond with
