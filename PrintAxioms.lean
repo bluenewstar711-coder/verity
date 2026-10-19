@@ -1817,6 +1817,11 @@ end Verity.AxiomAudit
   Compiler.Proofs.AbiEncoding.bindExternalParams_string_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParam_scalarArray_of_abiEncodeArgs
   Compiler.Proofs.AbiEncoding.bindExternalParams_scalarArray_of_abiEncodeArgs
+  Compiler.Proofs.AbiEncoding.compileUnindexedAbiEncode_scalar_exec
+  Compiler.Proofs.AbiEncoding.compileIndexedInPlaceEncoding_scalar_exec
+  Compiler.Proofs.AbiEncoding.compileUnindexedAbiEncode_tuple_nil
+  Compiler.Proofs.AbiEncoding.compileIndexedInPlaceEncoding_tuple_nil
+  Compiler.Proofs.AbiEncoding.compileIndexedInPlaceEncoding_fixedArray_zero
 
   -- Compiler/Proofs/AbiEventObservable.lean
   -- Compiler.Proofs.AbiEventObservable.land_mod_evm_right  -- private
@@ -9521,4 +9526,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8782 theorems/lemmas (5753 public, 3029 private, 0 sorry'd)
+-- Total: 8787 theorems/lemmas (5758 public, 3029 private, 0 sorry'd)
