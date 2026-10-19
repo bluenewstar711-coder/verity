@@ -439,6 +439,14 @@ verity_contract BlockTimestampSmoke where
     let fee ← blobbasefee
     return (add fee delta)
 
+  function baseFeePlus (delta : Uint256) : Uint256 := do
+    let fee ← baseFee
+    return (add fee delta)
+
+  function gasPricePlus (delta : Uint256) : Uint256 := do
+    let price ← gasPrice
+    return (add price delta)
+
 example :
     (BlockTimestampSmoke.nowish.run { Verity.defaultState with blockTimestamp := 123 }).getValue? =
       some 123 := by
@@ -451,6 +459,16 @@ example :
 
 example :
     (BlockTimestampSmoke.blobFeePlus 7 |>.run { Verity.defaultState with blobBaseFee := 123 }).getValue? =
+      some 130 := by
+  decide
+
+example :
+    (BlockTimestampSmoke.baseFeePlus 7 |>.run { Verity.defaultState with baseFee := 123 }).getValue? =
+      some 130 := by
+  decide
+
+example :
+    (BlockTimestampSmoke.gasPricePlus 7 |>.run { Verity.defaultState with gasPrice := 123 }).getValue? =
       some 130 := by
   decide
 

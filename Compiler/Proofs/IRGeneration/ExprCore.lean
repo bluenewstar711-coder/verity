@@ -75,7 +75,7 @@ def exprBoundNames : Expr → List String
   | .dynamicBytesEq lhsName rhsName => [lhsName, rhsName]
   | .literal _ | .immutable _ | .storage _ | .storageAddr _ | .caller
   | .contractAddress | .chainid | .msgValue | .blockTimestamp | .blockNumber
-  | .selfBalance | .blobbasefee | .calldatasize | .returndataSize | .txOrigin => []
+  | .selfBalance | .blobbasefee | .baseFee | .gasPrice | .calldatasize | .returndataSize | .txOrigin => []
 termination_by expr => sizeOf expr
 decreasing_by
   all_goals simp_wf

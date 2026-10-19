@@ -684,7 +684,7 @@ private def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
 
 private def isAtom : Expr → Bool
   | .literal _ | .localVar _ | .param _ | .blockTimestamp | .blockNumber
-  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin => true
+  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 
 private partial def targetAssignedIds (t : Json) : List Nat :=
@@ -868,7 +868,7 @@ end
 
 private def isOrderIndependentSibling : Expr → Bool
   | .literal _ | .param _ | .blockTimestamp | .blockNumber
-  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin => true
+  | .caller | .contractAddress | .chainid | .selfBalance | .txOrigin | .baseFee | .gasPrice => true
   | _ => false
 
 private partial def evalConstExpr? (env : RBMap String Nat compare) : Expr → Option Nat
@@ -2838,6 +2838,8 @@ private partial def lowerYul (j : Json) : M Val := do
       | "chainid", #[] => pure { pre, expr := .chainid }
       | "selfbalance", #[] => pure { pre, expr := .selfBalance }
       | "origin", #[] => pure { pre, expr := .txOrigin }
+      | "basefee", #[] => pure { pre, expr := .baseFee }
+      | "gasprice", #[] => pure { pre, expr := .gasPrice }
       | "keccak256", #[a, b] => do
           let (.literal off, .literal size) := (a, b)
             | failAt j "only scratch-space keccak256 over 0x00..0x3f is supported"
@@ -4712,6 +4714,7 @@ private partial def lowerRef (j : Json) : M Ref := do
           | "timestamp" => pure Expr.blockTimestamp
           | "number" => pure Expr.blockNumber
           | "chainid" => pure Expr.chainid
+          | "basefee" => pure Expr.baseFee
           | _ => failAt j s!"unsupported block context member {member}"
         pure (.expr { pre := #[], expr := expression })
       else if (← mKind base) == "Identifier" && optStr base "name" == some "msg" &&
@@ -4722,8 +4725,11 @@ private partial def lowerRef (j : Json) : M Ref := do
       else if (← mKind base) == "Identifier" && optStr base "name" == some "tx" &&
           optStr ((field? base "typeDescriptions").getD Json.null) "typeIdentifier" == some "t_magic_transaction" then
         unless (← refInt base) == -26 do failAt base "tx does not resolve to the Solidity builtin"
-        unless member == "origin" do failAt j s!"unsupported transaction context member {member}"
-        pure (.expr { pre := #[], expr := .txOrigin })
+        let expression ← match member with
+          | "origin" => pure Expr.txOrigin
+          | "gasprice" => pure Expr.gasPrice
+          | _ => failAt j s!"unsupported transaction context member {member}"
+        pure (.expr { pre := #[], expr := expression })
       else if ((← mKind base) == "Identifier" || (← mKind base) == "MemberAccess") &&
           (← mType base).startsWith "type(enum " then
         let baseId ← refInt base

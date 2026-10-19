@@ -44,6 +44,8 @@ def commitCalleeWorld (caller callee : Verity.ContractState) : Verity.ContractSt
     blockNumber := caller.blockNumber
     chainId := caller.chainId
     blobBaseFee := caller.blobBaseFee
+    baseFee := caller.baseFee
+    gasPrice := caller.gasPrice
     calldataSize := caller.calldataSize
     calldata := caller.calldata
     selector := caller.selector
@@ -104,6 +106,12 @@ variable (caller callee : Verity.ContractState)
 
 @[simp] theorem commitCalleeWorld_blobBaseFee :
     (commitCalleeWorld caller callee).blobBaseFee = caller.blobBaseFee := rfl
+
+@[simp] theorem commitCalleeWorld_baseFee :
+    (commitCalleeWorld caller callee).baseFee = caller.baseFee := rfl
+
+@[simp] theorem commitCalleeWorld_gasPrice :
+    (commitCalleeWorld caller callee).gasPrice = caller.gasPrice := rfl
 
 @[simp] theorem commitCalleeWorld_calldataSize :
     (commitCalleeWorld caller callee).calldataSize = caller.calldataSize := rfl

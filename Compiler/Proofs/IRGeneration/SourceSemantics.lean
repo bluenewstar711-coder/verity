@@ -1238,6 +1238,8 @@ def evalExpr (fields : List Field) (state : RuntimeState) : Expr → Option Nat
   | .blockTimestamp => some state.world.blockTimestamp.val
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
+  | .baseFee => some state.world.baseFee.val
+  | .gasPrice => some state.world.gasPrice.val
   | .calldatasize => some state.world.calldataSize.val
   | .returndataSize => some state.world.returndataSize
   | .localVar name => some (lookupValue state.bindings name)
@@ -1594,6 +1596,16 @@ private theorem evalExpr_selfBalance
     (fields : List Field)
     (state : RuntimeState) :
     evalExpr fields state .selfBalance = some state.world.selfBalance.val := rfl
+
+private theorem evalExpr_baseFee
+    (fields : List Field)
+    (state : RuntimeState) :
+    evalExpr fields state .baseFee = some state.world.baseFee.val := rfl
+
+private theorem evalExpr_gasPrice
+    (fields : List Field)
+    (state : RuntimeState) :
+    evalExpr fields state .gasPrice = some state.world.gasPrice.val := rfl
 
 private theorem evalExpr_blockTimestamp
     (fields : List Field)
@@ -4087,6 +4099,8 @@ mutual
     | .blockTimestamp => some state.world.blockTimestamp.val
     | .blockNumber => some state.world.blockNumber.val
     | .blobbasefee => some state.world.blobBaseFee.val
+    | .baseFee => some state.world.baseFee.val
+    | .gasPrice => some state.world.gasPrice.val
     | .calldatasize => some state.world.calldataSize.val
     | .returndataSize => some state.world.returndataSize
     | .localVar name => some (lookupValue state.bindings name)

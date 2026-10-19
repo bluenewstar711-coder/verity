@@ -400,6 +400,8 @@ structure ContractState where
   blockNumber : Uint256 := 0
   chainId : Uint256 := 0
   blobBaseFee : Uint256 := 0
+  baseFee : Uint256 := 0
+  gasPrice : Uint256 := 0
   calldataSize : Uint256 := 0
   calldata : List Nat := []                 -- Immutable calldata words used by ABI expression semantics
   /-- 4-byte function selector for live `calldataload 0` in registry mode.
@@ -699,6 +701,10 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (s.writeSlot slot value).chainId = s.chainId := rfl
 @[simp] theorem blobBaseFee_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem baseFee_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).baseFee = s.baseFee := rfl
+@[simp] theorem gasPrice_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
+    (s.writeSlot slot value).gasPrice = s.gasPrice := rfl
 @[simp] theorem calldataSize_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
     (s.writeSlot slot value).calldataSize = s.calldataSize := rfl
 @[simp] theorem calldata_writeSlot (s : ContractState) (slot : Nat) (value : Uint256) :
@@ -772,6 +778,90 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem transientStorage_set_storageWords_fun (s : ContractState)
     (f : StorageKey → Uint256) :
     { s with storageWords := f }.transientStorage = fun n => f (.transient n) := rfl
+
+@[simp] theorem storage_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) :
+    { s with storageWords := f, events := e }.storage n = f (.slot n) := rfl
+
+@[simp] theorem storage_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.storage = fun n => f (.slot n) := rfl
+
+@[simp] theorem storageAddr_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) :
+    { s with storageWords := f, events := e }.storageAddr n = wordToAddress (f (.addr n)) := rfl
+
+@[simp] theorem storageAddr_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.storageAddr = fun n => wordToAddress (f (.addr n)) := rfl
+
+@[simp] theorem storageMap_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) (key : Address) :
+    { s with storageWords := f, events := e }.storageMap n key = f (.map n key) := rfl
+
+@[simp] theorem storageMap_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.storageMap = fun n key => f (.map n key) := rfl
+
+@[simp] theorem storageMapUint_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) (key : Uint256) :
+    { s with storageWords := f, events := e }.storageMapUint n key = f (.mapUint n key) := rfl
+
+@[simp] theorem storageMapUint_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.storageMapUint = fun n key => f (.mapUint n key) := rfl
+
+@[simp] theorem storageMap2_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) (key1 key2 : Address) :
+    { s with storageWords := f, events := e }.storageMap2 n key1 key2 = f (.map2 n key1 key2) := rfl
+
+@[simp] theorem storageMap2_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.storageMap2 = fun n key1 key2 => f (.map2 n key1 key2) := rfl
+
+@[simp] theorem transientStorage_set_storageWords_events (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) (n : Nat) :
+    { s with storageWords := f, events := e }.transientStorage n = f (.transient n) := rfl
+
+@[simp] theorem transientStorage_set_storageWords_events_fun (s : ContractState)
+    (f : StorageKey → Uint256) (e : List Event) :
+    { s with storageWords := f, events := e }.transientStorage = fun n => f (.transient n) := rfl
+
+@[simp] theorem storage_set_events (s : ContractState) (e : List Event) (n : Nat) :
+    { s with events := e }.storage n = s.storage n := rfl
+
+@[simp] theorem storage_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.storage = s.storage := rfl
+
+@[simp] theorem storageAddr_set_events (s : ContractState) (e : List Event) (n : Nat) :
+    { s with events := e }.storageAddr n = s.storageAddr n := rfl
+
+@[simp] theorem storageAddr_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.storageAddr = s.storageAddr := rfl
+
+@[simp] theorem storageMap_set_events (s : ContractState) (e : List Event) (n : Nat) (key : Address) :
+    { s with events := e }.storageMap n key = s.storageMap n key := rfl
+
+@[simp] theorem storageMap_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.storageMap = s.storageMap := rfl
+
+@[simp] theorem storageMapUint_set_events (s : ContractState) (e : List Event) (n : Nat) (key : Uint256) :
+    { s with events := e }.storageMapUint n key = s.storageMapUint n key := rfl
+
+@[simp] theorem storageMapUint_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.storageMapUint = s.storageMapUint := rfl
+
+@[simp] theorem storageMap2_set_events (s : ContractState) (e : List Event) (n : Nat) (key1 key2 : Address) :
+    { s with events := e }.storageMap2 n key1 key2 = s.storageMap2 n key1 key2 := rfl
+
+@[simp] theorem storageMap2_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.storageMap2 = s.storageMap2 := rfl
+
+@[simp] theorem transientStorage_set_events (s : ContractState) (e : List Event) (n : Nat) :
+    { s with events := e }.transientStorage n = s.transientStorage n := rfl
+
+@[simp] theorem transientStorage_set_events_fun (s : ContractState) (e : List Event) :
+    { s with events := e }.transientStorage = s.transientStorage := rfl
 
 @[simp] theorem ofNat_writeAddressWord (word : Uint256) (value : Address) :
     Verity.Core.Address.ofNat (writeAddressWord word value).val = value :=
@@ -865,6 +955,14 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
     (value : Address) :
     (s.writeAddrSlot slot value).blobBaseFee = s.blobBaseFee := rfl
 
+@[simp] theorem baseFee_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).baseFee = s.baseFee := rfl
+
+@[simp] theorem gasPrice_writeAddrSlot (s : ContractState) (slot : Nat)
+    (value : Address) :
+    (s.writeAddrSlot slot value).gasPrice = s.gasPrice := rfl
+
 @[simp] theorem calldataSize_writeAddrSlot (s : ContractState) (slot : Nat)
     (value : Address) :
     (s.writeAddrSlot slot value).calldataSize = s.calldataSize := rfl
@@ -927,6 +1025,12 @@ def writeMap (s : ContractState) (slot : Nat) (key : Address) (value : Uint256) 
 @[simp] theorem blobBaseFee_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) :
     (s.writeMap slot key value).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem baseFee_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).baseFee = s.baseFee := rfl
+@[simp] theorem gasPrice_writeMap (s : ContractState) (slot : Nat) (key : Address)
+    (value : Uint256) :
+    (s.writeMap slot key value).gasPrice = s.gasPrice := rfl
 @[simp] theorem calldataSize_writeMap (s : ContractState) (slot : Nat) (key : Address)
     (value : Uint256) :
     (s.writeMap slot key value).calldataSize = s.calldataSize := rfl
@@ -993,6 +1097,10 @@ def writeMapUint (s : ContractState) (slot : Nat) (key : Uint256) (value : Uint2
     (s.writeMapUint slot key value).blockTimestamp = s.blockTimestamp := rfl
 @[simp] theorem blockNumber_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).blockNumber = s.blockNumber := rfl
+@[simp] theorem baseFee_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
+    (s.writeMapUint slot key value).baseFee = s.baseFee := rfl
+@[simp] theorem gasPrice_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
+    (s.writeMapUint slot key value).gasPrice = s.gasPrice := rfl
 @[simp] theorem events_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
     (s.writeMapUint slot key value).events = s.events := rfl
 @[simp] theorem codeSize_writeMapUint (s : ContractState) (slot : Nat) (key value : Uint256) :
@@ -1392,6 +1500,12 @@ variable (s : ContractState) (slot : Nat) (keys : List Nat) (offset : Nat) (valu
     (s.writeMapChain slot keys offset value).blockNumber = s.blockNumber := rfl
 @[simp] theorem chainId_writeMapChain :
     (s.writeMapChain slot keys offset value).chainId = s.chainId := rfl
+@[simp] theorem blobBaseFee_writeMapChain :
+    (s.writeMapChain slot keys offset value).blobBaseFee = s.blobBaseFee := rfl
+@[simp] theorem baseFee_writeMapChain :
+    (s.writeMapChain slot keys offset value).baseFee = s.baseFee := rfl
+@[simp] theorem gasPrice_writeMapChain :
+    (s.writeMapChain slot keys offset value).gasPrice = s.gasPrice := rfl
 @[simp] theorem knownAddresses_writeMapChain :
     (s.writeMapChain slot keys offset value).knownAddresses = s.knownAddresses := rfl
 @[simp] theorem events_writeMapChain :
@@ -1513,6 +1627,10 @@ theorem writeMapChain_enterHop_frame (s : ContractState) (caller callee : Addres
     (s.writeMap2 slot key1 key2 value).blockTimestamp = s.blockTimestamp := rfl
 @[simp] theorem blockNumber_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).blockNumber = s.blockNumber := rfl
+@[simp] theorem baseFee_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).baseFee = s.baseFee := rfl
+@[simp] theorem gasPrice_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
+    (s.writeMap2 slot key1 key2 value).gasPrice = s.gasPrice := rfl
 @[simp] theorem events_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
     (s.writeMap2 slot key1 key2 value).events = s.events := rfl
 @[simp] theorem codeSize_writeMap2 (s : ContractState) (slot : Nat) (key1 key2 : Address) (value : Uint256) :
@@ -2888,6 +3006,12 @@ def blockNumber : Contract Uint256 :=
 protected def blobbasefee : Contract Uint256 :=
   fun state => ContractResult.success state.blobBaseFee state
 
+def baseFee : Contract Uint256 :=
+  fun state => ContractResult.success state.baseFee state
+
+def gasPrice : Contract Uint256 :=
+  fun state => ContractResult.success state.gasPrice state
+
 def chainid : Contract Uint256 :=
   fun state => ContractResult.success state.chainId state
 
@@ -2914,6 +3038,12 @@ def chainid : Contract Uint256 :=
 
 @[simp] theorem blobbasefee_run (state : ContractState) :
   Verity.blobbasefee.run state = ContractResult.success state.blobBaseFee state := rfl
+
+@[simp] theorem baseFee_run (state : ContractState) :
+  baseFee.run state = ContractResult.success state.baseFee state := rfl
+
+@[simp] theorem gasPrice_run (state : ContractState) :
+  gasPrice.run state = ContractResult.success state.gasPrice state := rfl
 
 @[simp] theorem chainid_run (state : ContractState) :
   chainid.run state = ContractResult.success state.chainId state := rfl

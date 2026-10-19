@@ -394,7 +394,7 @@ def exprReadsStateOrEnvNode : Expr → Bool
   | Expr.structMember _ _ _ | Expr.structMember2 _ _ _ _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid
   | Expr.extcodesize _ | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.calldataload _ | Expr.tload _
   | Expr.call _ _ _ _ _ _ _ | Expr.staticcall _ _ _ _ _ _
   | Expr.delegatecall _ _ _ _ _ _

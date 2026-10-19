@@ -864,7 +864,7 @@ decoding. Raw constructor calldata observations therefore remain outside the
 current body-level support interface until the deploy-wrapper proof exists. -/
 def exprTouchesUnsupportedConstructorRawCalldataSurface : Expr → Bool
   | .literal _ | .param _ | .immutable _ | .localVar _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .blobbasefee | .constructorArg _ | .returndataSize => false
   | .calldatasize => true
   | .storage _ | .storageAddr _ | .arrayLength _ | .memoryArrayLength _
@@ -1038,7 +1038,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
   | .blobbasefee | .calldatasize | .returndataSize | .localVar _ | .constructorArg _
   | .arrayLength _ | .dynamicBytesEq _ _ => false
   | .immutable _ => true
-  | .selfBalance => true
+  | .selfBalance | .baseFee | .gasPrice => true
   | .storage _ | .storageAddr _ => false
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .eq a b | .ge a b | .gt a b | .lt a b | .le a b
@@ -1100,7 +1100,7 @@ def exprTouchesUnsupportedCoreSurface : Expr → Bool
 interface. These are the next storage/layout-style widening targets. -/
 def exprTouchesUnsupportedStateSurface : Expr → Bool
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ => false
   | .storage _ | .storageAddr _ => true
   | .mapping _ _ | .mappingWord _ _ _ | .mappingPackedWord _ _ _ _
@@ -1168,7 +1168,7 @@ def exprTouchesUnsupportedCallSurface : Expr → Bool
   | .internalCall _ _ | .externalCall _ _ => true
   | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _ | .delegatecall _ _ _ _ _ _ => true
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
@@ -1235,7 +1235,7 @@ def exprTouchesUnsupportedHelperSurface : Expr → Bool
         exprTouchesUnsupportedHelperSurface base || exprTouchesUnsupportedHelperSurface exponent
       else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
@@ -1311,7 +1311,7 @@ def exprTouchesInternalHelperSurface : Expr → Bool
         exprTouchesInternalHelperSurface base || exprTouchesInternalHelperSurface exponent
       else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
@@ -1384,7 +1384,7 @@ def exprTouchesUnsupportedForeignSurface : Expr → Bool
       else true
   | .externalCall _ _ => true
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
@@ -1452,7 +1452,7 @@ def exprTouchesUnsupportedLowLevelSurface : Expr → Bool
         exprTouchesUnsupportedLowLevelSurface base || exprTouchesUnsupportedLowLevelSurface exponent
       else false
   | .literal _ | .param _ | .immutable _ | .caller | .contractAddress | .txOrigin
-  | .chainid | .msgValue | .selfBalance | .blockTimestamp | .blockNumber
+  | .chainid | .msgValue | .selfBalance | .baseFee | .gasPrice | .blockTimestamp | .blockNumber
   | .localVar _ | .storage _ | .storageAddr _
   | .constructorArg _ | .blobbasefee
   | .calldatasize | .returndataSize
@@ -1519,7 +1519,7 @@ def exprTouchesUnsupportedContractSurface (expr : Expr) : Bool :=
   | .blobbasefee | .calldatasize | .returndataSize
   | .localVar _ | .constructorArg _ => false
   | .immutable _ => true
-  | .selfBalance => true
+  | .selfBalance | .baseFee | .gasPrice => true
   | .storage _ | .storageAddr _ => true
   | .add a b | .sub a b | .mul a b | .div a b | .mod a b
   | .bitAnd a b | .bitOr a b | .bitXor a b | .eq a b
@@ -2548,7 +2548,7 @@ mutual
     | .literal _ | .param _ | .immutable _ | .constructorArg _
     | .storage _ | .storageAddr _
     | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
-    | .blockTimestamp | .blockNumber | .blobbasefee
+    | .baseFee | .gasPrice | .blockTimestamp | .blockNumber | .blobbasefee
     | .calldatasize | .returndataSize
     | .localVar _ | .arrayLength _ | .memoryArrayLength _ | .storageArrayLength _
     | .paramDynamicHeadWord _ _ | .paramDynamicStaticComposite _ _

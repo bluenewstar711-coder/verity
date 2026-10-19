@@ -96,7 +96,7 @@ Other constructs fail with a located diagnostic; this is not general Solidity su
 | --- | --- |
 | Multiple selected entry points | One model with independently resolved root closures |
 | `msg.sender`, `address(this)` | Dedicated caller and current-contract expressions, resolved by solc builtin declaration ids |
-| `block.timestamp`, `block.number`, `block.chainid`, `tx.origin`, `address(this).balance` | Dedicated transaction- and account-context expressions (`Expr.blockTimestamp`, `Expr.blockNumber`, `Expr.chainid`, `Expr.txOrigin`, `Expr.selfBalance`), including `payable(address(this)).balance` and Yul `selfbalance()` / `origin()` |
+| `block.timestamp`, `block.number`, `block.chainid`, `block.basefee`, `tx.origin`, `tx.gasprice`, `address(this).balance` | Dedicated transaction- and account-context expressions (`Expr.blockTimestamp`, `Expr.blockNumber`, `Expr.chainid`, `Expr.baseFee`, `Expr.txOrigin`, `Expr.gasPrice`, `Expr.selfBalance`), including `payable(address(this)).balance` and Yul `selfbalance()` / `origin()` / `basefee()` / `gasprice()` |
 | Ordinary nested root blocks | Ordered recursive lowering with unique local bindings, lexical lookup restoration, and propagated unconditional returns; unsupported nested control flow and statements after return reject with source locations |
 | Explicit scalar/tuple return | `returnValues`, preserving order |
 | Default scalar locals (development; validation pending) | Uninitialized unsigned integers, address, bool and bytes32 bind a fresh local to zero; reference and unsupported scalar defaults reject at the declaration |

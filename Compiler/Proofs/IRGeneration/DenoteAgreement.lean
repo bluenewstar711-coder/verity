@@ -160,7 +160,7 @@ theorem denote_evalExpr_eq (fields : List Field) (s : DenoteState)
   | .externalCall _ (_ :: _ :: _ :: _) | .internalCall .. | .intrinsic .. | .forkIfAtLeast ..
   | .mulDiv512Down .. | .mulDiv512Up .. | .adtConstruct .. | .adtTag .. | .adtField ..
   | .caller | .contractAddress | .txOrigin | .chainid | .msgValue | .selfBalance
-  | .blockTimestamp | .blockNumber | .blobbasefee | .calldatasize => rfl
+  | .blockTimestamp | .blockNumber | .blobbasefee | .baseFee | .gasPrice | .calldatasize => rfl
   | .returndataSize => denote_evalExpr_returndataSize_eq fields s hraw
   | .returndataOptionalBoolAt a => denote_evalExpr_returndataOptionalBoolAt_eq fields s hraw a
       (denote_evalExpr_eq fields s hraw a)

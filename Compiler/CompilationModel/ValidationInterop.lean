@@ -46,7 +46,8 @@ def validateInteropExpr (context : String) : Expr → Except String Unit
       validateInteropExpr context inSize
       validateInteropExpr context outOffset
       validateInteropExpr context outSize
-  | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.blobbasefee =>
+  | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.blobbasefee
+  | Expr.baseFee | Expr.gasPrice =>
       pure ()
   | Expr.extcodesize addr =>
       validateInteropExpr context addr

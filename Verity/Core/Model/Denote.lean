@@ -914,6 +914,8 @@ def evalExpr (oracle : DenoteOracle) (fields : List Field) (state : DenoteState)
   | .blockTimestamp => some state.world.blockTimestamp.val
   | .blockNumber => some state.world.blockNumber.val
   | .blobbasefee => some state.world.blobBaseFee.val
+  | .baseFee => some state.world.baseFee.val
+  | .gasPrice => some state.world.gasPrice.val
   | .calldatasize => some state.world.calldataSize.val
   -- Mirrors `SourceSemantics.evalExpr`: `returndatasize()` in bytes.
   | .returndataSize => some (state.rawReturndata.map List.length |>.getD state.world.returndataSize)

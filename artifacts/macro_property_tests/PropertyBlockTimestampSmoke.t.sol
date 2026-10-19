@@ -44,4 +44,22 @@ contract PropertyBlockTimestampSmokeTest is YulTestBase {
         // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
         ret;
     }
+    // Property 4: TODO decode and assert `baseFeePlus` result
+    function testTODO_BaseFeePlus_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("baseFeePlus(uint256)", uint256(1)));
+        require(ok, "baseFeePlus reverted unexpectedly");
+        assertEq(ret.length, 32, "baseFeePlus ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
+    // Property 5: TODO decode and assert `gasPricePlus` result
+    function testTODO_GasPricePlus_DecodeAndAssert() public {
+        vm.prank(alice);
+        (bool ok, bytes memory ret) = target.call(abi.encodeWithSignature("gasPricePlus(uint256)", uint256(1)));
+        require(ok, "gasPricePlus reverted unexpectedly");
+        assertEq(ret.length, 32, "gasPricePlus ABI return length mismatch (expected 32 bytes)");
+        // TODO(#1011): decode `ret` and assert the concrete postcondition from Lean theorem.
+        ret;
+    }
 }

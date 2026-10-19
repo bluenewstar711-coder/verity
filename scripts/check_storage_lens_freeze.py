@@ -66,7 +66,9 @@ BASELINE = {
     # +3: the physical-slot lenses (`writePhysicalSlot`, `writePhysicalSlots`,
     # `modifyPhysicalSlots`) that also synchronize the self account's finite
     # storage; they are lens implementations, not caller bypasses.
-    "Verity/Core.lean": 36,
+    # +12: the `*_set_storageWords_events` and `*_set_storageWords_events_fun`
+    # compatibility-view projection simp lemmas (#2559).
+    "Verity/Core.lean": 48,
     # IRState fixture literals (field-name collision false positives).
 }
 

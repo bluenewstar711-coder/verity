@@ -52,6 +52,8 @@ partial def quoteExpr : Expr → m Term
   | .contractAddress => `(Compiler.CompilationModel.Expr.contractAddress)
   | .selfBalance => `(Compiler.CompilationModel.Expr.selfBalance)
   | .txOrigin => `(Compiler.CompilationModel.Expr.txOrigin)
+  | .baseFee => `(Compiler.CompilationModel.Expr.baseFee)
+  | .gasPrice => `(Compiler.CompilationModel.Expr.gasPrice)
   | .structMember f k x => do
       `(Compiler.CompilationModel.Expr.structMember $(quote f) $(← quoteExpr k) $(quote x))
   | .structMember2 f k1 k2 x => do

@@ -705,6 +705,8 @@ def contextAccessorBareName? (name : String) : Option String :=
   else if matchesBareName name "blockTimestamp" then some "blockTimestamp"
   else if matchesBareName name "blockNumber" then some "blockNumber"
   else if matchesBareName name "blobbasefee" then some "blobbasefee"
+  else if matchesBareName name "baseFee" then some "baseFee"
+  else if matchesBareName name "gasPrice" then some "gasPrice"
   else if matchesBareName name "contractAddress" then some "contractAddress"
   else if matchesBareName name "txOrigin" then some "txOrigin"
   else if matchesBareName name "chainid" then some "chainid"
@@ -1991,6 +1993,10 @@ partial def inferPureExprType
       throwPureContextAccessorError stx "blockNumber"
   | `(term| Verity.blobbasefee) =>
       throwPureContextAccessorError stx "blobbasefee"
+  | `(term| Verity.baseFee) =>
+      throwPureContextAccessorError stx "baseFee"
+  | `(term| Verity.gasPrice) =>
+      throwPureContextAccessorError stx "gasPrice"
   | `(term| Verity.chainid) =>
       throwPureContextAccessorError stx "chainid"
   | `(term| Verity.contractAddress) =>
@@ -2579,7 +2585,10 @@ partial def inferBindSourceType
   | `(term| msgValue) | `(term| Verity.msgValue) | `(term| selfBalance)
     | `(term| Verity.selfBalance) | `(term| blockTimestamp)
     | `(term| Verity.blockTimestamp) | `(term| blockNumber) | `(term| Verity.blockNumber)
-    | `(term| blobbasefee) | `(term| Verity.blobbasefee) | `(term| chainid)
+    | `(term| blobbasefee) | `(term| Verity.blobbasefee)
+    | `(term| baseFee) | `(term| Verity.baseFee)
+    | `(term| gasPrice) | `(term| Verity.gasPrice)
+    | `(term| chainid)
     | `(term| Verity.chainid) =>
       pure .uint256
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
@@ -2984,6 +2993,10 @@ partial def validateConstantBody
   | `(term| blockNumber) => throwNonCompileTimeConstantError stx "blockNumber"
   | `(term| blobbasefee) | `(term| Verity.blobbasefee) =>
       throwNonCompileTimeConstantError stx "blobbasefee"
+  | `(term| baseFee) | `(term| Verity.baseFee) =>
+      throwNonCompileTimeConstantError stx "baseFee"
+  | `(term| gasPrice) | `(term| Verity.gasPrice) =>
+      throwNonCompileTimeConstantError stx "gasPrice"
   | `(term| contractAddress) => throwNonCompileTimeConstantError stx "contractAddress"
   | `(term| txOrigin) => throwNonCompileTimeConstantError stx "txOrigin"
   | `(term| chainid) => throwNonCompileTimeConstantError stx "chainid"
@@ -3397,6 +3410,10 @@ partial def translatePureExprWithTypes
       throwPureContextAccessorError stx "blockNumber"
   | `(term| Verity.blobbasefee) =>
       throwPureContextAccessorError stx "blobbasefee"
+  | `(term| Verity.baseFee) =>
+      throwPureContextAccessorError stx "baseFee"
+  | `(term| Verity.gasPrice) =>
+      throwPureContextAccessorError stx "gasPrice"
   | `(term| Verity.contractAddress) =>
       throwPureContextAccessorError stx "contractAddress"
   | `(term| Verity.txOrigin) =>
@@ -5485,6 +5502,10 @@ def translateBindSource
       `(Compiler.CompilationModel.Expr.blockNumber)
   | `(term| blobbasefee) | `(term| Verity.blobbasefee) =>
       `(Compiler.CompilationModel.Expr.blobbasefee)
+  | `(term| baseFee) | `(term| Verity.baseFee) =>
+      `(Compiler.CompilationModel.Expr.baseFee)
+  | `(term| gasPrice) | `(term| Verity.gasPrice) =>
+      `(Compiler.CompilationModel.Expr.gasPrice)
   | `(term| contractAddress) | `(term| Verity.contractAddress) =>
       `(Compiler.CompilationModel.Expr.contractAddress)
   | `(term| txOrigin) | `(term| Verity.txOrigin) =>

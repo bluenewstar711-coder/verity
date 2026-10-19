@@ -1991,6 +1991,8 @@ def forEach (_name : String) (_count : Uint256) (body : Contract Unit) : Contrac
 def blockTimestamp : Contract Uint256 := Verity.blockTimestamp
 def blockNumber : Contract Uint256 := Verity.blockNumber
 def blobbasefee : Contract Uint256 := Verity.blobbasefee
+def baseFee : Contract Uint256 := Verity.baseFee
+def gasPrice : Contract Uint256 := Verity.gasPrice
 def contractAddress : Contract Address := Verity.contractAddress
 def chainid : Contract Uint256 := Verity.chainid
 

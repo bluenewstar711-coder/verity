@@ -510,6 +510,8 @@ private partial def collectRuntimeIntrospectionExprMechanics : Expr → List Str
   | .selfBalance => ["selfBalance"]
   | .blockNumber => ["blockNumber"]
   | .blobbasefee => ["blobbasefee"]
+  | .baseFee => ["baseFee"]
+  | .gasPrice => ["gasPrice"]
   | .externalCall _ args
   | .internalCall _ args =>
       args.flatMap collectRuntimeIntrospectionExprMechanics
@@ -579,7 +581,8 @@ private def collectRuntimeIntrospectionMechanicsFromStmts (stmts : List Stmt) : 
               fragment.mechanics.filterMap (fun mechanic =>
                 if mechanic == .contractAddress || mechanic == .chainid ||
                     mechanic == .selfBalance || mechanic == .blockNumber ||
-                    mechanic == .blobbasefee then
+                    mechanic == .blobbasefee || mechanic == .baseFee ||
+                    mechanic == .gasPrice then
                   some mechanic.toReportString
                 else
                   none)

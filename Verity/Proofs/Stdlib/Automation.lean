@@ -41,6 +41,8 @@ open Lean Parser.Tactic
 /-- Canonical simp-lemma names used by `verity_unfold`. -/
 def verity_simp_set : List Lean.Name := [
   ``msgSender,
+  ``baseFee,
+  ``gasPrice,
   ``getStorageAddr,
   ``getStorage,
   ``setStorage,
@@ -72,7 +74,7 @@ def verity_simp_set : List Lean.Name := [
 ]
 
 attribute [verity_unfold_simps]
-  msgSender msgValue getStorageAddr getStorage setStorage setStorageAddr
+  msgSender msgValue baseFee gasPrice getStorageAddr getStorage setStorage setStorageAddr
   getMapping setMapping setMapping2 getMappingUint setMappingUint getMapping2
   ContractState.readSlot ContractState.writeSlot ContractState.readAddrSlot
   ContractState.writeAddrSlot ContractState.readMap ContractState.writeMap

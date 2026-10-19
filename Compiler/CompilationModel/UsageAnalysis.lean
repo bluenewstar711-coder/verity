@@ -228,7 +228,7 @@ def exprUsesArrayElementKind (includePlain includeWord : Bool) : Expr → Bool
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
   | Expr.storageArrayLength _
@@ -413,7 +413,7 @@ def exprUsesArrayElement : Expr → Bool
       exprUsesArrayElement cond || exprUsesArrayElement thenVal || exprUsesArrayElement elseVal
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
   | Expr.storageArrayLength _
@@ -624,7 +624,7 @@ def exprUsesParamDynamicHeadWord : Expr → Bool
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _
   | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
   | Expr.storageArrayLength _
@@ -771,7 +771,7 @@ def exprUsesMulDiv512 : Expr → Bool
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _
   | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance
-  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockTimestamp | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _
   | Expr.storageArrayLength _
@@ -942,7 +942,7 @@ def exprUsesStorageArrayElement : Expr → Bool
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _ | Expr.storageArrayLength _
   | Expr.paramDynamicHeadWord _ _
@@ -1112,7 +1112,7 @@ def exprUsesDynamicBytesEq : Expr → Bool
   | Expr.adtField _ _ _ _ _ => false
   | Expr.literal _ | Expr.param _ | Expr.constructorArg _ | Expr.immutable _ | Expr.storage _ | Expr.storageAddr _
   | Expr.caller | Expr.contractAddress | Expr.txOrigin | Expr.chainid | Expr.msgValue | Expr.selfBalance | Expr.blockTimestamp
-  | Expr.blockNumber | Expr.blobbasefee
+  | Expr.blockNumber | Expr.blobbasefee | Expr.baseFee | Expr.gasPrice
   | Expr.calldatasize | Expr.returndataSize | Expr.localVar _ | Expr.arrayLength _
   | Expr.memoryArrayLength _ | Expr.storageArrayLength _
   | Expr.paramDynamicHeadWord _ _

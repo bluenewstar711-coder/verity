@@ -18,13 +18,13 @@ def main():
         ('timestamp', 'uint256', 'block.timestamp', 'view', None),
         ('value', 'uint256', 'msg.value', 'payable', 'payable'),
         ('payable-constant', 'uint256', '1', 'payable', 'payable'),
-        ('basefee', 'uint256', 'block.basefee', 'view', 'unsupported block context member basefee'),
+        ('basefee', 'uint256', 'block.basefee', 'view', None),
         ('prevrandao', 'uint256', 'block.prevrandao', 'view', 'unsupported block context member prevrandao'),
         ('coinbase', 'address', 'block.coinbase', 'view', 'unsupported block context member coinbase'),
         ('origin', 'address', 'tx.origin', 'view', None),
         ('signature', 'bytes4', 'msg.sig', 'view', 'unsupported message context member sig'),
         ('data', 'uint256', 'msg.data.length', 'view', None),
-        ('gasprice', 'uint256', 'tx.gasprice', 'view', 'unsupported transaction context member gasprice'),
+        ('gasprice', 'uint256', 'tx.gasprice', 'view', None),
         ('data-slice', 'uint256', 'uint256(uint8(msg.data[0]))', 'view', 'hash input must be a supported ABI encoding'),
     ]
     for name, ty, expr, mutability, expected in cases:
