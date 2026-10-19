@@ -81,22 +81,6 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       FunctionBody.ExprCompileCore value →
       FunctionBody.exprBoundNamesInScope value scope →
       SupportedStmtList fields scope [Stmt.setImmutable name value]
-  | mstoreSingle
-      {scope : List String}
-      {offset value : Expr} :
-      FunctionBody.ExprCompileCore offset →
-      FunctionBody.exprBoundNamesInScope offset scope →
-      FunctionBody.ExprCompileCore value →
-      FunctionBody.exprBoundNamesInScope value scope →
-      SupportedStmtList fields scope [Stmt.mstore offset value]
-  | tstoreSingle
-      {scope : List String}
-      {offset value : Expr} :
-      FunctionBody.ExprCompileCore offset →
-      FunctionBody.exprBoundNamesInScope offset scope →
-      FunctionBody.ExprCompileCore value →
-      FunctionBody.exprBoundNamesInScope value scope →
-      SupportedStmtList fields scope [Stmt.tstore offset value]
   | calldatacopySingle
       {scope : List String}
       {destOffset sourceOffset size : Expr} :
@@ -410,26 +394,38 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       (∀ name, name ∈ collectStmtListNames body → name ∈ varName :: scope) →
       SupportedStmtList fields (varName :: scope) body →
       SupportedStmtList fields scope [Stmt.forEach varName (.literal 0) body]
-  /-- Literal loops with any bound are supported for empty bodies. This exercises
-  arbitrary Yul `for` recurrence while keeping non-empty positive loop bodies
-  outside the fragment until their body-preservation proof is threaded through
-  the loop step. -/
-  | forEachLiteralEmpty
+  /-- Literal loops with any bound are supported for compile-core bodies that do
+  not introduce top-level `letVar` bindings. -/
+  | forEachLiteralCore
       {scope : List String}
-      {varName : String} :
-      (n : Nat) →
-      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) []]
+      {varName : String}
+      {body : List Stmt}
+      (n : Nat) :
+      FunctionBody.StmtListCompileCore (varName :: scope) body →
+      collectStmtListBindNames body = [] →
+      SupportedStmtList fields scope [Stmt.forEach varName (.literal n) body]
   | requireClause
       {scope : List String}
       (clause : RequireLiteralGuardFamilyClause)
       {rest : List Stmt} :
       SupportedStmtList fields scope rest →
       SupportedStmtList fields scope (clause.toStmt :: rest)
+  /-- Non-terminal if-then-else with compile-core branches that do not introduce
+  top-level `letVar` bindings (so `stmtNextScope` leaves `scope` unchanged). -/
+  | ite
+      {scope : List String}
+      {cond : Expr}
+      {thenBranch elseBranch : List Stmt} :
+      FunctionBody.ExprCompileCore cond →
+      FunctionBody.exprBoundNamesInScope cond scope →
+      FunctionBody.StmtListCompileCore scope thenBranch →
+      FunctionBody.StmtListCompileCore scope elseBranch →
+      collectStmtListBindNames thenBranch = [] →
+      collectStmtListBindNames elseBranch = [] →
+      SupportedStmtList fields scope [Stmt.ite cond thenBranch elseBranch]
   /-- If-then-else with terminal branches. The branches are required to
   satisfy `StmtListTerminalCore` (i.e. every execution path through each
-  branch must end with `return` / `stop` / revert). The underlying
-  `compiledStmtStep_ite` proof requires terminality to prevent execution
-  from falling through the compiled Yul `if_` blocks. -/
+  branch must end with `return` / `stop` / revert). -/
   | iteTerminal
       {scope : List String}
       {cond : Expr}
@@ -446,4 +442,35 @@ inductive SupportedStmtList (fields : List Field) : List String → List Stmt �
       SupportedStmtList fields (List.foldl stmtNextScope scope pfx) sfx →
       SupportedStmtList fields scope (pfx ++ sfx)
 
+theorem SupportedStmtList.mstoreSingle
+    {fields : List Field}
+    {scope : List String}
+    {offset value : Expr}
+    (hcoreOffset : FunctionBody.ExprCompileCore offset)
+    (hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
+    (hcoreValue : FunctionBody.ExprCompileCore value)
+    (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope) :
+    SupportedStmtList fields scope [Stmt.mstore offset value] :=
+  .compileCore (.mstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue .nil)
+
+theorem SupportedStmtList.tstoreSingle
+    {fields : List Field}
+    {scope : List String}
+    {offset value : Expr}
+    (hcoreOffset : FunctionBody.ExprCompileCore offset)
+    (hinScopeOffset : FunctionBody.exprBoundNamesInScope offset scope)
+    (hcoreValue : FunctionBody.ExprCompileCore value)
+    (hinScopeValue : FunctionBody.exprBoundNamesInScope value scope) :
+    SupportedStmtList fields scope [Stmt.tstore offset value] :=
+  .compileCore (.tstore hcoreOffset hinScopeOffset hcoreValue hinScopeValue .nil)
+
+theorem SupportedStmtList.forEachLiteralEmpty
+    {fields : List Field}
+    {scope : List String}
+    {varName : String}
+    (n : Nat) :
+    SupportedStmtList fields scope [Stmt.forEach varName (.literal n) []] :=
+  .forEachLiteralCore n .nil (by simp [collectStmtListBindNames])
+
 end Compiler.Proofs.IRGeneration
+

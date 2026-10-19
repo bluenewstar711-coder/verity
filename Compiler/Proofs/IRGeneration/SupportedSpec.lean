@@ -1641,6 +1641,8 @@ def stmtTouchesUnsupportedCoreSurface : Stmt → Bool
       exprTouchesUnsupportedCoreSurface cond ||
         stmtListTouchesUnsupportedCoreSurface thenBranch ||
         stmtListTouchesUnsupportedCoreSurface elseBranch
+  | .forEach _ (.literal _) body =>
+      stmtListTouchesUnsupportedCoreSurface body
   | .forEach _ _ _ | .forEachSetBit _ _ _ => true
   | .calldatacopy destOffset sourceOffset size
   | .returndataCopy destOffset sourceOffset size =>
@@ -2124,9 +2126,8 @@ def stmtTouchesUnsupportedContractSurface (stmt : Stmt) : Bool :=
   | .rawLog _ _ _ | .externalCallBind _ _ _ | .ecm _ _
   | .tryExternalCallBind _ _ _ _ | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _
   | .panicCode _ | .panic _ => true
-  | .forEach _ (.literal 0) body =>
+  | .forEach _ (.literal _) body =>
       stmtListTouchesUnsupportedContractSurface body
-  | .forEach _ (.literal _) [] => false
   | .forEach _ _ _ | .forEachSetBit _ _ _ => true
 
 def stmtTouchesUnsupportedContractSurfaceWithEvents
@@ -2318,8 +2319,8 @@ private theorem compileStmtListWithFork_cancun_eq_compileStmtList
       internalRetNames isInternal inScopeNames adtTypes stmts internalFunctions := rfl
 
 /-- The body of a contract-surface-closed `forEach` head is itself
-contract-surface closed: the gate only admits literal-zero bounds (with a
-closed body) or nonzero literal bounds with an empty body. -/
+contract-surface closed: the gate only admits literal bounds with a
+closed body. -/
 theorem stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
     {varName : String}
     {count : Expr}
@@ -2327,15 +2328,9 @@ theorem stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed
     (hsurface :
       stmtTouchesUnsupportedContractSurface (.forEach varName count body) = false) :
     stmtListTouchesUnsupportedContractSurface body = false := by
-  cases body with
-  | nil => rfl
-  | cons s rest =>
-      cases count
-      case literal k =>
-        cases k with
-        | zero => exact hsurface
-        | succ k => exact Bool.noConfusion hsurface
-      all_goals exact Bool.noConfusion hsurface
+  cases count
+  case literal k => exact hsurface
+  all_goals exact Bool.noConfusion hsurface
 
 /-- Statement-level catalog agnosticism of `compileStmt` for statements of size below `n`. -/
 private def CompileStmtCatalogAgnosticBelow (n : Nat) (fields : List Field)
@@ -3908,12 +3903,6 @@ private inductive SupportedLeafStmt : Stmt → Prop
       FunctionBody.ExprCompileCore value → SupportedLeafStmt (.setStorageAddr fieldName value)
   | setImmutable {name : String} {value : Expr} :
       FunctionBody.ExprCompileCore value → SupportedLeafStmt (.setImmutable name value)
-  | mstore {offset value : Expr} :
-      FunctionBody.ExprCompileCore offset → FunctionBody.ExprCompileCore value →
-      SupportedLeafStmt (.mstore offset value)
-  | tstore {offset value : Expr} :
-      FunctionBody.ExprCompileCore offset → FunctionBody.ExprCompileCore value →
-      SupportedLeafStmt (.tstore offset value)
   | calldatacopy {destOffset sourceOffset size : Expr} :
       FunctionBody.ExprCompileCore destOffset → FunctionBody.ExprCompileCore sourceOffset →
       FunctionBody.ExprCompileCore size →
@@ -3992,8 +3981,14 @@ private inductive SupportedLeafStmt : Stmt → Prop
       FunctionBody.ExprCompileCore key1 → FunctionBody.ExprCompileCore key2 →
       FunctionBody.ExprCompileCore value →
       SupportedLeafStmt (.setStructMember2 fieldName key1 key2 memberName value)
-  | forEachEmpty {varName : String} (n : Nat) :
-      SupportedLeafStmt (.forEach varName (.literal n) [])
+  | forEachCore {scope : List String} {varName : String} {body : List Stmt} (n : Nat) :
+      FunctionBody.StmtListCompileCore (varName :: scope) body →
+      SupportedLeafStmt (.forEach varName (.literal n) body)
+  | iteCore {scope : List String} {cond : Expr} {thenBranch elseBranch : List Stmt} :
+      FunctionBody.ExprCompileCore cond →
+      FunctionBody.StmtListCompileCore scope thenBranch →
+      FunctionBody.StmtListCompileCore scope elseBranch →
+      SupportedLeafStmt (.ite cond thenBranch elseBranch)
   | require {cond : Expr} {message : String} :
       FunctionBody.ExprCompileCore cond → SupportedLeafStmt (.require cond message)
 
@@ -4085,6 +4080,12 @@ private theorem supportedLeafStmt_helperSurfaceClosed
   | setMappingChain hkeys hvalue =>
       simp [stmtTouchesUnsupportedHelperSurface, exprListCompileCore_helperSurfaceClosed hkeys,
         exprCompileCore_helperSurfaceClosed hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface,
+        stmtListCompileCore_helperSurfaceClosed hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtTouchesUnsupportedHelperSurface, exprCompileCore_helperSurfaceClosed hcond,
+        stmtListCompileCore_helperSurfaceClosed hthen, stmtListCompileCore_helperSurfaceClosed helse]
   | _ =>
       simp_all [stmtTouchesUnsupportedHelperSurface, exprTouchesUnsupportedHelperSurface,
         stmtListTouchesUnsupportedHelperSurface, exprCompileCore_helperSurfaceClosed]
@@ -4125,6 +4126,13 @@ private theorem supportedLeafStmt_internalHelperCallNames_nil
   | setMappingChain hkeys hvalue =>
       simp [stmtInternalHelperCallNames, exprListCompileCore_internalHelperCallNames_nil hkeys,
         exprCompileCore_internalHelperCallNames_nil hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtInternalHelperCallNames, exprInternalHelperCallNames,
+        stmtListCompileCore_internalHelperCallNames_nil hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtInternalHelperCallNames, exprCompileCore_internalHelperCallNames_nil hcond,
+        stmtListCompileCore_internalHelperCallNames_nil hthen,
+        stmtListCompileCore_internalHelperCallNames_nil helse]
   | _ =>
       simp_all [stmtInternalHelperCallNames, exprInternalHelperCallNames,
         stmtListInternalHelperCallNames, exprCompileCore_internalHelperCallNames_nil]
@@ -4795,6 +4803,10 @@ private theorem stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           thenBranch hcore.1.2 hstate.1.2 hcalls.1.2 heffects.1⟩,
         stmtListTouchesUnsupportedContractSurface_eq_false_of_featureClosed
           elseBranch hcore.2 hstate.2 hcalls.2 heffects.2⟩
+  | forEach varName count body =>
+      cases count <;> cases body <;>
+        simp [stmtTouchesUnsupportedStateSurface, stmtTouchesUnsupportedContractSurface,
+          stmtListTouchesUnsupportedContractSurface] at hstate ⊢
   | _ =>
       simp only [stmtTouchesUnsupportedCoreSurface, stmtTouchesUnsupportedStateSurface,
         stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedEffectSurface,
@@ -4959,7 +4971,7 @@ private theorem stmtTouchesUnsupportedContractSurfaceExceptMappingWrites_eq_fals
         hcore
         (by simpa [stmtTouchesUnsupportedStateSurfaceExceptMappingWrites] using hstate)
         hcalls heffects
-  | forEach _ _ _ | forEachSetBit _ _ _ => cases hcore
+  | forEachSetBit _ _ _ => cases hcore
   | _ =>
       simp only [stmtTouchesUnsupportedContractSurfaceExceptMappingWrites]
       exact stmtTouchesUnsupportedContractSurface_eq_false_of_featureClosed _
@@ -5731,6 +5743,13 @@ private theorem supportedLeafStmt_usesArrayElement_false
   | setMappingChain hkeys hvalue =>
       simp [stmtUsesArrayElement, exprListCompileCore_usesArrayElement_false hkeys,
         exprCompileCore_usesArrayElement_false hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtUsesArrayElement, exprUsesArrayElement,
+        stmtListCompileCore_usesArrayElement_false hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtUsesArrayElement, exprCompileCore_usesArrayElement_false hcond,
+        stmtListCompileCore_usesArrayElement_false hthen,
+        stmtListCompileCore_usesArrayElement_false helse]
   | _ =>
       simp_all [stmtUsesArrayElement, exprUsesArrayElement,
         stmtListUsesArrayElement, exprCompileCore_usesArrayElement_false]
@@ -5763,6 +5782,13 @@ private theorem supportedLeafStmt_usesStorageArrayElement_false
   | setMappingChain hkeys hvalue =>
       simp [stmtUsesStorageArrayElement, exprListCompileCore_usesStorageArrayElement_false hkeys,
         exprCompileCore_usesStorageArrayElement_false hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtUsesStorageArrayElement, exprUsesStorageArrayElement,
+        stmtListCompileCore_usesStorageArrayElement_false hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtUsesStorageArrayElement, exprCompileCore_usesStorageArrayElement_false hcond,
+        stmtListCompileCore_usesStorageArrayElement_false hthen,
+        stmtListCompileCore_usesStorageArrayElement_false helse]
   | _ =>
       simp_all [stmtUsesStorageArrayElement, exprUsesStorageArrayElement,
         stmtListUsesStorageArrayElement, exprCompileCore_usesStorageArrayElement_false]
@@ -5795,6 +5821,13 @@ private theorem supportedLeafStmt_usesDynamicBytesEq_false
   | setMappingChain hkeys hvalue =>
       simp [stmtUsesDynamicBytesEq, exprListCompileCore_usesDynamicBytesEq_false hkeys,
         exprCompileCore_usesDynamicBytesEq_false hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
+        stmtListCompileCore_usesDynamicBytesEq_false hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtUsesDynamicBytesEq, exprCompileCore_usesDynamicBytesEq_false hcond,
+        stmtListCompileCore_usesDynamicBytesEq_false hthen,
+        stmtListCompileCore_usesDynamicBytesEq_false helse]
   | _ =>
       simp_all [stmtUsesDynamicBytesEq, exprUsesDynamicBytesEq,
         stmtListUsesDynamicBytesEq, exprCompileCore_usesDynamicBytesEq_false]
@@ -6077,6 +6110,13 @@ private theorem supportedLeafStmt_usesMulDiv512_false
   | setMappingChain hkeys hvalue =>
       simp [stmtUsesMulDiv512, exprListCompileCore_usesMulDiv512_false hkeys,
         exprCompileCore_usesMulDiv512_false hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtUsesMulDiv512, exprUsesMulDiv512,
+        stmtListCompileCore_usesMulDiv512_false hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtUsesMulDiv512, exprCompileCore_usesMulDiv512_false hcond,
+        stmtListCompileCore_usesMulDiv512_false hthen,
+        stmtListCompileCore_usesMulDiv512_false helse]
   | _ =>
       simp_all [stmtUsesMulDiv512, exprUsesMulDiv512,
         stmtListUsesMulDiv512, exprCompileCore_usesMulDiv512_false]
@@ -6109,6 +6149,13 @@ private theorem supportedLeafStmt_usesParamDynamicHeadWord_false
   | setMappingChain hkeys hvalue =>
       simp [stmtUsesParamDynamicHeadWord, exprListCompileCore_usesParamDynamicHeadWord_false hkeys,
         exprCompileCore_usesParamDynamicHeadWord_false hvalue]
+  | forEachCore _ hbody =>
+      simp [stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
+        stmtListCompileCore_usesParamDynamicHeadWord_false hbody]
+  | iteCore hcond hthen helse =>
+      simp [stmtUsesParamDynamicHeadWord, exprCompileCore_usesParamDynamicHeadWord_false hcond,
+        stmtListCompileCore_usesParamDynamicHeadWord_false hthen,
+        stmtListCompileCore_usesParamDynamicHeadWord_false helse]
   | _ =>
       simp_all [stmtUsesParamDynamicHeadWord, exprUsesParamDynamicHeadWord,
         stmtListUsesParamDynamicHeadWord, exprCompileCore_usesParamDynamicHeadWord_false]

@@ -111,10 +111,10 @@ inductive StmtListScopeDiscipline (fieldNames : List String) : List String → L
       StmtListScopeDiscipline fieldNames scope elseBranch →
       StmtListScopeDiscipline fieldNames (stmtNextScope scope (.ite cond thenBranch elseBranch)) rest →
       StmtListScopeDiscipline fieldNames scope (.ite cond thenBranch elseBranch :: rest)
-  | forEachLiteralZero {scope : List String} {varName : String} {body rest : List Stmt} :
+  | forEachLiteralZero {scope : List String} {varName : String} {n : Nat} {body rest : List Stmt} :
       StmtListScopeDiscipline fieldNames (varName :: scope) body →
-      StmtListScopeDiscipline fieldNames (stmtNextScope scope (.forEach varName (.literal 0) body)) rest →
-      StmtListScopeDiscipline fieldNames scope (.forEach varName (.literal 0) body :: rest)
+      StmtListScopeDiscipline fieldNames (stmtNextScope scope (.forEach varName (.literal n) body)) rest →
+      StmtListScopeDiscipline fieldNames scope (.forEach varName (.literal n) body :: rest)
   | forEachLiteralEmpty {scope : List String} {varName : String} {n : Nat} {rest : List Stmt} :
       StmtListScopeDiscipline fieldNames (stmtNextScope scope (.forEach varName (.literal n) [])) rest →
       StmtListScopeDiscipline fieldNames scope (.forEach varName (.literal n) [] :: rest)
@@ -196,10 +196,10 @@ inductive StmtListScopeCore (fieldNames : List String) : List Stmt → Prop wher
       StmtListScopeCore fieldNames elseBranch →
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.ite cond thenBranch elseBranch :: rest)
-  | forEachLiteralZero {varName : String} {body rest : List Stmt} :
+  | forEachLiteralZero {varName : String} {n : Nat} {body rest : List Stmt} :
       StmtListScopeCore fieldNames body →
       StmtListScopeCore fieldNames rest →
-      StmtListScopeCore fieldNames (.forEach varName (.literal 0) body :: rest)
+      StmtListScopeCore fieldNames (.forEach varName (.literal n) body :: rest)
   | forEachLiteralEmpty {varName : String} {n : Nat} {rest : List Stmt} :
       StmtListScopeCore fieldNames rest →
       StmtListScopeCore fieldNames (.forEach varName (.literal n) [] :: rest)
@@ -451,26 +451,21 @@ private theorem stmtListScopeCore_cons_ite
     hrest
 
 private theorem stmtListScopeCore_cons_forEach_zero
-    {fields : List Field} {scope : List String} {varName : String}
+    {fields : List Field} {scope : List String} {varName : String} {n : Nat}
     {body rest : List Stmt} {headIR : List YulStmt}
-    (ih : ScopeCoreIH fields (sizeOf (Stmt.forEach varName (.literal 0) body)))
+    (ih : ScopeCoreIH fields (sizeOf (Stmt.forEach varName (.literal n) body)))
     (hhead :
       CompilationModel.compileStmt fields [] [] .calldata [] false scope []
-        (.forEach varName (.literal 0) body) = Except.ok headIR)
-    (hsurface : stmtTouchesUnsupportedContractSurface (.forEach varName (.literal 0) body) = false)
+        (.forEach varName (.literal n) body) = Except.ok headIR)
+    (hsurface : stmtTouchesUnsupportedContractSurface (.forEach varName (.literal n) body) = false)
     (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
-    StmtListScopeCore (fields.map (·.name)) (.forEach varName (.literal 0) body :: rest) := by
-  have hbodySurface : stmtListTouchesUnsupportedContractSurface body = false := by
-    cases body with
-    | nil => simp [stmtListTouchesUnsupportedContractSurface]
-    | cons stmt rest =>
-        simp only [stmtTouchesUnsupportedContractSurface,
-          stmtListTouchesUnsupportedContractSurface, Bool.or_eq_false_iff] at hsurface
-        exact Bool.or_eq_false_iff.mpr hsurface
+    StmtListScopeCore (fields.map (·.name)) (.forEach varName (.literal n) body :: rest) := by
+  have hbodySurface : stmtListTouchesUnsupportedContractSurface body = false :=
+    stmtListTouchesUnsupportedContractSurface_of_forEach_surfaceClosed hsurface
   simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
     bind, Except.bind] at hhead
   cases hbody : CompilationModel.compileStmtList fields [] [] .calldata [] false
-      (CompilationModel.forEachBodyScope scope varName (Expr.literal 0) body) [] body with
+      (CompilationModel.forEachBodyScope scope varName (Expr.literal n) body) [] body with
   | error e =>
       simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
         CompilationModel.compileExprWithInternals, pure, Except.pure, hbody] at hhead
@@ -489,13 +484,7 @@ private theorem stmtListScopeCore_cons_forEach
     (hrest : StmtListScopeCore (fields.map (·.name)) rest) :
     StmtListScopeCore (fields.map (·.name)) (.forEach varName count body :: rest) := by
   cases count with
-  | literal n =>
-      cases n with
-      | zero => exact stmtListScopeCore_cons_forEach_zero ih hhead hsurface hrest
-      | succ n =>
-          cases body with
-          | nil => exact .forEachLiteralEmpty hrest
-          | cons _ _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
+  | literal n => exact stmtListScopeCore_cons_forEach_zero ih hhead hsurface hrest
   | _ => simp [stmtTouchesUnsupportedContractSurface] at hsurface
 
 /-- One statement of a surface-free, successfully compiled list extends the
@@ -1226,9 +1215,9 @@ private theorem scopedStmtListInvariant_ite {cond : Expr} {thenBranch elseBranch
       (ihElse helse hparamsInScope hlocalsInScope hconstructorArgs).1,
     fun name hname => mem_stmtNextScope_of_mem_scope (hlocalsInScope name hname)⟩
 
-private theorem scopedStmtListInvariant_forEachLiteralZero {varName : String}
+private theorem scopedStmtListInvariant_forEachLiteralZero {varName : String} {n : Nat}
     {body rest : List Stmt} (ihBody : StmtListInvariant body) (ih : StmtListInvariant rest) :
-    StmtListInvariant (.forEach varName (.literal 0) body :: rest) := by
+    StmtListInvariant (.forEach varName (.literal n) body :: rest) := by
   refine scopedStmtListInvariant_cons ?_ ih
   intro localScope scope next hstmt hparamsInScope hlocalsInScope hconstructorArgs
   obtain ⟨⟨_, hbody⟩, rfl⟩ := validateScopedStmtIdentifiers_forEach_ok_inv hstmt

@@ -3992,19 +3992,29 @@ private theorem compileStmt_constructor_mode_eq
       fields events errors .memory [] false scope [] stmt]
     rw [← FunctionBody.compileStmtWithFork_cancun_eq_compileStmt
       fields [] [] .calldata [] false scope [] stmt]
-    cases stmt <;>
-      try simp [stmtTouchesUnsupportedEffectSurface] at heffectsClosed <;>
-      try simp [stmtTouchesUnsupportedCoreSurface] at hcoreClosed <;>
-      try simp [stmtTouchesUnsupportedCallSurface] at hcallClosed <;>
-      try simp [stmtTouchesUnsupportedConstructorRawCalldataSurface] at hrawClosed <;>
-      simp_all [compileStmtWithFork,
-        FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
-        compileSetStorage, compileStorageArrayPush,
-      compileSetStorageArrayElement, compileSetMapping2, compileSetMapping2Word,
-      compileSetMappingChain, compileSetStructMember, compileSetStructMember2,
-      compileRequireFailCond_constructor_mode_eq, compileExpr_constructor_mode_eq,
-      compileExprList_constructor_mode_eq, compileStmtList_constructor_mode_eq',
-      compileExprWithInternals, compileExprListWithInternals]
+    cases stmt with
+    | forEach varName count body =>
+        cases count <;>
+          simp_all [stmtTouchesUnsupportedEffectSurface, stmtTouchesUnsupportedCoreSurface,
+            stmtTouchesUnsupportedCallSurface, stmtTouchesUnsupportedConstructorRawCalldataSurface,
+            exprTouchesUnsupportedCoreSurface, exprTouchesUnsupportedCallSurface,
+            exprTouchesUnsupportedConstructorRawCalldataSurface,
+            compileStmtWithFork, FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+            compileExpr_constructor_mode_eq, compileStmtList_constructor_mode_eq',
+            compileExprWithInternals]
+    | _ =>
+        try simp [stmtTouchesUnsupportedEffectSurface] at heffectsClosed
+        try simp [stmtTouchesUnsupportedCoreSurface] at hcoreClosed
+        try simp [stmtTouchesUnsupportedCallSurface] at hcallClosed
+        try simp [stmtTouchesUnsupportedConstructorRawCalldataSurface] at hrawClosed
+        try simp_all [compileStmtWithFork,
+          FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+          compileSetStorage, compileStorageArrayPush,
+          compileSetStorageArrayElement, compileSetMapping2, compileSetMapping2Word,
+          compileSetMappingChain, compileSetStructMember, compileSetStructMember2,
+          compileRequireFailCond_constructor_mode_eq, compileExpr_constructor_mode_eq,
+          compileExprList_constructor_mode_eq, compileStmtList_constructor_mode_eq',
+          compileExprWithInternals, compileExprListWithInternals]
 
 private theorem compileStmtList_constructor_mode_eq'
     {fields : List Field}

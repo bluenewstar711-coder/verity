@@ -4042,6 +4042,33 @@ private theorem bridgedSafeStmts_forEachLiteralBounded_of_except_mapping_writes
         stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
         stmtTouchesUnsupportedStateSurface] at hState
 
+/-- Helper for literal `forEach` in `supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety`. -/
+private theorem bridgedSafeStmts_forEachLiteralCore_single
+    {fields : List CompilationModel.Field} {errors : List CompilationModel.ErrorDef}
+    {dynamicSource : CompilationModel.DynamicDataSource} {scope : List String}
+    {varName : String} {n : Nat} {body : List CompilationModel.Stmt}
+    (hBody : FunctionBody.StmtListCompileCore (varName :: scope) body) :
+    BridgedSafeStmts fields errors dynamicSource [] false
+      [.forEach varName (.literal n) body] :=
+  BridgedSafeStmts.externalRecursiveRawLog
+    (.cons (.forEach _ _ _ (.literal _)
+      (bridgedSourceExternalRecursiveBodyWithRawLogStmts_of_stmtListCompileCore hBody)) .nil)
+
+/-- Helper for `ite` in `supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety`. -/
+private theorem bridgedSafeStmts_iteCore_single
+    {fields : List CompilationModel.Field} {errors : List CompilationModel.ErrorDef}
+    {dynamicSource : CompilationModel.DynamicDataSource} {scope : List String}
+    {cond : CompilationModel.Expr} {thenBranch elseBranch : List CompilationModel.Stmt}
+    (hCond : FunctionBody.ExprCompileCore cond)
+    (hThen : FunctionBody.StmtListCompileCore scope thenBranch)
+    (hElse : FunctionBody.StmtListCompileCore scope elseBranch) :
+    BridgedSafeStmts fields errors dynamicSource [] false
+      [.ite cond thenBranch elseBranch] :=
+  BridgedSafeStmts.externalRecursiveRawLog
+    (.cons (.ite _ _ _ (bridgedSourceExpr_of_exprCompileCore hCond)
+      (bridgedSourceExternalRecursiveBodyWithRawLogStmts_of_stmtListCompileCore hThen)
+      (bridgedSourceExternalRecursiveBodyWithRawLogStmts_of_stmtListCompileCore hElse)) .nil)
+
 /-- Helper for `requireClause` in `supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety`. -/
 private theorem bridgedSafeStmts_requireClause_of_except_mapping_writes
     {fields : List CompilationModel.Field} {errors : List CompilationModel.ErrorDef}
@@ -4129,8 +4156,6 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   case terminalCore hCore => exact bridgedSafeStmts_externalTerminalCore hCore
   case setStorageSingleSlot hValue _ hFind => exact bridgedSafeStmts_setStorageSingleSlot_of_exprCompileCore hValue hFind
   case setStorageAddrSingleSlot hValue _ hFind => exact bridgedSafeStmts_setStorageAddrSingleSlot_of_exprCompileCore hValue hFind
-  case mstoreSingle hOffset _ hValue _ => exact bridgedSafeStmts_mstoreSingle_of_exprCompileCore hOffset hValue
-  case tstoreSingle hOffset _ hValue _ => exact bridgedSafeStmts_tstoreSingle_of_exprCompileCore hOffset hValue
   case calldatacopySingle hDest _ hSource _ hSize _ => exact bridgedSafeStmts_calldatacopySingle_of_exprCompileCore hDest hSource hSize
   case returndataCopyEmptySingle hDest _ => exact bridgedSafeStmts_returndataCopyEmptySingle_of_exprCompileCore hDest
   case revertEmptySingle => exact bridgedSafeStmts_revertEmptySingle
@@ -4145,8 +4170,9 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
   case setMapping2WordSingle hKey1 _ hKey2 _ hValue _ _ => exact bridgedSafeStmts_setMapping2WordSingle_of_safety hKey1 hKey2 hValue hSafety
   case setStructMember2Single hKey1 _ hKey2 _ hValue _ _ _ _ => exact bridgedSafeStmts_setStructMember2Single_of_safety hKey1 hKey2 hValue hSafety
   case forEachLiteralBounded _ _ body _ _ _ => exact bridgedSafeStmts_forEachLiteralBounded_of_except_mapping_writes body hState
-  case forEachLiteralEmpty _ => exact bridgedSafeStmts_forEachLiteralEmpty_single
+  case forEachLiteralCore _ hBody _ => exact bridgedSafeStmts_forEachLiteralCore_single hBody
   case requireClause _ _ _ ih => exact bridgedSafeStmts_requireClause_of_except_mapping_writes hSafety hState hCall hEffects ih
+  case ite hCond _ hThen hElse _ _ => exact bridgedSafeStmts_iteCore_single hCond hThen hElse
   case iteTerminal hCond hBound hThen hElse => exact bridgedSafeStmts_externalTerminalCore (.ite hCond hBound hThen hElse .nil)
   case append _ _ _ _ ihPfx ihSfx => exact bridgedSafeStmts_append_of_except_mapping_writes hSafety hState hCall hEffects ihPfx ihSfx
   all_goals
@@ -4160,16 +4186,8 @@ theorem supportedStmtList_safe_of_state_except_mapping_writes_stmt_safety
 private theorem stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_of_stateSurfaceClosed
     {stmts : List CompilationModel.Stmt}
     (hState : stmtListTouchesUnsupportedStateSurface stmts = false) :
-    stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites stmts = false := by
-  induction stmts with
-  | nil => rfl
-  | cons head rest ih =>
-      simp only [stmtListTouchesUnsupportedStateSurface, Bool.or_eq_false_iff] at hState
-      simp only [stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites, Bool.or_eq_false_iff]
-      refine ⟨?_, ih hState.2⟩
-      cases head <;>
-        simp [stmtTouchesUnsupportedStateSurfaceExceptMappingWrites,
-          stmtTouchesUnsupportedStateSurface] at hState ⊢
+    stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites stmts = false :=
+  stmtListTouchesUnsupportedStateSurfaceExceptMappingWrites_eq_false_of_stateSurface hState
 
 /-- Generic source-body closure from `SupportedStmtList` to
 `BridgedSafeStmts` on the helper-free external-call surface.
