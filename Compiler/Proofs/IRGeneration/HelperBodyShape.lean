@@ -41,7 +41,7 @@ shape of `stmtTouchesUnsupportedHelperSurface`: unsupported wrappers and ADT
 matches are rejected at the head instead of recursively inspected. -/
 def stmtUsesReturnFamily : Stmt → Bool
   | .return _ | .returnValues _ | .returnArray _ | .returnBytes _
-  | .returnStorageWords _ | .returnCodeData _ => true
+  | .returnStorageWords _ | .returnCodeData _ | .stop => true
   | .unsafeBlock _ _ | .unsafeYul _ | .matchAdt _ _ _ => true
   | .ite _ thenBranch elseBranch =>
       stmtListUsesReturnFamily thenBranch ||
@@ -104,7 +104,6 @@ theorem compileStmtWithFork_internal_shape_irrelevant_of_returnFree
       [] false inScopeNames adtTypes targetFork stmt internalFunctions := by
   cases stmt <;>
     simp [stmtUsesReturnFamily, CompilationModel.compileStmtWithFork] at hreturnFree ⊢
-  all_goals try (unfold CompilationModel.compileStmtWithFork; rfl)
   case ite cond thenBranch elseBranch =>
     rcases hreturnFree with ⟨hthen, helse⟩
     simp [

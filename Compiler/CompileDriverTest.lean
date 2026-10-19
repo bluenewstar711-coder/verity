@@ -1251,6 +1251,111 @@ private def erc4626DepositTrustSurfaceSpec : CompilationModel := {
   ]
 }
 
+private def staticOptOutsTrustSurfaceSpec : CompilationModel := {
+  name := "StaticOptOutsTrustSurface"
+  fields := [{ name := "count", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "postInteractionWriteOptOut"
+      params := [{ name := "target", ty := ParamType.address }]
+      returnType := none
+      allowPostInteractionWrites := true
+      reentrancyTrusted := true
+      body := [
+        Compiler.Modules.Calls.callWithValue
+          (Expr.param "target")
+          (Expr.literal 0)
+          (Expr.literal 0)
+          (Expr.literal 0),
+        Stmt.setStorage "count" (Expr.literal 1),
+        Stmt.stop
+      ]
+    }
+    , { name := "redundantOptOut"
+        params := []
+        returnType := none
+        allowPostInteractionWrites := true
+        body := [
+          Stmt.setStorage "count" (Expr.literal 2),
+          Stmt.stop
+        ]
+      }
+  ]
+}
+
+private def helperBoundaryInsideSpec : CompilationModel := {
+  name := "HelperBoundaryInside"
+  fields := [{ name := "count", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "bumpHelper"
+      isInternal := true
+      params := [{ name := "delta", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "count" (Expr.param "delta")
+      ]
+    }
+    , { name := "run"
+        params := [{ name := "delta", ty := ParamType.uint256 }]
+        returnType := none
+        body := [
+          Stmt.internalCall "bumpHelper" [Expr.param "delta"],
+          Stmt.stop
+        ]
+      }
+  ]
+}
+
+private def helperBoundaryOutsideSpec : CompilationModel := {
+  name := "HelperBoundaryOutside"
+  fields := [{ name := "count", ty := FieldType.uint256 }]
+  «constructor» := none
+  functions := [
+    { name := "insideHelper"
+      isInternal := true
+      params := [{ name := "delta", ty := ParamType.uint256 }]
+      returnType := none
+      body := [
+        Stmt.setStorage "count" (Expr.param "delta")
+      ]
+    }
+    , { name := "leafOutside"
+        isInternal := true
+        params := [{ name := "delta", ty := ParamType.uint256 }]
+        returnType := some FieldType.uint256
+        body := [
+          Stmt.return (Expr.param "delta")
+        ]
+      }
+    , { name := "midOutside"
+        isInternal := true
+        params := [{ name := "delta", ty := ParamType.uint256 }]
+        returnType := none
+        body := [
+          Stmt.internalCallAssign ["out"] "leafOutside" [Expr.param "delta"],
+          Stmt.stop
+        ]
+      }
+    , { name := "runInside"
+        params := [{ name := "delta", ty := ParamType.uint256 }]
+        returnType := none
+        body := [
+          Stmt.internalCall "insideHelper" [Expr.param "delta"],
+          Stmt.stop
+        ]
+      }
+    , { name := "run"
+        params := [{ name := "delta", ty := ParamType.uint256 }]
+        returnType := none
+        body := [
+          Stmt.internalCall "midOutside" [Expr.param "delta"],
+          Stmt.stop
+        ]
+      }
+  ]
+}
+
 private def expectModuleArtifacts
     (labelPrefix : String)
     (modules : List String)
@@ -2242,6 +2347,46 @@ unsafe def runTests : IO Unit := do
     unsafeTrustReportPath
     ["\"unsafeBlocks\":[\"manual memory write for packed encoding\"]"]
 
+  -- staticOptOuts: trust report lists allow_post_interaction_writes and reentrancy_trusted opt-outs
+  let staticOptOutsTrustReport := emitTrustReportJson [staticOptOutsTrustSurfaceSpec]
+  if !contains staticOptOutsTrustReport
+      "\"staticOptOuts\":[{\"function\":\"postInteractionWriteOptOut\",\"isInternal\":false,\"optOut\":\"allow_post_interaction_writes\",\"firstPostInteractionWrite\":\"setStorage count (state write after external call)\",\"suppressedStatement\":\"setStorage count (state write after external call)\"},{\"function\":\"postInteractionWriteOptOut\",\"isInternal\":false,\"optOut\":\"reentrancy_trusted\",\"firstPostInteractionWrite\":\"none\",\"suppressedStatement\":\"ecm callWithValue\"},{\"function\":\"redundantOptOut\",\"isInternal\":false,\"optOut\":\"allow_post_interaction_writes\",\"firstPostInteractionWrite\":\"none (redundant opt-out)\",\"suppressedStatement\":\"none (redundant opt-out)\"}]" then
+    throw (IO.userError s!"✗ trust report emits staticOptOuts section: {staticOptOutsTrustReport}")
+  let collectedOptOuts := collectStaticOptOuts staticOptOutsTrustSurfaceSpec
+  if collectedOptOuts.length != 3 then
+    throw (IO.userError s!"✗ collectStaticOptOuts expected 3 entries, got {collectedOptOuts.length}")
+  IO.println "✓ trust report emits staticOptOuts and first post-interaction write statements"
+
+  -- proofBoundary helper classification and --strict-boundary
+  let helperInsideReport := emitTrustReportJson [helperBoundaryInsideSpec]
+  if !contains helperInsideReport "\"helpers\":[{\"name\":\"bumpHelper\",\"status\":\"inside\",\"reasons\":[]}],\"entrypointsReachingOutsideHelpers\":[]" then
+    throw (IO.userError s!"✗ trust report classifies inside helpers in proofBoundary: {helperInsideReport}")
+  let helperOutsideReport := emitTrustReportJson [helperBoundaryOutsideSpec]
+  if !contains helperOutsideReport "\"helpers\":[{\"name\":\"insideHelper\",\"status\":\"inside\",\"reasons\":[]},{\"name\":\"leafOutside\",\"status\":\"outside\",\"reasons\":[\"usesReturnFamily\"]},{\"name\":\"midOutside\",\"status\":\"outside\",\"reasons\":[\"usesStop\",\"usesInternalHelperCall\"]}]" then
+    throw (IO.userError s!"✗ trust report classifies outside helpers and reasons in proofBoundary: {helperOutsideReport}")
+  if !contains helperOutsideReport "\"entrypointsReachingOutsideHelpers\":[{\"kind\":\"function\",\"name\":\"run\",\"outsideHelpers\":[\"leafOutside\",\"midOutside\"]}]" then
+    throw (IO.userError s!"✗ trust report lists entrypoints reaching outside helpers in proofBoundary: {helperOutsideReport}")
+  IO.println "✓ trust report classifies internal helpers inside/outside Layer 3 proof boundary"
+
+  let strictBoundaryDeniedReportPath := s!"{trustReportDir}/trust-report-strict-boundary-denied.json"
+  expectFailureContains
+    "compileSpecsWithOptions rejects entrypoints reaching outside helpers under strict-boundary"
+    (compileSpecsWithOptions
+      [helperBoundaryOutsideSpec] outDir false [] {} none (some strictBoundaryDeniedReportPath) none none false false false false false false false false false none none false false true)
+    "Entrypoints transitively call internal helpers outside the proved Layer 3 boundary:\n- HelperBoundaryOutside [function:run]: leafOutside (outside: usesReturnFamily); midOutside (outside: usesStop, usesInternalHelperCall)"
+  let strictBoundaryDeniedReportWritten ← fileExists strictBoundaryDeniedReportPath
+  if !strictBoundaryDeniedReportWritten then
+    throw (IO.userError "✗ strict-boundary rejection still writes trust report file")
+  IO.println "✓ strict-boundary rejection still writes trust report file"
+
+  let strictBoundaryOkOutDir := s!"/tmp/compile-driver-strict-boundary-ok-{nonce}"
+  compileSpecsWithOptions
+    [helperBoundaryInsideSpec] strictBoundaryOkOutDir false [] {} none none none none false false false false false false false false false none none false false true
+  let strictBoundaryOkArtifactWritten ← fileExists s!"{strictBoundaryOkOutDir}/HelperBoundaryInside.yul"
+  if !strictBoundaryOkArtifactWritten then
+    throw (IO.userError "✗ compileSpecsWithOptions allows inside-boundary helpers under strict-boundary gate")
+  IO.println "✓ compileSpecsWithOptions allows inside-boundary helpers under strict-boundary gate"
+
   compileSpecsWithOptions [abiSmokeSpec] outDir false [] { patchConfig := { enabled := true } } (some patchReportPath) none none none
   let writtenPatchReport ← fileExists patchReportPath
   if !writtenPatchReport then
@@ -2251,3 +2396,4 @@ unsafe def runTests : IO Unit := do
 #eval! runTests
 
 end Compiler.CompileDriverTest
+

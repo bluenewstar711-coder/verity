@@ -1580,6 +1580,413 @@ def emitUnsafeBlockUsageSiteLines (specs : List CompilationModel) : List String 
       acc ++ siteLines)
     []
 
+private def exprHasExternalCallNodeForReport : Expr → Bool
+  | .call _ _ _ _ _ _ _ | .staticcall _ _ _ _ _ _
+  | .delegatecall _ _ _ _ _ _ => true
+  | .externalCall name _ => name != builtinExpName
+  | _ => false
+
+private def exprHasExternalCallForReport (e : Expr) : Bool :=
+  e.anyDeep exprHasExternalCallNodeForReport
+
+private def exprMayHaveExternalCallNodeForReport : Expr → Bool
+  | .internalCall _ _ => true
+  | e => exprHasExternalCallNodeForReport e
+
+private def exprMayHaveExternalCallForReport (e : Expr) : Bool :=
+  e.anyDeep exprMayHaveExternalCallNodeForReport
+
+private def stmtHasExternalCallNodeForReport : Stmt → Bool
+  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ => true
+  | .ecm _ _ => true
+  | .unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall ||
+        yulStmtListContainsExternalCall fragment.stmts
+  | s => s.directMetadata.subexpressions.any exprHasExternalCallForReport
+
+private def stmtHasExternalCallForReport (s : Stmt) : Bool :=
+  s.anyDeep stmtHasExternalCallNodeForReport
+
+private def stmtMayHaveExternalCallNodeForReport : Stmt → Bool
+  | .internalCall _ _ | .internalCallAssign _ _ _ => true
+  | .externalCallBind _ _ _ | .tryExternalCallBind _ _ _ _ => true
+  | .ecm _ _ => true
+  | .unsafeYul fragment =>
+      fragment.mechanics.contains .call ||
+        fragment.mechanics.contains .staticcall ||
+        fragment.mechanics.contains .delegatecall ||
+        yulStmtListContainsExternalCall fragment.stmts
+  | s => s.directMetadata.subexpressions.any exprMayHaveExternalCallForReport
+
+private def stmtMayHaveExternalCallForReport (s : Stmt) : Bool :=
+  s.anyDeep stmtMayHaveExternalCallNodeForReport
+
+private def stmtOpensReentrancyWindowNodeForReport : Stmt → Bool
+  | .ecm mod args =>
+      mod.summaryMutability == Compiler.ECM.StatefulExternal.Mutability.call ||
+        args.any exprHasExternalCallForReport
+  | s => stmtHasExternalCallNodeForReport s
+
+private def stmtIsPersistentWriteNodeForReport : Stmt → Bool
+  | .setStorage _ _ | .setStorageAddr _ _ | .setStorageWord _ _ _
+  | .storageArrayPush _ _ | .storageArrayPop _ | .setStorageArrayElement _ _ _
+  | .setMapping _ _ _ | .setMappingWord _ _ _ _ | .setMappingPackedWord _ _ _ _ _ | .setMappingUint _ _ _
+  | .setMappingChain _ _ _
+  | .setMapping2 _ _ _ _ | .setMapping2Word _ _ _ _ _
+  | .setStructMember _ _ _ _ | .setStructMember2 _ _ _ _ _
+  | .tstore _ _ => true
+  | .unsafeYul fragment =>
+      !fragment.scopeEffects.storageWrites.isEmpty || fragment.mechanics.contains .tstore
+  | _ => false
+
+private def stmtIsPersistentWriteForReport (s : Stmt) : Bool :=
+  s.anyDeep stmtIsPersistentWriteNodeForReport
+
+private def stmtMayPersistentlyWriteNodeForReport : Stmt → Bool
+  | .internalCall _ _ | .internalCallAssign _ _ _ => true
+  | .ecm mod _ => mod.writesState
+  | s => stmtIsPersistentWriteNodeForReport s
+
+private def stmtMayPersistentlyWriteForReport (s : Stmt) : Bool :=
+  s.anyDeep stmtMayPersistentlyWriteNodeForReport
+
+private def describeWriteStmt : Stmt → String
+  | .setStorage field _ => s!"setStorage {field}"
+  | .setStorageAddr field _ => s!"setStorageAddr {field}"
+  | .setStorageWord field wordOffset _ => s!"setStorageWord {field}[{wordOffset}]"
+  | .storageArrayPush field _ => s!"storageArrayPush {field}"
+  | .storageArrayPop field => s!"storageArrayPop {field}"
+  | .setStorageArrayElement field _ _ => s!"setStorageArrayElement {field}"
+  | .setMapping field _ _ => s!"setMapping {field}"
+  | .setMappingWord field _ wordOffset _ => s!"setMappingWord {field}[{wordOffset}]"
+  | .setMappingPackedWord field _ wordOffset _ _ => s!"setMappingPackedWord {field}[{wordOffset}]"
+  | .setMappingUint field _ _ => s!"setMappingUint {field}"
+  | .setMappingChain field _ _ => s!"setMappingChain {field}"
+  | .setMapping2 field _ _ _ => s!"setMapping2 {field}"
+  | .setMapping2Word field _ _ wordOffset _ => s!"setMapping2Word {field}[{wordOffset}]"
+  | .setStructMember field _ memberName _ => s!"setStructMember {field}.{memberName}"
+  | .setStructMember2 field _ _ memberName _ => s!"setStructMember2 {field}.{memberName}"
+  | .tstore _ _ => "tstore"
+  | .internalCall name _ => s!"internalCall {name}"
+  | .internalCallAssign names name _ => s!"internalCallAssign {String.intercalate ", " names} := {name}"
+  | .ecm mod _ => s!"ecm {mod.name}"
+  | .unsafeYul fragment => s!"unsafeYul {fragment.label}"
+  | other => toString (repr other)
+
+mutual
+
+/-- Find the first post-interaction persistent state write statement in `stmts`
+    that would be flagged by `stmtListCEIViolation`, returning a concise
+    human-readable summary of the offending statement and its violation reason. -/
+def firstPostInteractionWriteStmt : List Stmt → Bool → Option String
+  | [], _ => none
+  | s :: rest, seenCall =>
+      match firstInternalPostInteractionWriteStmt s seenCall with
+      | some msg => some msg
+      | none =>
+          let isCompound := match s with
+            | .ite _ _ _ | .forEach _ _ _ | .forEachSetBit _ _ _ | .unsafeBlock _ _
+            | .matchAdt _ _ _ => true
+            | _ => false
+          let newSeenCall := seenCall || stmtMayHaveExternalCallForReport s
+          if !isCompound && seenCall && stmtMayPersistentlyWriteForReport s then
+            some s!"{describeWriteStmt s} (state write after external call)"
+          else if !isCompound && stmtHasExternalCallForReport s && stmtIsPersistentWriteForReport s then
+            some s!"{describeWriteStmt s} (state write in same statement as external call)"
+          else
+            firstPostInteractionWriteStmt rest newSeenCall
+termination_by ss => sizeOf ss
+decreasing_by all_goals simp_wf; all_goals omega
+
+def firstInternalPostInteractionWriteStmt : Stmt → Bool → Option String
+  | .ite cond thenBranch elseBranch, seenCall =>
+      let condSeenCall := seenCall || exprMayHaveExternalCallForReport cond
+      match firstPostInteractionWriteStmt thenBranch condSeenCall with
+      | some msg => some s!"in if-then branch: {msg}"
+      | none =>
+          match firstPostInteractionWriteStmt elseBranch condSeenCall with
+          | some msg => some s!"in if-else branch: {msg}"
+          | none => none
+  | .forEach _ count body, seenCall | .forEachSetBit _ count body, seenCall =>
+      let bodyHasCall := body.any stmtMayHaveExternalCallForReport
+      let bodyHasWrite := body.any stmtMayPersistentlyWriteForReport
+      if bodyHasCall && bodyHasWrite then
+        let innerMsg :=
+          (firstPostInteractionWriteStmt body true).getD
+            "loop body contains both external call and state write"
+        some s!"in loop body: {innerMsg}"
+      else
+        let countSeenCall := seenCall || exprMayHaveExternalCallForReport count
+        match firstPostInteractionWriteStmt body countSeenCall with
+        | some msg => some s!"in loop body: {msg}"
+        | none => none
+  | .unsafeBlock _ body, seenCall =>
+      match firstPostInteractionWriteStmt body seenCall with
+      | some msg => some s!"in unsafe block: {msg}"
+      | none => none
+  | .matchAdt _ scrutinee branches, seenCall =>
+      let scrutineeSeenCall := seenCall || exprMayHaveExternalCallForReport scrutinee
+      firstMatchBranchesPostInteractionWriteStmt branches scrutineeSeenCall
+  | .unsafeYul fragment, seenCall =>
+      let fragmentCalls :=
+        fragment.mechanics.contains .call ||
+          fragment.mechanics.contains .staticcall ||
+          fragment.mechanics.contains .delegatecall ||
+          yulStmtListContainsExternalCall fragment.stmts
+      let fragmentWrites :=
+        !fragment.scopeEffects.storageWrites.isEmpty ||
+          fragment.mechanics.contains .storageWrite ||
+          fragment.mechanics.contains .tstore
+      if (seenCall || fragmentCalls) && fragmentWrites then
+        some s!"unsafeYul {fragment.label} (raw Yul fragment writes state after an external call)"
+      else
+        none
+  | _, _ => none
+termination_by s => sizeOf s
+decreasing_by all_goals simp_wf; all_goals omega
+
+def firstMatchBranchesPostInteractionWriteStmt :
+    List (String × List String × List Stmt) → Bool → Option String
+  | [], _ => none
+  | (variantName, _, body) :: rest, seenCall =>
+      match firstPostInteractionWriteStmt body seenCall with
+      | some msg => some s!"in match branch '{variantName}': {msg}"
+      | none => firstMatchBranchesPostInteractionWriteStmt rest seenCall
+termination_by bs => sizeOf bs
+decreasing_by all_goals simp_wf; all_goals omega
+
+end
+
+private def describeReentrancyWindowStmt : Stmt → String
+  | .externalCallBind vars externalName _ =>
+      s!"externalCallBind {String.intercalate ", " vars} := {externalName}"
+  | .tryExternalCallBind successVar vars externalName _ =>
+      s!"tryExternalCallBind {successVar}, {String.intercalate ", " vars} := {externalName}"
+  | .ecm mod _ => s!"ecm {mod.name}"
+  | .unsafeYul fragment => s!"unsafeYul {fragment.label}"
+  | other => describeWriteStmt other
+
+/-- Find the first statement in `stmts` that opens a cross-function reentrancy window. -/
+def firstReentrancyWindowStmt (stmts : List Stmt) : Option String :=
+  Stmt.foldList
+    (fun acc stmt _ =>
+      match acc with
+      | some _ => acc
+      | none =>
+          if stmtOpensReentrancyWindowNodeForReport stmt then
+            some (describeReentrancyWindowStmt stmt)
+          else
+            none)
+    none
+    stmts
+
+/-- Summary of a static analysis opt-out annotation (`allow_post_interaction_writes`
+    or `reentrancy_trusted`) and the statement it suppressed. -/
+structure StaticOptOutEntry where
+  function : String
+  isInternal : Bool
+  optOut : String
+  firstPostInteractionWrite : String
+  suppressedStatement : String
+
+/-- Collect all static lint opt-outs declared on functions in `spec`. -/
+def collectStaticOptOuts (spec : CompilationModel) : List StaticOptOutEntry :=
+  spec.functions.flatMap fun fn =>
+    let postInteractionEntries :=
+      if fn.allowPostInteractionWrites then
+        let stmtSummary :=
+          (firstPostInteractionWriteStmt fn.body false).getD "none (redundant opt-out)"
+        [{ function := fn.name
+           isInternal := fn.isInternal
+           optOut := "allow_post_interaction_writes"
+           firstPostInteractionWrite := stmtSummary
+           suppressedStatement := stmtSummary }]
+      else
+        []
+    let reentrancyTrustedEntries :=
+      if fn.reentrancyTrusted then
+        let stmtSummary :=
+          if fn.isView || fn.isPure || fn.nonReentrantLock.isSome then
+            "none (redundant opt-out)"
+          else
+            (firstReentrancyWindowStmt fn.body).getD "none (redundant opt-out)"
+        [{ function := fn.name
+           isInternal := fn.isInternal
+           optOut := "reentrancy_trusted"
+           firstPostInteractionWrite := "none"
+           suppressedStatement := stmtSummary }]
+      else
+        []
+    postInteractionEntries ++ reentrancyTrustedEntries
+
+private def staticOptOutJson (entry : StaticOptOutEntry) : String :=
+  jsonObject [
+    ("function", jsonString entry.function),
+    ("isInternal", if entry.isInternal then "true" else "false"),
+    ("optOut", jsonString entry.optOut),
+    ("firstPostInteractionWrite", jsonString entry.firstPostInteractionWrite),
+    ("suppressedStatement", jsonString entry.suppressedStatement)
+  ]
+
+private def exprUsesInternalHelperCallForReportNode : Expr → Bool
+  | .internalCall _ _ => true
+  | _ => false
+
+private def exprUsesInternalHelperCallForReport (expr : Expr) : Bool :=
+  expr.anyDeep exprUsesInternalHelperCallForReportNode
+
+private def stmtUsesStopNodeForReport : Stmt → Bool
+  | .stop => true
+  | _ => false
+
+private def stmtUsesReturnFamilyNodeForReport : Stmt → Bool
+  | .return _ | .returnValues _ | .returnArray _ | .returnBytes _
+  | .returnStorageWords _ | .returnCodeData _ => true
+  | _ => false
+
+private def stmtUsesInternalHelperCallNodeForReport : Stmt → Bool
+  | .internalCall _ _ | .internalCallAssign _ _ _ => true
+  | stmt => stmt.directMetadata.subexpressions.any exprUsesInternalHelperCallForReport
+
+private def stmtUsesUnsafeBlockNodeForReport : Stmt → Bool
+  | .unsafeBlock _ _ => true
+  | _ => false
+
+private def stmtUsesUnsafeYulNodeForReport : Stmt → Bool
+  | .unsafeYul _ => true
+  | _ => false
+
+private def stmtUsesMatchAdtNodeForReport : Stmt → Bool
+  | .matchAdt _ _ _ => true
+  | _ => false
+
+/-- Classify why an internal helper body falls outside the Layer 3 proved helper boundary
+    (`stmtListUsesStop` / `stmtListUsesReturnFamily`). Empty list means `"inside"`. -/
+def classifyHelperBoundaryReasons (stmts : List Stmt) : List String :=
+  (if Stmt.anyDeepList stmtUsesStopNodeForReport stmts then ["usesStop"] else []) ++
+  (if Stmt.anyDeepList stmtUsesReturnFamilyNodeForReport stmts then ["usesReturnFamily"] else []) ++
+  (if Stmt.anyDeepList stmtUsesInternalHelperCallNodeForReport stmts then ["usesInternalHelperCall"] else []) ++
+  (if Stmt.anyDeepList stmtUsesUnsafeBlockNodeForReport stmts then ["unsafeBlock"] else []) ++
+  (if Stmt.anyDeepList stmtUsesUnsafeYulNodeForReport stmts then ["unsafeYul"] else []) ++
+  (if Stmt.anyDeepList stmtUsesMatchAdtNodeForReport stmts then ["matchAdt"] else [])
+
+structure HelperBoundaryEntry where
+  name : String
+  status : String
+  reasons : List String
+
+/-- Classify all internal helpers (`fn.isInternal = true`) in `spec` as `"inside"`
+    or `"outside"` the Layer 3 proved helper boundary. -/
+def collectHelperBoundaryClassifications (spec : CompilationModel) : List HelperBoundaryEntry :=
+  (spec.functions.filter (·.isInternal)).map fun fn =>
+    let reasons := classifyHelperBoundaryReasons fn.body
+    { name := fn.name
+      status := if reasons.isEmpty then "inside" else "outside"
+      reasons := reasons }
+
+private def collectDirectInternalCallNamesExpr (expr : Expr) : List String :=
+  let here :=
+    match expr with
+    | .internalCall calleeName _ => [calleeName]
+    | _ => []
+  here ++ expr.children.attach.flatMap (fun ⟨child, hchild⟩ =>
+    have := Expr.children_sizeOf_lt expr child hchild
+    collectDirectInternalCallNamesExpr child)
+termination_by sizeOf expr
+
+private def collectDirectInternalCallNamesStmts (stmts : List Stmt) : List String :=
+  dedupPreserve <|
+    Stmt.foldList
+      (fun acc stmt md =>
+        let direct :=
+          match stmt with
+          | .internalCall calleeName _ => [calleeName]
+          | .internalCallAssign _ calleeName _ => [calleeName]
+          | _ => []
+        acc ++ direct ++ md.subexpressions.flatMap collectDirectInternalCallNamesExpr)
+      []
+      stmts
+
+private def expandTransitiveInternalCalls
+    (internalFunctions : List FunctionSpec) : Nat → List String → List String
+  | 0, current => current
+  | fuel + 1, current =>
+      let next :=
+        dedupPreserve <|
+          current ++
+            current.flatMap (fun calleeName =>
+              match internalFunctions.find? (fun fn => fn.name == calleeName) with
+              | some callee => collectDirectInternalCallNamesStmts callee.body
+              | none => [])
+      if next.length == current.length then
+        current
+      else
+        expandTransitiveInternalCalls internalFunctions fuel next
+
+/-- Collect all internal helper names transitively reachable from `stmts`. -/
+def collectTransitiveInternalCalls (spec : CompilationModel) (stmts : List Stmt) : List String :=
+  let internalFunctions := spec.functions.filter (·.isInternal)
+  let direct := collectDirectInternalCallNamesStmts stmts
+  expandTransitiveInternalCalls internalFunctions (internalFunctions.length + 1) direct
+
+structure EntrypointOutsideHelpersEntry where
+  kind : String
+  name : String
+  outsideHelpers : List HelperBoundaryEntry
+
+/-- Collect all entrypoints (constructor or external functions) that transitively call
+    any `"outside"` internal helper. -/
+def collectEntrypointsReachingOutsideHelpers (spec : CompilationModel) :
+    List EntrypointOutsideHelpersEntry :=
+  let helpers := collectHelperBoundaryClassifications spec
+  let outsideHelpersFor (stmts : List Stmt) : List HelperBoundaryEntry :=
+    let reachable := collectTransitiveInternalCalls spec stmts
+    helpers.filter (fun h => h.status == "outside" && reachable.contains h.name)
+  let ctorEntries :=
+    match spec.constructor with
+    | some ctor =>
+        let reached := outsideHelpersFor ctor.body
+        if reached.isEmpty then [] else
+          [{ kind := "constructor", name := "constructor", outsideHelpers := reached }]
+    | none => []
+  let fnEntries :=
+    (spec.functions.filter (fun fn => !fn.isInternal)).foldl
+      (fun acc fn =>
+        let reached := outsideHelpersFor fn.body
+        if reached.isEmpty then acc else
+          acc ++ [{ kind := "function", name := fn.name, outsideHelpers := reached }])
+      []
+  ctorEntries ++ fnEntries
+
+private def helperBoundaryJson (entry : HelperBoundaryEntry) : String :=
+  jsonObject [
+    ("name", jsonString entry.name),
+    ("status", jsonString entry.status),
+    ("reasons", jsonArray (entry.reasons.map jsonString))
+  ]
+
+private def entrypointOutsideHelpersJson (entry : EntrypointOutsideHelpersEntry) : String :=
+  jsonObject [
+    ("kind", jsonString entry.kind),
+    ("name", jsonString entry.name),
+    ("outsideHelpers", jsonArray (entry.outsideHelpers.map (fun h => jsonString h.name)))
+  ]
+
+/-- Render localized outside-boundary internal-helper lines for `--strict-boundary` diagnostics. -/
+def emitOutsideBoundaryHelperUsageSiteLines (specs : List CompilationModel) : List String :=
+  specs.foldl
+    (fun acc spec =>
+      let siteLines :=
+        (collectEntrypointsReachingOutsideHelpers spec).map (fun site =>
+          let renderedHelpers :=
+            site.outsideHelpers.map (fun h =>
+              s!"{h.name} (outside: {String.intercalate ", " h.reasons})")
+          s!"- {spec.name} [{site.kind}:{site.name}]: {String.intercalate "; " renderedHelpers}")
+      acc ++ siteLines)
+    []
+
 /-- Render the machine-readable trust report consumed by CLI/tests. -/
 def emitTrustReportJson (specs : List CompilationModel) : String :=
   jsonObject [
@@ -1598,12 +2005,16 @@ where
       ("boundaryClasses", jsonArray ((boundaryClassesForSpec spec).map jsonString)),
       ("localObligations", jsonArray ((collectLocalObligations spec).map localObligationJson)),
       ("unsafeBlocks", jsonArray ((collectUnsafeBlockReasons spec).map jsonString)),
+      ("staticOptOuts", jsonArray ((collectStaticOptOuts spec).map staticOptOutJson)),
       ("proofStatus", proofStatusJson spec),
       ("hasUncheckedDependencies", if hasUncheckedDependencies spec then "true" else "false"),
       ("proofBoundary", jsonObject [
         ("compilerModelsMechanics", "true"),
         ("proofInterpretersModelMechanics", "false"),
-        ("calleeBehaviorRequiresAssumptions", "true")
+        ("calleeBehaviorRequiresAssumptions", "true"),
+        ("helpers", jsonArray ((collectHelperBoundaryClassifications spec).map helperBoundaryJson)),
+        ("entrypointsReachingOutsideHelpers",
+          jsonArray ((collectEntrypointsReachingOutsideHelpers spec).map entrypointOutsideHelpersJson))
       ]),
       ("usageSites", usageSitesJson spec),
       ("externalAssumptions", jsonObject [

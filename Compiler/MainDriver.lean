@@ -52,6 +52,7 @@ private structure CLIArgs where
   denyProxyUpgradeability : Bool := false
   denyLayoutIncompatibility : Bool := false
   denyUnsafe : Bool := false
+  strictBoundary : Bool := false
   trustReportPath : Option String := none
   assumptionReportPath : Option String := none
   layoutReportPath : Option String := none
@@ -141,6 +142,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         IO.println "  --deny-proxy-upgradeability   Fail if any contract uses `delegatecall`-style proxy / upgradeability mechanics"
         IO.println "  --deny-layout-incompatibility Fail if the candidate layout moves or mutates baseline storage fields"
         IO.println "  --deny-unsafe                 Fail if any contract contains `unsafe \"reason\" do` blocks"
+        IO.println "  --strict-boundary             Fail if any entrypoint transitively calls an internal helper outside the proved Layer 3 boundary"
         IO.println "  --mapping-slot-scratch-base <n>  Scratch memory base for mappingSlot helper (default: 0)"
         IO.println "  --verbose          Enable verbose output"
         IO.println "  -v                 Short form of --verbose"
@@ -210,7 +212,7 @@ private def parseArgs (args : List String) : IO CLIArgs := do
                     targetForkExplicit := true
                     mappingSlotScratchBase :=
                       if cfg.mappingSlotScratchBaseExplicit then cfg.mappingSlotScratchBase else 0x200
-               }
+                }
           | none =>
               throw (IO.userError
                 s!"Invalid value for --parity-pack: {raw} (supported: {String.intercalate ", " Compiler.supportedParityPackIds})")
@@ -276,6 +278,8 @@ private def parseArgs (args : List String) : IO CLIArgs := do
         go rest { cfg with denyLayoutIncompatibility := true }
     | "--deny-unsafe" :: rest =>
         go rest { cfg with denyUnsafe := true }
+    | "--strict-boundary" :: rest =>
+        go rest { cfg with strictBoundary := true }
     | "--mapping-slot-scratch-base" :: raw :: rest =>
         match raw.toNat? with
         | some n => go rest { cfg with mappingSlotScratchBase := n, mappingSlotScratchBaseExplicit := true }
@@ -378,7 +382,7 @@ unsafe def run (args : List String) : IO Unit := do
       cfg.assumptionReportPath cfg.abiOutDir cfg.denyUncheckedDependencies cfg.denyAssumedDependencies
       cfg.denyAxiomatizedPrimitives cfg.denyLocalObligations cfg.denyLinearMemoryMechanics cfg.denyEventEmission
       cfg.denyLowLevelMechanics cfg.denyRuntimeIntrospection cfg.denyProxyUpgradeability cfg.layoutReportPath
-      cfg.layoutCompatibilityReportPath cfg.denyLayoutIncompatibility cfg.denyUnsafe
+      cfg.layoutCompatibilityReportPath cfg.denyLayoutIncompatibility cfg.denyUnsafe cfg.strictBoundary
   catch e =>
     if e.toString == "help" then
       return ()

@@ -130,10 +130,17 @@ def run (model : CompilationModel) (report : ImportReport) (args : List String) 
       | .error reason => pure (false, reason)
     let projections := (report.projections.filter (·.function == name)).map fun p => Json.mkObj
       [("parameter", toJson p.parameter), ("member", toJson p.member), ("modelParam", toJson p.modelParam)]
+    let st := report.functions.find? (·.function == name)
+    let denoteCovered := st.map (·.denoteCovered) |>.getD false
+    let compilerProof := st.map (·.compilerProof.toText) |>.getD s!"unavailable ({noCompilerProofReason})"
+    let statusLine :=
+      s!"status {name} importable denoteCovered {denoteCovered} compilerProof {compilerProof}"
     IO.FS.writeFile output (Json.compress (Json.mkObj
       [("function", toJson name), ("params", toJson (fn.params.map (·.name))),
        ("projections", toJson projections),
        ("digest", toJson report.sourceDigest), ("settings", toJson report.settingsJson),
+       ("importable", toJson st.isSome), ("denoteCovered", toJson denoteCovered),
+       ("compilerProof", toJson compilerProof), ("status", toJson statusLine),
        ("compilable", toJson compilable), ("compileError", toJson reason),
        ("panicPayloadObserved", toJson report.observesPanicPayload)]))
   | ["run", name, input, output, digest] =>
