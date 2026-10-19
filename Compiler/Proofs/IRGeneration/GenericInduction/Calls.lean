@@ -2225,4 +2225,583 @@ theorem execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_inte
   cases hargCompile.symm.trans hargOk
   exact execIRStmtsWithInternals_internalCall_of_shape compiledHelper hshape hargs
 
+/-- Package a `DirectInternalHelperCallHeadStepBridgeWithInternals` witness into
+the exact `CompiledStmtStepWithHelpersAndHelperIRWithInternals` head-step
+interface at any scope and argument list. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_of_callBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperCallHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope (Stmt.internalCall calleeName args) compiledIR := by
+  rcases hbridge.compile (scope := scope) (args := args) with ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ := compileStmt_internalCall_shape_with_internals hcompile
+  exact ⟨compiledIR,
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCall
+      hcompile hargCompile (hbridge.bridge hcompile hargCompile)⟩
+
+/-- Package a `DirectInternalHelperAssignHeadStepBridgeWithInternals` witness
+into the exact `CompiledStmtStepWithHelpersAndHelperIRWithInternals` head-step
+interface at any scope, return-binding list, and argument list. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_of_assignBridge
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    (hbridge :
+      DirectInternalHelperAssignHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope
+        (Stmt.internalCallAssign names calleeName args) compiledIR := by
+  rcases hbridge.compile (scope := scope) (names := names) (args := args) with
+    ⟨compiledIR, hcompile⟩
+  obtain ⟨argExprs, hargCompile, _⟩ :=
+    compileStmt_internalCallAssign_shape_with_internals hcompile
+  exact ⟨compiledIR,
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_internalCallAssign
+      hcompile hargCompile (hbridge.bridge hcompile hargCompile)⟩
+
+theorem calleeName_mem_stmtListInternalHelperCallNames_of_stmtOccursAtScope_internalCall
+    {initialScope scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {stmts : List Stmt}
+    (hocc : StmtOccursAtScope initialScope scope (Stmt.internalCall calleeName args) stmts) :
+    calleeName ∈ stmtListInternalHelperCallNames stmts := by
+  induction stmts generalizing initialScope scope with
+  | nil =>
+      cases hocc
+  | cons head rest ih =>
+      cases hocc with
+      | head =>
+          simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
+      | tail htail =>
+          exact mem_stmtListInternalHelperCallNames_cons_of_mem_tail (ih htail)
+
+theorem calleeName_mem_helperCallNames_of_stmtOccursAtScope_internalCall
+    {initialScope scope : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {fn : FunctionSpec}
+    (hocc : StmtOccursAtScope initialScope scope (Stmt.internalCall calleeName args) fn.body) :
+    calleeName ∈ helperCallNames fn := by
+  exact List.mem_eraseDups_of_mem_local
+    (calleeName_mem_stmtListInternalHelperCallNames_of_stmtOccursAtScope_internalCall hocc)
+
+theorem calleeName_mem_stmtListInternalHelperCallNames_of_stmtOccursAtScope_internalCallAssign
+    {initialScope scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {stmts : List Stmt}
+    (hocc :
+      StmtOccursAtScope initialScope scope
+        (Stmt.internalCallAssign names calleeName args) stmts) :
+    calleeName ∈ stmtListInternalHelperCallNames stmts := by
+  induction stmts generalizing initialScope scope with
+  | nil =>
+      cases hocc
+  | cons head rest ih =>
+      cases hocc with
+      | head =>
+          simp [stmtListInternalHelperCallNames, stmtInternalHelperCallNames]
+      | tail htail =>
+          exact mem_stmtListInternalHelperCallNames_cons_of_mem_tail (ih htail)
+
+theorem calleeName_mem_helperCallNames_of_stmtOccursAtScope_internalCallAssign
+    {initialScope scope : List String}
+    {names : List String}
+    {calleeName : String}
+    {args : List Expr}
+    {fn : FunctionSpec}
+    (hocc :
+      StmtOccursAtScope initialScope scope
+        (Stmt.internalCallAssign names calleeName args) fn.body) :
+    calleeName ∈ helperCallNames fn := by
+  exact List.mem_eraseDups_of_mem_local
+    (calleeName_mem_stmtListInternalHelperCallNames_of_stmtOccursAtScope_internalCallAssign hocc)
+
+/-- Spec-functions-aware per-callee call-only bridge catalog for `fn`. -/
+structure DirectInternalHelperPerCalleeCallBridgeCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fn : FunctionSpec) : Prop where
+  call :
+    ∀ {calleeName : String},
+      calleeName ∈ helperCallNames fn →
+      DirectInternalHelperCallHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName
+
+/-- Spec-functions-aware per-callee return-binding bridge catalog for `fn`. -/
+structure DirectInternalHelperPerCalleeAssignBridgeCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fn : FunctionSpec) : Prop where
+  assign :
+    ∀ {calleeName : String},
+      calleeName ∈ helperCallNames fn →
+      DirectInternalHelperAssignHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName
+
+/-- Complete spec-functions-aware per-callee bridge catalog for `fn`. -/
+structure DirectInternalHelperPerCalleeBridgeCatalogWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (fn : FunctionSpec) : Prop where
+  call :
+    ∀ {calleeName : String},
+      calleeName ∈ helperCallNames fn →
+      DirectInternalHelperCallHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName
+  assign :
+    ∀ {calleeName : String},
+      calleeName ∈ helperCallNames fn →
+      DirectInternalHelperAssignHeadStepBridgeWithInternals
+        runtimeContract spec fields calleeName
+
+theorem directInternalHelperCallHeadStepCatalogWithInternals_of_perCalleeCallBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {initialScope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperPerCalleeCallBridgeCatalogWithInternals
+        runtimeContract spec fields fn) :
+    DirectInternalHelperCallHeadStepCatalogWithInternals
+      runtimeContract spec fields initialScope fn := by
+  refine ⟨?_⟩
+  intro scope calleeName args hocc
+  exact compiledStmtStepWithHelpersAndHelperIRWithInternals_of_callBridge
+    (hcatalog.call (calleeName_mem_helperCallNames_of_stmtOccursAtScope_internalCall hocc))
+
+theorem directInternalHelperAssignHeadStepCatalogWithInternals_of_perCalleeAssignBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {initialScope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperPerCalleeAssignBridgeCatalogWithInternals
+        runtimeContract spec fields fn) :
+    DirectInternalHelperAssignHeadStepCatalogWithInternals
+      runtimeContract spec fields initialScope fn := by
+  refine ⟨?_⟩
+  intro scope names calleeName args hocc
+  exact compiledStmtStepWithHelpersAndHelperIRWithInternals_of_assignBridge
+    (hcatalog.assign
+      (calleeName_mem_helperCallNames_of_stmtOccursAtScope_internalCallAssign hocc))
+
+theorem stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_perCalleeCallBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperPerCalleeCallBridgeCatalogWithInternals
+        runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperCallStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperCallStepInterfaceWithInternals_of_headStepCatalog
+      (directInternalHelperCallHeadStepCatalogWithInternals_of_perCalleeCallBridgeCatalog
+        hcatalog)
+
+theorem stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_perCalleeAssignBridgeCatalog
+    {runtimeContract : IRContract}
+    {spec : CompilationModel}
+    {fields : List Field}
+    {scope : List String}
+    {fn : FunctionSpec}
+    (hcatalog :
+      DirectInternalHelperPerCalleeAssignBridgeCatalogWithInternals
+        runtimeContract spec fields fn) :
+    StmtListDirectInternalHelperAssignStepInterfaceWithInternals
+      runtimeContract spec fields scope fn.body := by
+  exact
+    stmtListDirectInternalHelperAssignStepInterfaceWithInternals_of_headStepCatalog
+      (directInternalHelperAssignHeadStepCatalogWithInternals_of_perCalleeAssignBridgeCatalog
+        hcatalog)
+
+abbrev InternalCallHelperBodyAlign
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope : List String) (calleeName : String) (args : List Expr)
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (runtime : SourceSemantics.RuntimeState) (state' : IRState)
+    (fuel irFuel : Nat) (argVals : List Nat) : Prop :=
+  ∀ helper,
+    findInternalFunction? runtimeContract
+      (CompilationModel.internalFunctionYulName calleeName) = some helper →
+    stmtStepMatchesIRExecWithInternals fields
+      (stmtNextScope scope (Stmt.internalCall calleeName args))
+      (let hresult := SourceSemantics.interpretInternalFunctionFuel spec fuel
+          compiledHelper.sourceWitness.callee runtime.world argVals
+       if hresult.success then
+         .continue { runtime with world := hresult.world }
+       else
+         .revert)
+      (match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+       | .values _ state'' => .continue state''
+       | .stop state'' => .stop state''
+       | .return value' state'' => .return value' state''
+       | .revert state'' => .revert state'')
+
+/-- Source-to-IR dispatch reduction for `Stmt.internalCall` when the callee is backed
+by a `SupportedCompiledInternalHelperWitness`. Combines the source helper-witness
+dispatch (`SourceSemantics.execStmtWithHelpers_internalCall_of_witness`) with the
+runtime-helper-table IR dispatch
+(`execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals`). -/
+theorem stmtStepMatchesIRExecWithInternals_internalCall_of_compiledHelperWitness
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {calleeName : String} {args : List Expr} {compiledIR : List YulStmt}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (fuel irFuel : Nat) {argVals : List Nat} {state' : IRState}
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+      (Stmt.internalCall calleeName args) spec.functions = Except.ok compiledIR)
+    (argExprs : List YulExpr)
+    (hargCompile : CompilationModel.compileInternalCallArgs fields .calldata spec.functions
+      calleeName args = Except.ok argExprs)
+    (hsrcArgs : SourceSemantics.evalExprListWithHelpers spec fields (fuel + 1) runtime args =
+      some argVals)
+    (hirArgs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state')
+    (hbodyAlign :
+      InternalCallHelperBodyAlign runtimeContract spec fields scope calleeName args
+        compiledHelper runtime state' fuel irFuel argVals) :
+    stmtStepMatchesIRExecWithInternals fields
+      (stmtNextScope scope (Stmt.internalCall calleeName args))
+      (SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) runtime
+        (Stmt.internalCall calleeName args))
+      (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
+        [YulStmt.exprStmt
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)]) := by
+  obtain ⟨helper, hshape, hfind, hirExec⟩ :=
+    execIRStmtsWithInternals_of_internalCall_compiledHelperWitness_with_internals
+      compiledHelper state irFuel hcompile argExprs hargCompile hirArgs
+  rw [hshape] at hirExec
+  rw [SourceSemantics.execStmtWithHelpers_internalCall_of_witness
+    compiledHelper.sourceWitness hnodup, hsrcArgs, hirExec]
+  simpa using hbodyAlign helper hfind
+
+abbrev InternalCallAssignHelperBodyAlign
+    (runtimeContract : IRContract) (spec : CompilationModel) (fields : List Field)
+    (scope names : List String) (calleeName : String) (args : List Expr)
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (runtime : SourceSemantics.RuntimeState) (state' : IRState)
+    (fuel irFuel : Nat) (argVals : List Nat) : Prop :=
+  ∀ helper,
+    findInternalFunction? runtimeContract
+      (CompilationModel.internalFunctionYulName calleeName) = some helper →
+    stmtStepMatchesIRExecWithInternals fields
+      (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+      (let hresult := SourceSemantics.interpretInternalFunctionFuel spec fuel
+          compiledHelper.sourceWitness.callee runtime.world argVals
+       if hresult.success then
+         match names, hresult.returnValue with
+         | [name], some value =>
+             .continue { runtime with
+               world := hresult.world
+               bindings := SourceSemantics.bindValue runtime.bindings name value
+             }
+         | _, _ => .revert
+       else
+         .revert)
+      (match execIRInternalFunctionWithInternals runtimeContract irFuel state' helper argVals with
+       | .values values state'' =>
+           if names.length = values.length then
+             .continue (state''.setVars (names.zip values))
+           else .revert state''
+       | .stop state'' => .stop state''
+       | .return value' state'' => .return value' state''
+       | .revert state'' => .revert state'')
+
+/-- Source-to-IR dispatch reduction for `Stmt.internalCallAssign` when the callee is
+backed by a `SupportedCompiledInternalHelperWitness`. Combines
+`SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness` with
+`execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals`. -/
+theorem stmtStepMatchesIRExecWithInternals_internalCallAssign_of_compiledHelperWitness
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {names : List String} {calleeName : String} {args : List Expr}
+    {compiledIR : List YulStmt}
+    (compiledHelper : SupportedCompiledInternalHelperWitness spec runtimeContract calleeName)
+    (runtime : SourceSemantics.RuntimeState) (state : IRState)
+    (fuel irFuel : Nat) {argVals : List Nat} {state' : IRState}
+    (argExprs : List YulExpr)
+    (hbodyAlign :
+      InternalCallAssignHelperBodyAlign runtimeContract spec fields scope names calleeName args
+        compiledHelper runtime state' fuel irFuel argVals)
+    (hnodup : (spec.functions.map (·.name)).Nodup)
+    (hcompile : CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+      (Stmt.internalCallAssign names calleeName args) spec.functions = Except.ok compiledIR)
+    (hargCompile : CompilationModel.compileInternalCallArgs fields .calldata spec.functions
+      calleeName args = Except.ok argExprs)
+    (hsrcArgs : SourceSemantics.evalExprListWithHelpers spec fields (fuel + 1) runtime args =
+      some argVals)
+    (hirArgs : evalIRExprsWithInternals runtimeContract (irFuel + 1) state argExprs =
+      .values argVals state') :
+    stmtStepMatchesIRExecWithInternals fields
+      (stmtNextScope scope (Stmt.internalCallAssign names calleeName args))
+      (SourceSemantics.execStmtWithHelpers spec fields (fuel + 1) runtime
+        (Stmt.internalCallAssign names calleeName args))
+      (execIRStmtsWithInternals runtimeContract (irFuel + 3) state
+        [YulStmt.letMany names
+          (YulExpr.call (CompilationModel.internalFunctionYulName calleeName) argExprs)]) := by
+  obtain ⟨helper, hshape, hfind, hirExec⟩ :=
+    execIRStmtsWithInternals_of_internalCallAssign_compiledHelperWitness_with_internals
+      compiledHelper state irFuel hcompile argExprs hargCompile hirArgs
+  rw [hshape] at hirExec
+  rw [SourceSemantics.execStmtWithHelpers_internalCallAssign_of_witness
+    compiledHelper.sourceWitness hnodup, hsrcArgs, hirExec]
+  have halign := hbodyAlign helper hfind
+  rcases names with _ | ⟨name, _ | ⟨_, _⟩⟩ <;>
+    cases hret :
+      (SourceSemantics.interpretInternalFunctionFuel spec fuel
+        compiledHelper.sourceWitness.callee runtime.world argVals).returnValue <;>
+    simpa [hret] using halign
+
+/-! ## External Call Module (`Stmt.ecm`) Layer 2 Step Interface (`F4`) -/
+
+/-- `Stmt.ecm` compilation depends only on `fields`, `dynamicSource`, and
+`internalFunctions`; it is definitionally independent of surrounding events,
+errors, internal return names, `isInternal`, lexical scope, and ADT types. -/
+theorem compileStmt_ecm_independent_of_context
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (dynamicSource : DynamicDataSource) (internalRetNames : List String)
+    (isInternal : Bool) (scope : List String) (adtTypes : List AdtTypeDef)
+    (mod : ECM.ExternalCallModule) (args : List Expr)
+    (internalFunctions : List FunctionSpec) :
+    CompilationModel.compileStmt fields events errors dynamicSource internalRetNames
+      isInternal scope adtTypes (Stmt.ecm mod args) internalFunctions =
+    CompilationModel.compileStmt fields [] [] dynamicSource []
+      false [] [] (Stmt.ecm mod args) internalFunctions := rfl
+
+/-- Shape decomposition for `CompilationModel.compileStmt` on `Stmt.ecm mod args`
+with an explicit internal-function environment: compilation succeeds only when
+the argument count matches `mod.numArgs`, the arguments compile via
+`compileExprListWithInternals`, and `mod.compileCanonical` succeeds on the
+resulting Yul expressions. -/
+theorem compileStmt_ecm_shape_with_internals
+    {fields : List CompilationModel.Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {internalFunctions : List FunctionSpec}
+    {mod : ECM.ExternalCallModule}
+    {args : List CompilationModel.Expr}
+    {compiledIR : List YulStmt}
+    (hok :
+      CompilationModel.compileStmt fields events errors .calldata [] false scope []
+        (CompilationModel.Stmt.ecm mod args) internalFunctions =
+          Except.ok compiledIR) :
+    args.length = mod.numArgs ∧
+    ∃ argExprs generated,
+      CompilationModel.compileExprListWithInternals fields .calldata internalFunctions args =
+        Except.ok argExprs ∧
+      mod.compileCanonical { isDynamicFromCalldata := true } argExprs =
+        Except.ok generated := by
+  simp only [CompilationModel.compileStmt, CompilationModel.compileStmtWithFork,
+    bind, Except.bind] at hok
+  by_cases hlen : args.length = mod.numArgs
+  · refine ⟨hlen, ?_⟩
+    have hne : (args.length != mod.numArgs) = false := by simp [hlen]
+    have hctx :
+        ({ isDynamicFromCalldata := (DynamicDataSource.calldata == DynamicDataSource.calldata) } :
+          ECM.CompilationContext) = { isDynamicFromCalldata := true } := rfl
+    simp only [hne, Bool.false_eq_true, ↓reduceIte, pure, Except.pure, hctx] at hok
+    cases hargs :
+        CompilationModel.compileExprListWithInternals fields .calldata internalFunctions args with
+    | error e =>
+        simp [hargs] at hok
+    | ok argExprs =>
+        simp only [hargs] at hok
+        cases hgen :
+            mod.compileCanonical { isDynamicFromCalldata := true } argExprs with
+        | error e =>
+            simp [hgen] at hok
+        | ok generated =>
+            exact ⟨argExprs, generated, rfl, hgen⟩
+  · have hne : (args.length != mod.numArgs) = true := by simp [hlen]
+    simp [hne, throw, Except.error] at hok
+
+/-- Helper-free specialization of `compileStmt_ecm_shape_with_internals`. -/
+theorem compileStmt_ecm_shape
+    {fields : List CompilationModel.Field}
+    {events : List EventDef}
+    {errors : List ErrorDef}
+    {scope : List String}
+    {mod : ECM.ExternalCallModule}
+    {args : List CompilationModel.Expr}
+    {compiledIR : List YulStmt}
+    (hok :
+      CompilationModel.compileStmt fields events errors .calldata [] false scope []
+        (CompilationModel.Stmt.ecm mod args) =
+          Except.ok compiledIR) :
+    args.length = mod.numArgs ∧
+    ∃ argExprs generated,
+      CompilationModel.compileExprList fields .calldata args =
+        Except.ok argExprs ∧
+      mod.compileCanonical { isDynamicFromCalldata := true } argExprs =
+        Except.ok generated := by
+  simpa [CompilationModel.compileExprList] using
+    compileStmt_ecm_shape_with_internals (internalFunctions := []) hok
+
+/-- Layer 2 head-step bridge for an `ECM.ExternalCallModule` statement compiled
+under `spec.functions`. Since `mod.compileCanonical` is user/module-supplied,
+this structure isolates the module-specific source↔IR step alignment obligation
+once argument arity, expression compilation, and canonical module compilation
+have been extracted. -/
+structure EcmHeadStepBridgeWithInternals
+    (runtimeContract : IRContract)
+    (spec : CompilationModel)
+    (fields : List Field)
+    (scope : List String)
+    (mod : ECM.ExternalCallModule)
+    (args : List Expr)
+    (irFuelSlack : Nat := 0) : Prop where
+  compile :
+    ∃ compiledIR,
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.ecm mod args) spec.functions = Except.ok compiledIR
+  bridge :
+    ∀ {compiledIR : List YulStmt} {argExprs : List YulExpr} {generated : List YulStmt},
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.ecm mod args) spec.functions = Except.ok compiledIR →
+      args.length = mod.numArgs →
+      CompilationModel.compileExprListWithInternals fields .calldata spec.functions args =
+        Except.ok argExprs →
+      mod.compileCanonical { isDynamicFromCalldata := true } argExprs =
+        Except.ok generated →
+      ∀ (runtime : SourceSemantics.RuntimeState)
+        (state : IRState)
+        (helperFuel : Nat)
+        (extraFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length + irFuelSlack ≤ extraFuel →
+        stmtStepMatchesIRExecWithInternals fields
+          (stmtNextScope scope (Stmt.ecm mod args))
+          (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.ecm mod args))
+          (execIRStmtsWithInternals runtimeContract
+            (compiledIR.length + extraFuel + 1) state compiledIR)
+
+/-- Construct `CompiledStmtStepWithHelpersAndHelperIRWithInternals` for
+`Stmt.ecm mod args` from compilation and the module's semantic step alignment. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_ecm
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {mod : ECM.ExternalCallModule} {args : List Expr}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr} {generated : List YulStmt}
+    (irFuelSlack : Nat := 0)
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.ecm mod args) spec.functions = Except.ok compiledIR)
+    (_hlen : args.length = mod.numArgs)
+    (_hargCompile :
+      CompilationModel.compileExprListWithInternals fields .calldata spec.functions args =
+        Except.ok argExprs)
+    (_hcanonical :
+      mod.compileCanonical { isDynamicFromCalldata := true } argExprs =
+        Except.ok generated)
+    (bridge :
+      ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState)
+        (helperFuel extraFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length + irFuelSlack ≤ extraFuel →
+        stmtStepMatchesIRExecWithInternals fields
+          (stmtNextScope scope (Stmt.ecm mod args))
+          (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.ecm mod args))
+          (execIRStmtsWithInternals runtimeContract
+            (compiledIR.length + extraFuel + 1) state compiledIR)) :
+    CompiledStmtStepWithHelpersAndHelperIRWithInternals
+      runtimeContract spec fields scope (Stmt.ecm mod args) compiledIR irFuelSlack := by
+  refine { compileOk := hcompile, preserves := ?_ }
+  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
+  exact ⟨_, _, rfl, rfl,
+    bridge runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
+
+/-- Package an `EcmHeadStepBridgeWithInternals` into the Layer 2
+`CompiledStmtStepWithHelpersAndHelperIRWithInternals` head-step interface,
+automatically extracting the `Stmt.ecm` shape invariants from `compile`. -/
+theorem compiledStmtStepWithHelpersAndHelperIRWithInternals_of_ecmBridge
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {mod : ECM.ExternalCallModule} {args : List Expr}
+    {irFuelSlack : Nat}
+    (hbridge :
+      EcmHeadStepBridgeWithInternals
+        runtimeContract spec fields scope mod args irFuelSlack) :
+    ∃ compiledIR,
+      CompiledStmtStepWithHelpersAndHelperIRWithInternals
+        runtimeContract spec fields scope (Stmt.ecm mod args) compiledIR irFuelSlack := by
+  rcases hbridge.compile with ⟨compiledIR, hcompile⟩
+  obtain ⟨hlen, argExprs, generated, hargCompile, hcanonical⟩ :=
+    compileStmt_ecm_shape_with_internals hcompile
+  exact ⟨compiledIR,
+    compiledStmtStepWithHelpersAndHelperIRWithInternals_ecm
+      irFuelSlack hcompile hlen hargCompile hcanonical
+      (hbridge.bridge hcompile hlen hargCompile hcanonical)⟩
+
+/-- Construct `CompiledStmtStepWithHelpersAndHelperIR` for `Stmt.ecm mod args`
+in the default empty-helper compilation environment. -/
+theorem compiledStmtStepWithHelpersAndHelperIR_ecm
+    {runtimeContract : IRContract} {spec : CompilationModel} {fields : List Field}
+    {scope : List String} {mod : ECM.ExternalCallModule} {args : List Expr}
+    {compiledIR : List YulStmt} {argExprs : List YulExpr} {generated : List YulStmt}
+    (hcompile :
+      CompilationModel.compileStmt fields spec.events spec.errors .calldata [] false scope []
+        (Stmt.ecm mod args) = Except.ok compiledIR)
+    (_hlen : args.length = mod.numArgs)
+    (_hargCompile :
+      CompilationModel.compileExprList fields .calldata args =
+        Except.ok argExprs)
+    (_hcanonical :
+      mod.compileCanonical { isDynamicFromCalldata := true } argExprs =
+        Except.ok generated)
+    (bridge :
+      ∀ (runtime : SourceSemantics.RuntimeState) (state : IRState)
+        (helperFuel extraFuel : Nat),
+        0 < helperFuel →
+        FunctionBody.bindingsExactlyMatchIRVarsOnScope scope runtime.bindings state →
+        FunctionBody.scopeNamesPresent scope runtime.bindings →
+        FunctionBody.bindingsBounded runtime.bindings →
+        FunctionBody.runtimeStateMatchesIR fields runtime state →
+        sizeOf compiledIR - compiledIR.length ≤ extraFuel →
+        stmtStepMatchesIRExecWithInternals fields
+          (stmtNextScope scope (Stmt.ecm mod args))
+          (SourceSemantics.execStmtWithHelpers spec fields helperFuel runtime
+            (Stmt.ecm mod args))
+          (execIRStmtsWithInternals runtimeContract
+            (compiledIR.length + extraFuel + 1) state compiledIR)) :
+    CompiledStmtStepWithHelpersAndHelperIR
+      runtimeContract spec fields scope (Stmt.ecm mod args) compiledIR := by
+  refine { compileOk := hcompile, preserves := ?_ }
+  intro runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack
+  exact ⟨_, _, rfl, rfl,
+    bridge runtime state helperFuel extraFuel hfuelPos hexact hscope hbounded hruntime hslack⟩
+
 end Compiler.Proofs.IRGeneration
