@@ -171,6 +171,10 @@ import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.SolidityImport.Solcore.Primitives
+import Compiler.Proofs.SolidityImport.Solcore.Runtime
+import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
+import Compiler.Proofs.SolidityImport.SolcoreBridge
 import Compiler.Proofs.StateLenses
 import Compiler.Proofs.Storage.FieldCoherence
 import Compiler.Proofs.Storage.FieldEncode
@@ -6604,6 +6608,198 @@ end Verity.AxiomAudit
   Compiler.Proofs.foldl_solidityMappingSlot_lt_evmModulus
   Compiler.Proofs.mappingChainSlotLocation_zero
 
+  -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
+  Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
+  Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_pos
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.val_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.val_maximum
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.val_ofNatModulo
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.ofNatModulo_val
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.val_toUint256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.val_ofUint256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.ofUint256_toUint256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.toUint256_ofUint256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.ofInt256_toInt256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.toInt256_ofInt256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.add_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.add_maximum_one
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.sub_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.sub_self
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.zero_sub_one
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.mul_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.mul_one
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.addMod_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.addMod_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.mulMod_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.mulMod_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.addMod_no_prewrap
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.mulMod_no_prewrap
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.udiv_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.umod_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.udiv_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.umod_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.sdiv_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.sdiv_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.smod_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.smod_nonzero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.sdiv_minimum_negative_one
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.smod_minimum_negative_one
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedGt_self
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedGt_both_nonnegative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedGt_both_negative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedGt_nonnegative_negative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedGt_negative_nonnegative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitAnd_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitAnd_self
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitAnd_comm
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitOr_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitOr_self
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitOr_comm
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitXor_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitXor_self
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.bitXor_comm
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftLeft_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftRight_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftLeft_of_lt_256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftRight_of_lt_256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftLeft_of_ge_256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftRight_of_ge_256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftArithmeticRight_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftArithmeticRight_of_lt_256_nonnegative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftArithmeticRight_of_lt_256_negative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftArithmeticRight_of_ge_256_nonnegative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.shiftArithmeticRight_of_ge_256_negative
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signExtend_clear
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signExtend_set
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signExtend_ge_32
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signExtend_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signExtend_index31
+  Compiler.Proofs.SolidityImport.Solcore.Core.evaluation_deterministic
+
+  -- Compiler/Proofs/SolidityImport/Solcore/Runtime.lean
+  Compiler.Proofs.SolidityImport.Solcore.Core.WordMapping.lookupEntries_nil
+  Compiler.Proofs.SolidityImport.Solcore.Core.WordMapping.lookupEntries_insert_same
+  Compiler.Proofs.SolidityImport.Solcore.Core.WordMapping.lookupEntries_insert_other
+  Compiler.Proofs.SolidityImport.Solcore.Core.WordMapping.lookupEntries_insert_overwrite
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.ext
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageRead_empty
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageRead_storageWrite_same
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageRead_storageWrite_other
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storage_eq_none_of_storageRead_eq_zero
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageWrite_zero_of_storageRead_zero
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageWrite_overwrite
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.Account.storageWrite_commute
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.WorldState.ext
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.WorldState.storageRead_writeStorage_same
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.WorldState.storageRead_writeStorage_other_slot
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.WorldState.storageRead_writeStorage_other_address
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.TransactionJournal.empty_logList
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.TransactionJournal.recordLog_logList
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.FrameOutcome.resolvedWorldState_returned
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.FrameOutcome.resolvedWorldState_reverted
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.FrameOutcome.resolvedWorldState_trapped
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.sload_sstore_same
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.sload_sstore_other
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.tload_tstore_same
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.tload_tstore_other
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.resolveFrame_returned
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.resolveFrame_reverted
+  Compiler.Proofs.SolidityImport.Solcore.ContractRuntime.SolcoreExecState.resolveFrame_reverted_world_eq_resolvedWorldState
+
+  -- Compiler/Proofs/SolidityImport/Solcore/WordAlignment.lean
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_add_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_sub_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_mul_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_udiv_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_umod_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_pow_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_bitAnd_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_bitOr_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_bitXor_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_bitNot_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_shiftLeft_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_shiftRight_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_byteAt_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_eq_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_gt_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_lt_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_isZero_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.toInt256_coe_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.toInt256_eq_zero_iff
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.toInt256_lt_zero_iff
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.decide_toInt256_lt_zero
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_signedGt_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_signedLt_eq_decide
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.signedAbsNat_toInt256
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.ofSignedMagnitude_val_eq_ofInt
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_sdiv_val_eq
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_smod_val_eq
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.int_fdiv_ofNat_two_pow  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.int_sub_modulus_eq_negSucc  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.int_fdiv_neg_two_pow  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.ofInt_negSucc_val  -- private
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_shiftArithmeticRight_val_eq
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.tb_pow_sub_pow  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.testBit_and_two_pow_ne_zero  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.testBit_eq_true_iff_mod_ge  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.testBit_high_add_low  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.or_high_mask_eq_add_mod  -- private
+  -- Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_signExtend_val_eq_of_lt31  -- private
+  Compiler.Proofs.SolidityImport.Solcore.Core.Word.word_signExtend_val_eq
+
+  -- Compiler/Proofs/SolidityImport/SolcoreBridge.lean
+  Compiler.Proofs.SolidityImport.SolcoreBridge.Word.val_ofBool
+  Compiler.Proofs.SolidityImport.SolcoreBridge.Word.toUint256_ofNat_val
+  Compiler.Proofs.SolidityImport.SolcoreBridge.Word.wordNormalize_val
+  Compiler.Proofs.SolidityImport.SolcoreBridge.Word.evaluates_boolToWord
+  Compiler.Proofs.SolidityImport.SolcoreBridge.Word.evaluates_wordToBool
+  -- Compiler.Proofs.SolidityImport.SolcoreBridge.option_bind₁_some  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreBridge.option_bind₂_some  -- private
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_word
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_localVar
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_add
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_sub
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_mul
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_div
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_mod
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_sdiv
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_smod
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_addMod
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_mulMod
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_bitAnd
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_bitOr
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_bitXor
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_bitNot
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_shl
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_shr
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_sar
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_byte
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_signextend
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_pow
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_eq
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_gt
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_lt
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_sgt
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_slt
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_isZero
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_boolAnd
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_boolOr
+  Compiler.Proofs.SolidityImport.SolcoreBridge.exprRefines_ifE
+  Compiler.Proofs.SolidityImport.SolcoreBridge.sload_refines_evalExpr_storage
+  Compiler.Proofs.SolidityImport.SolcoreBridge.wordMapping_lookup_refines_evalExpr_mappingUint
+  Compiler.Proofs.SolidityImport.SolcoreBridge.wordMapping_insert_preserves_refinement
+  Compiler.Proofs.SolidityImport.SolcoreBridge.tload_refines_evalExpr
+  Compiler.Proofs.SolidityImport.SolcoreBridge.mload_refines_evalExpr
+  Compiler.Proofs.SolidityImport.SolcoreBridge.sstore_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreBridge.tstore_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreBridge.setLocal_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreBridge.emitLog_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreBridge.revert_rollback_refines_denote
+  Compiler.Proofs.SolidityImport.SolcoreBridge.return_commit_refines_denote
+  Compiler.Proofs.SolidityImport.SolcoreBridge.certifiedTranslationWitness_denote_returned_soundness
+  Compiler.Proofs.SolidityImport.SolcoreBridge.certifiedTranslationWitness_denote_reverted_soundness
+  Compiler.Proofs.SolidityImport.SolcoreBridge.certifiedTranslationWitness_endToEnd_soundness
+
   -- Compiler/Proofs/StateLenses.lean
   Compiler.Proofs.StateLenses.StorageWordsFrame.refl
   Compiler.Proofs.StateLenses.StorageWordsFrame.trans
@@ -9310,4 +9506,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.YulTransaction.ofIR_args
 ]
 
--- Total: 8586 theorems/lemmas (5571 public, 3015 private, 0 sorry'd)
+-- Total: 8770 theorems/lemmas (5743 public, 3027 private, 0 sorry'd)
