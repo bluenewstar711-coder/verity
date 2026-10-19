@@ -3718,6 +3718,10 @@ private def isClosedLowLevelCall (mod : Compiler.ECM.ExternalCallModule) : Bool 
   match mod.byteTransport with
   | some (.optionalBoolCall resultVar selector numWordArgs) =>
       mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs
+  | some (.callBytesUint256 resultVar selector) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector
+  | some (.callBytesBool resultVar selector) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector
   | _ => false
 
 /-- The closed `<address>.code.length` transport emitted by the importer. -/
@@ -5134,16 +5138,23 @@ private partial def lowerSelectorMemberAccess (at_ base : Json) : M Ref := do
 
 private partial def lowerBinary (j : Json) : M Val := do
   let op ← mStr (← mField j "operator")
-  unless op == "&&" || op == "||" do
-    let env ← get
-    if statefulCallIn (← mField j "leftExpression") env ||
-        statefulCallIn (← mField j "rightExpression") env then
+  let leftNode ← mField j "leftExpression"
+  let rightNode ← mField j "rightExpression"
+  let env ← get
+  let admittedCall := (op == "==" || op == "!=") && env.admittedInterfaceCall.isSome &&
+    (((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
+      !statefulCallIn rightNode env && !assignmentIn rightNode) ||
+     ((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
+      !statefulCallIn leftNode env && !assignmentIn leftNode))
+  unless op == "&&" || op == "||" || admittedCall do
+    if statefulCallIn leftNode env ||
+        statefulCallIn rightNode env then
       failAt j "stateful helper operands require explicit evaluation-order support"
-  let left ← lowerExpr (← mField j "leftExpression")
-  let right ← lowerExpr (← mField j "rightExpression")
+  let left ← lowerExpr leftNode
+  let right ← lowerExpr rightNode
   unless op == "&&" || op == "||" do
-    if (assignmentIn (← mField j "leftExpression") && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
-        (assignmentIn (← mField j "rightExpression") && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
+    if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
+        (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
       failAt j "assignment operand with non-atomic sibling requires explicit evaluation-order support"
   let common ← mStr (← mField (← mField j "commonType") "typeString")
   -- Solidity folds literal sums in unbounded integer arithmetic. Admit only
@@ -5731,6 +5742,11 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
       unless optStr j "operator" == some "-" && (← mType j).startsWith "int_const -" do
         failAt j "effectful ABI encoding argument is unsupported"
       checkEncodingScalar (← mField j "subExpression")
+  | "BinaryOperation" =>
+      unless (← mType j) == "int256" do
+        failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingScalar (← mField j "leftExpression")
+      checkEncodingScalar (← mField j "rightExpression")
   | "FunctionCall" =>
       let args ← mArr (← mField j "arguments")
       if optStr j "kind" == some "typeConversion" then
@@ -7375,11 +7391,13 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         | none => return none
     | _ => return none
   let hasDynamic ← args.anyM fun arg => do
-    return isDynamicBytesOrString (← mType arg) || (← dynamicStructMem? arg).isSome
+    let ty ← mType arg
+    return isDynamicBytesOrString ty || (scalarArrayElement? ty).isSome ||
+      (← dynamicStructMem? arg).isSome
   if hasDynamic then
     let mut pre : Array Stmt := #[]
     let mut headWords : Array (Option Expr) := #[]
-    let mut dynTails : Array (Nat × Sum (Nat × List AbiSchema.Member × Json) (Expr × Expr)) := #[]
+    let mut dynTails : Array (Nat × Sum (Nat × List AbiSchema.Member × Json) (Sum (Expr × Expr) Nat)) := #[]
     for argIdx in [:args.size] do
       let arg := args[argIdx]!
       let ty ← mType arg
@@ -7395,7 +7413,16 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
         pre := pre ++ buf.pre ++ ptrVal.pre ++ sizeVal.pre
         let headIdx := headWords.size
         headWords := headWords.push none
-        dynTails := dynTails.push (headIdx, .inr (ptrVal.expr, sizeVal.expr))
+        dynTails := dynTails.push (headIdx, .inr (.inl (ptrVal.expr, sizeVal.expr)))
+      else if (scalarArrayElement? ty).isSome then
+        unless (← mKind arg) == "Identifier" do
+          failAt arg s!"unsupported ABI encoding argument type {ty}"
+        let .scalarArray arrId arrPre ← lowerRef arg
+          | failAt arg s!"unsupported ABI encoding argument type {ty}"
+        pre := pre ++ arrPre
+        let headIdx := headWords.size
+        headWords := headWords.push none
+        dynTails := dynTails.push (headIdx, .inr (.inr arrId))
       else if let some (id, effects, schema) ← dynamicStructMem? arg then
         checkEncodingStructRef arg
         pre := pre ++ effects
@@ -7431,7 +7458,7 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           pre := pre ++ (AbiEncoding.reserve tailTuple tailTupleEnd (.literal (32 * schema.length))).toArray
           pre := pre.push (.mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar tailTuple) base))
           pre := pre ++ (← lowerEncodedMemBody id (.localVar tailTuple) argNode)
-      | .inr (bufPtr, bufSize) =>
+      | .inr (.inl (bufPtr, bufSize)) =>
           let tailPtr ← fresh
           let tailLenEnd ← fresh
           pre := pre ++ (AbiEncoding.reserve tailPtr tailLenEnd (.literal 32)).toArray
@@ -7447,6 +7474,36 @@ private partial def lowerAbiEncodeArgs (args : Array Json)
           let byteName ← fresh
           let addrName ← fresh
           pre := pre.push (AbiEncoding.copyBytes bufPtr (.localVar payloadPtr) (.literal 0) bufSize copyIdx byteName addrName)
+      | .inr (.inr arrId) =>
+          let some arr := (← get).scalarArrays.find? arrId
+            | failAt args[0]! "unknown scalar array parameter"
+          let arrTail ← fresh
+          let arrTailEnd ← fresh
+          let arrLen := Expr.localVar arr.lengthBinding
+          pre := pre ++ (AbiEncoding.reserve arrTail arrTailEnd
+            (.add (.literal 32) (.mul arrLen (.literal 32)))).toArray
+          pre := pre ++ #[
+            .mstore (.add base (.literal (32 * headIdx))) (.sub (.localVar arrTail) base),
+            .mstore (.localVar arrTail) arrLen
+          ]
+          let elemIdx ← fresh
+          let elemVal ← fresh
+          let srcVal := if !arr.inMemory then
+              Expr.calldataload (.add (.localVar arr.dataBinding) (.mul (.localVar elemIdx) (.literal 32)))
+            else
+              Expr.mload (.add (.add (.localVar arr.memoryPointer) (.literal 32)) (.mul (.localVar elemIdx) (.literal 32)))
+          let mut loopBody : List Stmt := [.letVar elemVal srcVal]
+          let bound := SolidityAbi.scalarBound arr.abiKind
+          if !arr.inMemory then
+            if arr.elementType == "bytes4" then
+              loopBody := loopBody ++ [AbiLowering.guard (.eq (.bitAnd (.localVar elemVal) (.literal (2 ^ 224 - 1))) (.literal 0))]
+            else if bound < 2^256 then
+              loopBody := loopBody ++ [AbiLowering.guard (.lt (.localVar elemVal) (.literal bound))]
+          loopBody := loopBody ++ [
+            .mstore (.add (.add (.localVar arrTail) (.literal 32)) (.mul (.localVar elemIdx) (.literal 32)))
+              (.localVar elemVal)
+          ]
+          pre := pre.push (.forEach elemIdx arrLen loopBody)
     let totalSize ← fresh
     pre := pre.push (.letVar totalSize (.sub (.mload (.literal 64)) base))
     return { pre, pointer := base, size := .localVar totalSize }
@@ -7908,14 +7965,18 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let env ← get
   let some decl := env.funs.find? id.toNat
     | failAt callee "unresolved interface function declaration"
-  unless optStr decl "stateMutability" == some "view" do
-    failAt callee "typed interface calls to non-view functions are outside this slice"
+  let mutability := optStr decl "stateMutability"
   let params ← mArr (← mField (← mField decl "parameters") "parameters")
   let args ← mArr (← mField j "arguments")
-  unless params.size == args.size do
-    failAt j "typed interface staticcall arguments are outside this slice"
   let rets ← mArr (← mField (← mField decl "returnParameters") "parameters")
   let returnTypes ← rets.mapM mType
+  let isNonpayableCallback := mutability == some "nonpayable" && !params.isEmpty &&
+    (returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"])
+  unless isNonpayableCallback do
+    unless optStr decl "stateMutability" == some "view" do
+      failAt callee "typed interface calls to non-view functions are outside this slice"
+  unless params.size == args.size do
+    failAt j "typed interface staticcall arguments are outside this slice"
   unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do
     failAt callee "typed interface staticcall must return a single uint256, bytes32 or bool"
   let some hex := optStr decl "functionSelector"
@@ -7955,6 +8016,12 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
         unless isDynBytesOrString argTy do
           failAt j "typed interface staticcall arguments are outside this slice"
         hasDynamicArg := true
+      else if let some (pElem, _, _) := scalarArrayElement? pty then
+        let some (argElem, _, _) := scalarArrayElement? argTy
+          | failAt j "typed interface staticcall arguments are outside this slice"
+        unless pElem == argElem && (← mKind arg) == "Identifier" do
+          failAt j "typed interface staticcall arguments are outside this slice"
+        hasDynamicArg := true
       else if pty.startsWith "struct " && !pty.contains "[" then
         unless argTy.startsWith "struct " && !argTy.contains "[" do
           failAt j "typed interface staticcall arguments are outside this slice"
@@ -7980,11 +8047,16 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       else
         unless (paramType pty).isSome && !pty.startsWith "enum " do
           failAt j "typed interface staticcall arguments are outside this slice"
-    if hasDynamicArg then
+    if isNonpayableCallback || hasDynamicArg then
       let payload ← lowerAbiEncodeArgs args (some params)
       let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
       let payloadSize ← atom { pre := #[], expr := payload.size }
-      let mod := if returnTypes[0]! == "bool" then
+      let mod := if isNonpayableCallback then
+        if returnTypes[0]! == "bool" then
+          Compiler.ECM.SolidityLowLevelCall.bytesBoolModule result selector
+        else
+          Compiler.ECM.SolidityLowLevelCall.bytesUint256Module result selector
+      else if returnTypes[0]! == "bool" then
         Compiler.ECM.SolidityStaticCall.bytesBoolModule result selector
       else
         Compiler.ECM.SolidityStaticCall.bytesUint256Module result selector
@@ -13324,7 +13396,14 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
   let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
   let arguments ← mArr (← mField call "arguments")
   unless parameters.size == arguments.size do failAt call "event argument count differs"
-  if ← parameters.anyM (fun parameter => return (← mType parameter).startsWith "struct ") then
+  let mut useStructEmit := false
+  for index in [:parameters.size] do
+    let pty ← mType parameters[index]!
+    let arg := arguments[index]!
+    if pty.startsWith "struct " || (scalarArrayElement? pty).isSome ||
+        (pty == "bytes" && optStr arg "nodeType" != some "Literal") then
+      useStructEmit := true
+  if useStructEmit then
     return ← lowerStructEmit callee declaration name parameters arguments id.toNat
   let mut params : List EventParam := []
   let mut values : List Expr := []
@@ -13342,7 +13421,11 @@ private partial def lowerEmit (statement : Json) : M (Array Stmt) := do
     let mut value ← convert ty (← mType argument) (← lowerExpr argument) argument
     -- Total scalar reads/casts commute. Reject guards and effects rather than
     -- choosing an argument evaluation order for competing revert paths.
-    unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+    unless value.pre.all (fun
+        | .letVar _ _ => true
+        | .ite _ [] [.revertEmpty] => true
+        | .ite _ [] [.panicCode (.literal 0x32)] => true
+        | _ => false) do
       failAt argument "event arguments currently require total scalar expressions"
     match value.expr with
     | .param parameterName =>
@@ -13419,7 +13502,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
       unless (Denote.errorScalarType modelType).isSome && !ty.startsWith "enum " do
         failAt parameter s!"unsupported indexed struct-event parameter type {ty}"
       let value ← convert ty (← mType argument) (← lowerExpr argument) argument
-      unless value.pre.all (fun | .letVar _ _ => true | _ => false) do
+      unless value.pre.all (fun
+          | .letVar _ _ => true
+          | .ite _ [] [.revertEmpty] => true
+          | .ite _ [] [.panicCode (.literal 0x32)] => true
+          | _ => false) do
         failAt argument "event arguments currently require total scalar expressions"
       let topic ← atom { value with expr := cleanHelperResultExpr ty value }
       pre := pre ++ topic.pre
@@ -13437,6 +13524,10 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
               | none, some types => pure (.tuple types)
               | none, none => failAt argument "struct event argument has no complete ABI schema"
           | _ => failAt argument "struct event arguments must be memory struct variables"
+        else if ty == "bytes" then
+          pure .bytes
+        else if let some (_, elemPty, _) := scalarArrayElement? ty then
+          pure (.array elemPty)
         else match paramType ty with
           | some modelType => pure modelType
           | none => failAt parameter s!"unsupported event parameter type {ty}"

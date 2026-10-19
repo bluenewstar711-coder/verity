@@ -129,6 +129,8 @@ inductive ByteTransport where
   /-- Value-free low-level `CALL` of `selector ++ words` whose returndata is
   checked by the optional-bool convention (empty, or a valid ABI `bool`). -/
   | optionalBoolCall (resultVar : String) (selector numWordArgs : Nat)
+  | callBytesUint256 (resultVar : String) (selector : Nat)
+  | callBytesBool (resultVar : String) (selector : Nat)
   /-- `resultVar := extcodesize(target)`: the runtime code length of an account. -/
   | extCodeSize (resultVar : String)
   /-- `resultVar := <target>.code`: `extcodesize` then `extcodecopy` of the runtime
@@ -637,6 +639,138 @@ def optionalBoolModule (resultVar : String) (selector numWordArgs : Nat) :
   summarySelector := some selector
   summaryMutability := .call
 
+def compileBytesUint256 (resultVar : String) (selector : Nat)
+    (args : List YulExpr) : Except String (List YulStmt) := do
+  unless selector < 2^32 do throw "Solidity low-level call selector exceeds four bytes"
+  let [target, payloadPtr, payloadSize] := args
+    | throw "Solidity bytes call expects target, offset and size"
+  let occupied := resultVar :: args.flatMap SolidityStaticCall.argumentNames
+  let targetName := SolidityStaticCall.scratchName "__solidity_call_target" occupied
+  let srcPtrName := SolidityStaticCall.scratchName "__solidity_call_src_ptr" (targetName :: occupied)
+  let srcSizeName := SolidityStaticCall.scratchName "__solidity_call_src_size" (srcPtrName :: targetName :: occupied)
+  let baseOccupied := srcSizeName :: srcPtrName :: targetName :: occupied
+  let ptrName := SolidityStaticCall.scratchName "__solidity_call_ptr" baseOccupied
+  let dataSizeName := SolidityStaticCall.scratchName "__solidity_call_data_size" (ptrName :: baseOccupied)
+  let allocName := SolidityStaticCall.scratchName "__solidity_call_alloc" (dataSizeName :: ptrName :: baseOccupied)
+  let indexName := SolidityStaticCall.scratchName "__solidity_call_idx"
+    (allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let successName := SolidityStaticCall.scratchName "__solidity_call_success"
+    (indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let sizeName := SolidityStaticCall.scratchName "__solidity_call_size"
+    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let targetVal := YulExpr.ident targetName
+  let srcPtr := YulExpr.ident srcPtrName
+  let srcSize := YulExpr.ident srcSizeName
+  let ptr := YulExpr.ident ptrName
+  let dataSize := YulExpr.ident dataSizeName
+  let alloc := YulExpr.ident allocName
+  let success := YulExpr.ident successName
+  let size := YulExpr.ident sizeName
+  return [
+    .let_ resultVar (.lit 0),
+    .block (
+      [ .let_ targetName target,
+        .let_ srcPtrName payloadPtr,
+        .let_ srcSizeName payloadSize,
+        .let_ ptrName (.call "mload" [.lit 64]),
+        .let_ dataSizeName (.call "add" [srcSize, .lit 4]),
+        .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]) ] ++
+      SolidityStaticCall.copySelectorAndPayload selector ptr srcPtr srcSize indexName ++
+      [ .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
+        .let_ successName (.call "call" [
+          .call "gas" [], targetVal, .lit 0, ptr, dataSize, ptr, .lit 32]),
+        .let_ sizeName (.call "returndatasize" []),
+        .if_ (.call "iszero" [success]) [
+          .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
+          .exprStmt (.call "revert" [.lit 0, size])],
+        .if_ (.call "lt" [size, .lit 32]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .assign resultVar (.call "mload" [ptr])])]
+
+def bytesUint256Module (resultVar : String) (selector : Nat) :
+    ExternalCallModule where
+  name := "solidityCallBytesUint256"
+  numArgs := 3
+  resultVars := [resultVar]
+  writesState := true
+  readsState := true
+  compile := fun _ args => compileBytesUint256 resultVar selector args
+  byteTransport := some (.callBytesUint256 resultVar selector)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_call_bytes_uint256_byte_response"
+  summarySelector := some selector
+  summaryMutability := .call
+
+def compileBytesBool (resultVar : String) (selector : Nat)
+    (args : List YulExpr) : Except String (List YulStmt) := do
+  unless selector < 2^32 do throw "Solidity low-level call selector exceeds four bytes"
+  let [target, payloadPtr, payloadSize] := args
+    | throw "Solidity bytes call expects target, offset and size"
+  let occupied := resultVar :: args.flatMap SolidityStaticCall.argumentNames
+  let targetName := SolidityStaticCall.scratchName "__solidity_call_target" occupied
+  let srcPtrName := SolidityStaticCall.scratchName "__solidity_call_src_ptr" (targetName :: occupied)
+  let srcSizeName := SolidityStaticCall.scratchName "__solidity_call_src_size" (srcPtrName :: targetName :: occupied)
+  let baseOccupied := srcSizeName :: srcPtrName :: targetName :: occupied
+  let ptrName := SolidityStaticCall.scratchName "__solidity_call_ptr" baseOccupied
+  let dataSizeName := SolidityStaticCall.scratchName "__solidity_call_data_size" (ptrName :: baseOccupied)
+  let allocName := SolidityStaticCall.scratchName "__solidity_call_alloc" (dataSizeName :: ptrName :: baseOccupied)
+  let indexName := SolidityStaticCall.scratchName "__solidity_call_idx"
+    (allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let successName := SolidityStaticCall.scratchName "__solidity_call_success"
+    (indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let sizeName := SolidityStaticCall.scratchName "__solidity_call_size"
+    (successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let wordName := SolidityStaticCall.scratchName "__solidity_call_word"
+    (sizeName :: successName :: indexName :: allocName :: dataSizeName :: ptrName :: baseOccupied)
+  let targetVal := YulExpr.ident targetName
+  let srcPtr := YulExpr.ident srcPtrName
+  let srcSize := YulExpr.ident srcSizeName
+  let ptr := YulExpr.ident ptrName
+  let dataSize := YulExpr.ident dataSizeName
+  let alloc := YulExpr.ident allocName
+  let success := YulExpr.ident successName
+  let size := YulExpr.ident sizeName
+  let word := YulExpr.ident wordName
+  return [
+    .let_ resultVar (.lit 0),
+    .block (
+      [ .let_ targetName target,
+        .let_ srcPtrName payloadPtr,
+        .let_ srcSizeName payloadSize,
+        .let_ ptrName (.call "mload" [.lit 64]),
+        .let_ dataSizeName (.call "add" [srcSize, .lit 4]),
+        .let_ allocName (.call "and" [.call "add" [dataSize, .lit 31], .call "not" [.lit 31]]) ] ++
+      SolidityStaticCall.copySelectorAndPayload selector ptr srcPtr srcSize indexName ++
+      [ .exprStmt (.call "mstore" [.lit 64, .call "add" [ptr, alloc]]),
+        .let_ successName (.call "call" [
+          .call "gas" [], targetVal, .lit 0, ptr, dataSize, ptr, .lit 32]),
+        .let_ sizeName (.call "returndatasize" []),
+        .if_ (.call "iszero" [success]) [
+          .exprStmt (.call "returndatacopy" [.lit 0, .lit 0, size]),
+          .exprStmt (.call "revert" [.lit 0, size])],
+        .if_ (.call "lt" [size, .lit 32]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .let_ wordName (.call "mload" [ptr]),
+        .if_ (.call "gt" [word, .lit 1]) [
+          .exprStmt (.call "revert" [.lit 0, .lit 0])],
+        .assign resultVar word])]
+
+def bytesBoolModule (resultVar : String) (selector : Nat) :
+    ExternalCallModule where
+  name := "solidityCallBytesBool"
+  numArgs := 3
+  resultVars := [resultVar]
+  writesState := true
+  readsState := true
+  compile := fun _ args => compileBytesBool resultVar selector args
+  byteTransport := some (.callBytesBool resultVar selector)
+  axioms := []
+  proofStatus := .assumed
+  summaryName := "solidity_call_bytes_bool_byte_response"
+  summarySelector := some selector
+  summaryMutability := .call
+
 end SolidityLowLevelCall
 
 namespace SolidityExtCodeSize
@@ -780,6 +914,14 @@ def compileCanonical (module : ExternalCallModule) (context : CompilationContext
       unless module == SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs do
         throw "closed Solidity low-level call transport metadata differs"
       SolidityLowLevelCall.compileOptionalBool resultVar selector numWordArgs args
+  | some (.callBytesUint256 resultVar selector) =>
+      unless module == SolidityLowLevelCall.bytesUint256Module resultVar selector do
+        throw "closed Solidity low-level call transport metadata differs"
+      SolidityLowLevelCall.compileBytesUint256 resultVar selector args
+  | some (.callBytesBool resultVar selector) =>
+      unless module == SolidityLowLevelCall.bytesBoolModule resultVar selector do
+        throw "closed Solidity low-level call transport metadata differs"
+      SolidityLowLevelCall.compileBytesBool resultVar selector args
   | some (.extCodeSize resultVar) =>
       unless module == SolidityExtCodeSize.module resultVar do
         throw "closed Solidity code length transport metadata differs"

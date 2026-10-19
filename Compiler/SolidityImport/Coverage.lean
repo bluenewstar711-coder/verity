@@ -141,6 +141,20 @@ def staticBytesBoolCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
         decide (selector < 2 ^ 32) && args.length == 3 && exprListCovered args
   | _ => false
 
+def callBytesUint256Covered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.callBytesUint256 resultVar selector) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector &&
+        decide (selector < 2 ^ 32) && args.length == 3 && exprListCovered args
+  | _ => false
+
+def callBytesBoolCovered (mod : Compiler.ECM.ExternalCallModule) (args : List Expr) : Bool :=
+  match mod.byteTransport with
+  | some (.callBytesBool resultVar selector) =>
+      mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector &&
+        decide (selector < 2 ^ 32) && args.length == 3 && exprListCovered args
+  | _ => false
+
 /-- The closed byte transports admitted by the importer: the typed-interface
 `staticcall`, `create2` over physical memory, ABI event logs, the optional-bool
 low-level `call`, `<address>.code.length`, `<address>.code` and the memory
@@ -161,6 +175,8 @@ def closedTransportCovered (mod : Compiler.ECM.ExternalCallModule) (args : List 
   | some (.optionalBoolCall resultVar selector numWordArgs) =>
       mod == Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs &&
         decide (selector < 2 ^ 32) && args.length == numWordArgs + 1 && exprListCovered args
+  | some (.callBytesUint256 ..) => callBytesUint256Covered mod args
+  | some (.callBytesBool ..) => callBytesBoolCovered mod args
   | some (.extCodeSize resultVar) =>
       mod == Compiler.ECM.SolidityExtCodeSize.module resultVar && args.length == 1 &&
         exprListCovered args
@@ -404,6 +420,26 @@ theorem execStmt_ecm_optionalBoolCall_arm (oracle : DenoteOracle) (fields : List
       (match executeByteOptionalBoolCall oracle fields state
           (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule resultVar selector numWordArgs)
           resultVar selector numWordArgs args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_callBytesUint256_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector) args) =
+      (match executeByteCallBytesUint256 oracle fields state
+          (Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector)
+          resultVar selector args with
+       | .ok (outcome, _) => outcome
+       | .error _ => .revert) := rfl
+
+theorem execStmt_ecm_callBytesBool_arm (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    execStmt oracle fields state
+        (.ecm (Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector) args) =
+      (match executeByteCallBytesBool oracle fields state
+          (Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector)
+          resultVar selector args with
        | .ok (outcome, _) => outcome
        | .error _ => .revert) := rfl
 

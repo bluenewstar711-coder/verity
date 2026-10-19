@@ -138,6 +138,22 @@ partial def quoteStmt : Stmt → m Term
             (Compiler.ECM.SolidityLowLevelCall.optionalBoolModule $(quote resultVar)
               $(quote selector) $(quote numWordArgs))
             $quotedArgs)
+      | some (.callBytesUint256 resultVar selector) =>
+          unless module ==
+              Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityLowLevelCall.bytesUint256Module $(quote resultVar)
+              $(quote selector))
+            $quotedArgs)
+      | some (.callBytesBool resultVar selector) =>
+          unless module ==
+              Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector do
+            throwError "internal: closed ECM metadata differs from its descriptor"
+          `(Compiler.CompilationModel.Stmt.ecm
+            (Compiler.ECM.SolidityLowLevelCall.bytesBoolModule $(quote resultVar)
+              $(quote selector))
+            $quotedArgs)
       | some (.extCodeSize resultVar) =>
           unless module == Compiler.ECM.SolidityExtCodeSize.module resultVar do
             throwError "internal: closed ECM metadata differs from its descriptor"

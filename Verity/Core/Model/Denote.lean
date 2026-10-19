@@ -1563,6 +1563,95 @@ def executeByteOptionalBoolCall (oracle : DenoteOracle) (fields : List Field)
         rawReturndata := Option.some observed.returndata
         byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
 
+/-- Prepare the scratch writes made by a selector-plus-memory-payload `CALL`
+transport (`[target, offset, size]`). The selector is written at the free
+pointer, `[offset, offset + size)` is copied to `pointer + 4`, the free pointer
+is advanced past the rounded-up calldata, and `target` is evaluated. -/
+def prepareByteBytesCall (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String ByteStaticPreparation := do
+  unless selector < 2^32 do throw "byte call selector exceeds four bytes"
+  let [targetExpr, offsetExpr, sizeExpr] := args
+    | throw "byte call argument count differs"
+  let some gas := state.byteCallGas | throw "byte call gas environment missing"
+  let pointer := (state.world.memory 64).val
+  let initialized := { state with bindings := bindValue state.bindings resultVar 0 }
+  let some payloadOffset := evalExpr oracle fields initialized offsetExpr
+    | throw "byte call offset evaluation unsupported"
+  let some payloadSize := evalExpr oracle fields initialized sizeExpr
+    | throw "byte call size evaluation unsupported"
+  let selectorWorld := initialized.world.writePhysicalMemoryValue
+    pointer (Verity.Core.Uint256.ofNat (selector * 2^224))
+  let copiedWorld := selectorWorld.copyPhysicalMemory
+    (fun idx => initialized.world.physicalByte (payloadOffset + idx))
+    (pointer + 4) 0 payloadSize
+  let dataSize := 4 + payloadSize
+  let bumped := copiedWorld.writePhysicalMemoryValue 64
+    (Verity.Core.Uint256.ofNat (pointer + ((dataSize + 31) / 32) * 32))
+  let prepared := { initialized with world := bumped }
+  let some target := evalExpr oracle fields prepared targetExpr
+    | throw "byte call target evaluation unsupported"
+  let request : ByteExternalCall.Request :=
+    { kind := .call, caller := prepared.world.thisAddress.val,
+      target := target % 2^160, value := 0, gas,
+      calldata := (List.range dataSize).map fun index =>
+        UInt8.ofNat (prepared.world.physicalByte (pointer + index)).val }
+  return {
+    request, frame := prepared, pointer,
+    reads := [(initialized, offsetExpr), (initialized, sizeExpr), (prepared, targetExpr)]
+  }
+
+/-- Canonical closed byte `CALL` dispatch for memory-encoded calldata and
+32-byte word (`uint256`/`bytes32`) returns (`callBytesUint256`). -/
+def executeByteCallBytesUint256 (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityLowLevelCall.bytesUint256Module resultVar selector do
+    throw "closed byte call bytes uint256 metadata differs"
+  let some adversary := state.byteCallAdversary | throw "low-level call adversary missing"
+  let preparation ← prepareByteBytesCall oracle fields state resultVar selector args
+  let prepared := preparation.frame
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  match classifyStaticWordCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded _ =>
+      let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+        preparation.pointer 0 32
+      let value := (world.memory preparation.pointer).val
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar value
+        rawReturndata := Option.some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
+/-- Canonical closed byte `CALL` dispatch for memory-encoded calldata and
+`bool` returns (`callBytesBool`). -/
+def executeByteCallBytesBool (oracle : DenoteOracle) (fields : List Field)
+    (state : DenoteState) (mod : Compiler.ECM.ExternalCallModule)
+    (resultVar : String) (selector : Nat) (args : List Expr) :
+    Except String (StmtOutcome × List Verity.StorageKey) := do
+  unless mod == Compiler.ECM.SolidityLowLevelCall.bytesBoolModule resultVar selector do
+    throw "closed byte call bytes bool metadata differs"
+  let some adversary := state.byteCallAdversary | throw "low-level call adversary missing"
+  let preparation ← prepareByteBytesCall oracle fields state resultVar selector args
+  let prepared := preparation.frame
+  let observed ←
+    ByteExternalCall.executeChecked adversary preparation.request prepared.world
+  match classifyStaticBoolCall observed.success observed.returndata with
+  | .forward data => return (.revertWithData data, observed.touched)
+  | .malformed => return (.revertWithData [], observed.touched)
+  | .decoded word =>
+      let world := observed.world.copyPhysicalMemory (rawPhysicalByte observed.returndata)
+        preparation.pointer 0 32
+      return (.continue { prepared with
+        world
+        bindings := bindValue prepared.bindings resultVar word
+        rawReturndata := Option.some observed.returndata
+        byteCallAccesses := state.byteCallAccesses ++ observed.touched }, observed.touched)
+
 /-- The closed `<address>.code.length` transport: the runtime code length of
 the account world (`DenoteExternalCode.extCodeSize`), with the target taken
 modulo `2^160` as by `EXTCODESIZE`. -/
@@ -2060,6 +2149,14 @@ mutual
         | some (.optionalBoolCall resultVar selector numWordArgs) =>
             match executeByteOptionalBoolCall oracle fields state mod resultVar selector
                 numWordArgs args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.callBytesUint256 resultVar selector) =>
+            match executeByteCallBytesUint256 oracle fields state mod resultVar selector args with
+            | .ok (outcome, _) => outcome
+            | .error _ => .revert
+        | some (.callBytesBool resultVar selector) =>
+            match executeByteCallBytesBool oracle fields state mod resultVar selector args with
             | .ok (outcome, _) => outcome
             | .error _ => .revert
         | some (.extCodeSize resultVar) =>
