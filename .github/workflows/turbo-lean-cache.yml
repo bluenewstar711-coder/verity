@@ -85,7 +85,7 @@ jobs:
           disable-lake-cache-restore: "true"
 
       - name: Run turbo-lean CAS Import, Shard Check & GDSF GC
-        uses: Th0rgal/turbo-lean@d3593c0703da1f830141f82a4dd68d425dd81dff # v0.1.0 (Season 10)
+        uses: Th0rgal/turbo-lean@ad6b4e9ddc2a39069961db262eca18ed62ba6f2e # v0.1.0 (Season 11)
         with:
           project-dir: "."
           command: "check"
@@ -113,3 +113,4 @@ jobs:
           turbo-lean --json check Verity/Proofs/Stdlib --project-dir .
           turbo-lean --json pr-verify --base "$BASE_REF" --project-dir . --receipt /tmp/verity-ci-receipt.json
           turbo-lean --json verify-receipt /tmp/verity-ci-receipt.json
+          turbo-lean --json analytics --project-dir .
