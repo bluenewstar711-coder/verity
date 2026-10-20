@@ -88,15 +88,9 @@ theorem stmtByteFree_of_contractSurfaceClosed :
   | .forEach _ count body, h => by
       simp only [DenoteAgreement.stmtByteFree]
       cases count with
-      | literal n =>
-          cases n with
-          | zero =>
-              simp only [stmtTouchesUnsupportedContractSurface] at h
-              exact stmtListByteFree_of_contractSurfaceClosed body h
-          | succ n =>
-              cases body with
-              | nil => rfl
-              | cons _ _ => simp [stmtTouchesUnsupportedContractSurface] at h
+      | literal _ =>
+          simp only [stmtTouchesUnsupportedContractSurface] at h
+          exact stmtListByteFree_of_contractSurfaceClosed body h
       | _ => simp [stmtTouchesUnsupportedContractSurface] at h
   | .ecm _ _, h | .forEachSetBit _ _ _, h | .unsafeBlock _ _, h | .matchAdt _ _ _, h => by
       simp [stmtTouchesUnsupportedContractSurface] at h

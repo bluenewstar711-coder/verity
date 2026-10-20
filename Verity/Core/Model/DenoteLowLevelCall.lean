@@ -24,7 +24,8 @@ theorem extCodeSize_module_beq_self (resultVar : String) :
     (Compiler.ECM.SolidityExtCodeSize.module resultVar ==
       Compiler.ECM.SolidityExtCodeSize.module resultVar) = true := by
   simp [BEq.beq, Compiler.ECM.SolidityExtCodeSize.module, List.beq]
-  exact ⟨⟨⟨rfl, rfl⟩, rfl⟩, beq_self_eq_true (some (Compiler.ECM.ByteTransport.extCodeSize resultVar))⟩
+  exact ⟨beq_self_eq_true (some (Compiler.ECM.ByteTransport.extCodeSize resultVar)),
+    rfl, rfl, rfl, rfl⟩
 
 theorem executeByteExtCodeSize_eq (oracle : DenoteOracle) (fields : List Field)
     (state : DenoteState) (resultVar : String) (target : Expr) (address : Nat)

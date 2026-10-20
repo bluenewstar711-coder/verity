@@ -1226,12 +1226,15 @@ private theorem compileStmt_stop_bridged
         inScopeNames [] .stop = .ok out →
       BridgedStmts out := by
   intro out hOk
-  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure] at hOk
-  cases hOk
-  intro yulStmt hMem
-  simp only [List.mem_singleton] at hMem
-  subst yulStmt
-  exact BridgedStmt.straight _ BridgedStraightStmt.expr_stop
+  cases isInternal <;>
+    simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure, ↓reduceIte,
+      Bool.false_eq_true] at hOk <;>
+    cases hOk <;>
+    intro yulStmt hMem <;>
+    simp only [List.mem_singleton] at hMem <;>
+    subst yulStmt
+  · exact BridgedStmt.straight _ BridgedStraightStmt.expr_stop
+  · exact BridgedStmt.straight _ BridgedStraightStmt.leave
 
 private theorem compileStmt_stop_noFuncDefs
     (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
@@ -1242,9 +1245,11 @@ private theorem compileStmt_stop_noFuncDefs
         inScopeNames [] .stop = .ok out →
       Native.yulStmtsContainFuncDef out = false := by
   intro out hOk
-  simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure] at hOk
-  cases hOk
-  simp [Native.yulStmtContainsFuncDef]
+  cases isInternal <;>
+    simp only [compileStmt, compileStmtWithFork, Pure.pure, Except.pure, ↓reduceIte,
+      Bool.false_eq_true] at hOk <;>
+    cases hOk <;>
+    simp [Native.yulStmtContainsFuncDef]
 
 /-- A `Stmt.return value` source statement with a `BridgedSourceExpr` RHS and
 `isInternal = false` compiles to a fixed two-statement Yul list satisfying
