@@ -195,6 +195,7 @@ import Compiler.Proofs.Storage.SolidityStorage
 import Compiler.Proofs.Storage.StructArrayStorage
 import Compiler.Proofs.StorageBounds
 import Compiler.Proofs.StorageLens
+import Compiler.Proofs.TrustSurface.LinearEquivalence
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Base
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Generic
 import Compiler.Proofs.YulGeneration.Backends.EvmYulLeanBodyClosure.Safe
@@ -7405,6 +7406,40 @@ end Verity.AxiomAudit
   Compiler.Proofs.view_lens_of_storage_lens_correct
   Compiler.Proofs.view_lens_comp_of_storage_lens_correct
 
+  -- Compiler/Proofs/TrustSurface/LinearEquivalence.lean
+  Compiler.Proofs.TrustSurface.mem_dedupPreserveHashableLoop
+  Compiler.Proofs.TrustSurface.mem_dedupPreserveHashable
+  Compiler.Proofs.TrustSurface.mem_dedupPreserveLinear
+  Compiler.Proofs.TrustSurface.dedupPreserveHashableLoop_eq_foldl
+  Compiler.Proofs.TrustSurface.dedupPreserveLinear_eq_spec
+  Compiler.Proofs.TrustSurface.nodup_dedupPreserveHashableLoop
+  Compiler.Proofs.TrustSurface.nodup_dedupPreserveHashable
+  Compiler.Proofs.TrustSurface.nodup_dedupPreserveLinear
+  Compiler.Proofs.TrustSurface.dedupPreserveHashableLoop_of_nodup
+  Compiler.Proofs.TrustSurface.dedupPreserveHashable_of_nodup
+  Compiler.Proofs.TrustSurface.dedupPreserveLinear_idem
+  Compiler.Proofs.TrustSurface.enqueueUnvisited_reachable
+  Compiler.Proofs.TrustSurface.expandTransitiveWorklist_reachable
+  Compiler.Proofs.TrustSurface.expandTransitiveInternalCallsLinear_sound
+  Compiler.Proofs.TrustSurface.enqueueUnvisited_acc_eq_dedup
+  Compiler.Proofs.TrustSurface.mem_enqueueUnvisited_of_mem_acc
+  Compiler.Proofs.TrustSurface.mem_expandTransitiveWorklist_of_mem_acc
+  Compiler.Proofs.TrustSurface.mem_expandTransitiveInternalCallsLinear_of_mem_roots
+  Compiler.Proofs.TrustSurface.mem_foldl_of_mem
+  Compiler.Proofs.TrustSurface.mem_collectExprLowLevelMechanicsAcc_of_mem_acc
+  Compiler.Proofs.TrustSurface.mem_collectExprLowLevelMechanicsAcc_of_node
+  Compiler.Proofs.TrustSurface.mem_collectStmtMetadataLowLevelMechanicsAcc_of_mem_acc
+  Compiler.Proofs.TrustSurface.mem_collectLowLevelMechanicsFromStmtsLinear_iff
+  Compiler.Proofs.TrustSurface.proofStatus_bne_proved_iff_ne
+  Compiler.Proofs.TrustSurface.mem_undischargedAssumptionReportEntriesLinear_iff
+  Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_iff
+  Compiler.Proofs.TrustSurface.mem_linearTrustSurfaceReport_of_mem_function
+  Compiler.Proofs.TrustSurface.mem_undischarged_of_function_lowLevelMechanic
+  Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_no_lowLevelMechanics
+  Compiler.Proofs.TrustSurface.linearTrustSurfaceReport_empty_no_lowLevelMechanics
+  Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_obligations_proved
+  Compiler.Proofs.TrustSurface.undischargedAssumptionReportEntriesLinear_empty_no_unsafeBlocks
+
   -- Compiler/Proofs/YulGeneration/Backends/EvmYulLeanBodyClosure/Base.lean
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtWithFork_cancun_eq_compileStmt  -- private
   -- Compiler.Proofs.YulGeneration.Backends.compileStmtListWithFork_cancun_eq_compileStmtList  -- private
@@ -9712,4 +9747,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8958 theorems/lemmas (5869 public, 3089 private, 0 sorry'd)
+-- Total: 8990 theorems/lemmas (5901 public, 3089 private, 0 sorry'd)
