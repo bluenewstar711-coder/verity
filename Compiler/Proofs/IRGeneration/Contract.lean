@@ -2556,6 +2556,675 @@ theorem counter_supported_spec_compile_preserves_semantics
     (hcalldataSizeFits := hcalldataSizeFits)
     (hcompile := hcompile)
 
+/-!
+## Whole-Contract Constructor & Special Entrypoint (`fallback` / `receive`) Preservation
+-/
+
+private theorem option_mapM_some_ok_inv
+    {α β : Type} {f : α → Except String β} {x : α} {res : Option β}
+    (hmap : (some x).mapM f = Except.ok res) :
+    ∃ y, res = some y ∧ f x = Except.ok y := by
+  cases hfx : f x with
+  | error err =>
+      simp [Option.mapM, hfx] at hmap
+  | ok y =>
+      have hres : (Except.ok (some y) : Except String (Option β)) = Except.ok res := by
+        simpa [Option.mapM, hfx] using hmap
+      exact ⟨y, (Except.ok.inj hres).symm, rfl⟩
+
+private theorem option_mapM_none_ok_inv
+    {α β : Type} {f : α → Except String β} {res : Option β}
+    (hmap : (none : Option α).mapM f = Except.ok res) :
+    res = none := by
+  simpa [Option.mapM, pure, Except.pure] using hmap.symm
+
+/-- General inversion for `compileValidatedCore`: extracts the constructor
+compilation equation (`ir.deploy`, `ir.constructorPayable`) and the `fallback` /
+`receive` special-entrypoint compilation equations (`ir.fallbackEntrypoint`,
+`ir.receiveEntrypoint`) without requiring `noFallback` or `noReceive`. -/
+theorem compileValidatedCore_ok_components
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (hcore : compileValidatedCore model selectors = Except.ok ir) :
+    compileConstructor (applySlotAliasRanges model.fields model.slotAliasRanges)
+      model.events model.errors model.adtTypes model.constructor .cancun
+      (model.functions.filter (·.isInternal)) = Except.ok ir.deploy ∧
+    ir.constructorPayable = (model.constructor.map (·.isPayable)).getD false ∧
+    (∃ fallbackSpec,
+      pickUniqueFunctionByName "fallback" model.functions = Except.ok fallbackSpec ∧
+      fallbackSpec.mapM
+        (compileSpecialEntrypoint (applySlotAliasRanges model.fields model.slotAliasRanges)
+          model.events model.errors model.adtTypes .cancun
+          (model.functions.filter (·.isInternal))) = Except.ok ir.fallbackEntrypoint) ∧
+    (∃ receiveSpec,
+      pickUniqueFunctionByName "receive" model.functions = Except.ok receiveSpec ∧
+      receiveSpec.mapM
+        (compileSpecialEntrypoint (applySlotAliasRanges model.fields model.slotAliasRanges)
+          model.events model.errors model.adtTypes .cancun
+          (model.functions.filter (·.isInternal))) = Except.ok ir.receiveEntrypoint) := by
+  obtain ⟨fallbackSpec, hfallbackPick, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨receiveSpec, hreceivePick, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  dsimp only at hcore
+  rw [except_ite_bind] at hcore
+  obtain ⟨_, -, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨fallbackEntrypoint, hfallbackMap, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨receiveEntrypoint, hreceiveMap, hcore⟩ := except_bind_eq_ok_inv hcore
+  obtain ⟨deployStmts, hctor, hcore⟩ := except_bind_eq_ok_inv hcore
+  have hirEq := (Except.ok.inj hcore).symm
+  subst hirEq
+  exact ⟨hctor, rfl, ⟨fallbackSpec, hfallbackPick, hfallbackMap⟩,
+    ⟨receiveSpec, hreceivePick, hreceiveMap⟩⟩
+
+/-- Extract `compileConstructor` and `constructorPayable` from a successful
+`CompilationModel.compile` run on any normalized, ADT-free, helper-free model
+(even when `fallback` or `receive` entrypoints are present). -/
+theorem compile_ok_yields_deploy_compileConstructor_general
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    compileConstructor model.fields model.events model.errors [] model.constructor =
+      Except.ok ir.deploy ∧
+    ir.constructorPayable = (model.constructor.map (·.isPayable)).getD false := by
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨hctor, hpayable, _, _⟩ :=
+    compileValidatedCore_ok_components model selectors ir hcore
+  rw [hnormalized, hnoAdtTypes,
+    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal] at hctor
+  exact ⟨hctor, hpayable⟩
+
+/-- Extract `compileConstructor` from `CompilationModel.compile` under `SupportedSpec`. -/
+theorem compile_ok_yields_deploy_compileConstructor
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpec model selectors)
+    (ir : IRContract)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    compileConstructor model.fields model.events model.errors [] model.constructor =
+      Except.ok ir.deploy :=
+  ContractShape.compile_ok_yields_deploy_compileConstructor model selectors hSupported ir hcompile
+
+/-- Extract `compileConstructor` from `CompilationModel.compile` under
+`SupportedSpecExceptMappingWrites`. -/
+theorem compile_ok_yields_deploy_compileConstructor_except_mapping_writes
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupported : SupportedSpecExceptMappingWrites model selectors)
+    (ir : IRContract)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    compileConstructor model.fields model.events model.errors [] model.constructor =
+      Except.ok ir.deploy :=
+  (compile_ok_yields_deploy_compileConstructor_general model selectors ir
+    hSupported.normalizedFields hSupported.noAdtTypes hSupported.noInternalFunctions hcompile).1
+
+/-- Whole-contract constructor semantic preservation (statement-local
+mapping-write slot safety): connects `CompilationModel.compile model selectors = Except.ok ir`
+and `model.constructor = some ctor` to the compiled deploy statement structure
+`ir.deploy = genConstructorArgLoads ctor.params ++ bodyStmts` and proves that
+executing `bodyStmts` from the constructor-bound initial IR state matches
+`SourceSemantics.interpretConstructorWithHelpers`. -/
+theorem compile_preserves_constructor_semantics_stmtSafety
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ctor : ConstructorSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hctor : model.constructor = some ctor) (hSupported : SupportedConstructor model ctor)
+    (hsafety : ∀ stmt ∈ ctor.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings ctorBindings : List (String × Nat))
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hbind : SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) = some bindings)
+    (hconstructorBindings : SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxConstructorCalldataSizeFitsEvm tx) :
+    ∃ bodyStmts,
+      compileStmtList model.fields model.events model.errors .memory [] false
+        (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts ∧
+      ir.deploy = genConstructorArgLoads ctor.params ++ bodyStmts ∧
+      ir.constructorPayable = ctor.isPayable ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.interpretConstructorWithHelpers model helperFuel ctor tx initialWorld)
+        (Function.execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld)
+          (execIRStmts (sizeOf bodyStmts + 1)
+            (ParamLoading.applyBindingsToIRState
+              (FunctionBody.initialIRStateForTx model tx initialWorld) ctorBindings) bodyStmts)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨hdeploy, hpayable⟩ := compile_ok_yields_deploy_compileConstructor_general
+    model selectors ir hnormalized hnoAdtTypes hnoInternal hcompile
+  rw [hctor] at hdeploy hpayable
+  obtain ⟨bodyStmts, hbodyCompile, hdeployEq⟩ :=
+    Function.compileConstructor_ok_components model.fields model.events model.errors ctor ir.deploy hdeploy
+  refine ⟨bodyStmts, hbodyCompile, hdeployEq, by simpa using hpayable, ?_⟩
+  exact Function.supported_constructor_body_correct_stmtSafety model ctor helperFuel
+    hnormalized hSupported hnoConflict hsafety hnoEvents hnoErrors tx initialWorld
+    bindings ctorBindings bodyStmts hbodyCompile hbind hconstructorBindings
+    htxNormalized hcalldataSizeFits
+
+/-- Whole-contract constructor semantic preservation under contract-wide
+`SupportedStmtListMappingWriteSlotSafety`. -/
+theorem compile_preserves_constructor_semantics
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ctor : ConstructorSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hctor : model.constructor = some ctor) (hSupported : SupportedConstructor model ctor)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings ctorBindings : List (String × Nat))
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hbind : SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) = some bindings)
+    (hconstructorBindings : SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxConstructorCalldataSizeFitsEvm tx) :
+    ∃ bodyStmts,
+      compileStmtList model.fields model.events model.errors .memory [] false
+        (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts ∧
+      ir.deploy = genConstructorArgLoads ctor.params ++ bodyStmts ∧
+      ir.constructorPayable = ctor.isPayable ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.interpretConstructorWithHelpers model helperFuel ctor tx initialWorld)
+        (Function.execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld)
+          (execIRStmts (sizeOf bodyStmts + 1)
+            (ParamLoading.applyBindingsToIRState
+              (FunctionBody.initialIRStateForTx model tx initialWorld) ctorBindings) bodyStmts)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨hdeploy, hpayable⟩ := compile_ok_yields_deploy_compileConstructor_general
+    model selectors ir hnormalized hnoAdtTypes hnoInternal hcompile
+  rw [hctor] at hdeploy hpayable
+  obtain ⟨bodyStmts, hbodyCompile, hdeployEq⟩ :=
+    Function.compileConstructor_ok_components model.fields model.events model.errors ctor ir.deploy hdeploy
+  refine ⟨bodyStmts, hbodyCompile, hdeployEq, by simpa using hpayable, ?_⟩
+  exact Function.supported_constructor_body_correct model ctor helperFuel
+    hnormalized hSupported hnoConflict hsafety hnoEvents hnoErrors tx initialWorld
+    bindings ctorBindings bodyStmts hbodyCompile hbind hconstructorBindings
+    htxNormalized hcalldataSizeFits
+
+/-- Whole-contract constructor semantic preservation specialized to
+`SupportedSpecExceptMappingWrites`. -/
+theorem compile_preserves_constructor_semantics_of_supportedSpecExceptMappingWrites
+    (model : CompilationModel) (selectors : List Nat)
+    (hSupportedSpec : SupportedSpecExceptMappingWrites model selectors)
+    (ir : IRContract) (ctor : ConstructorSpec)
+    (hctor : model.constructor = some ctor)
+    (hSupportedCtor : SupportedConstructor model ctor)
+    (hsafety : ∀ stmt ∈ ctor.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat)) (ctorBindings : List (String × Nat))
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (hbind :
+      SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) =
+        some bindings)
+    (hconstructorBindings :
+      SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxConstructorCalldataSizeFitsEvm tx) :
+    ∃ bodyStmts,
+      compileStmtList model.fields model.events model.errors .memory [] false
+        (constructorBodyScope ctor.params) [] ctor.body [] = Except.ok bodyStmts ∧
+      ir.deploy = genConstructorArgLoads ctor.params ++ bodyStmts ∧
+      ir.constructorPayable = ctor.isPayable ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (SourceSemantics.interpretConstructorWithHelpers
+          model hSupportedSpec.helperFuel ctor tx initialWorld)
+        (Function.execResultToIRResult
+          (FunctionBody.initialIRStateForTx model tx initialWorld)
+          (execIRStmts
+            (sizeOf bodyStmts + 1)
+            (ParamLoading.applyBindingsToIRState
+              (FunctionBody.initialIRStateForTx model tx initialWorld)
+              ctorBindings)
+            bodyStmts)) :=
+  compile_preserves_constructor_semantics_stmtSafety model selectors ir ctor
+    hSupportedSpec.helperFuel hSupportedSpec.normalizedFields hSupportedSpec.noEvents
+    hSupportedSpec.noErrors hSupportedSpec.noAdtTypes hSupportedSpec.noInternalFunctions
+    hctor hSupportedCtor hsafety tx initialWorld bindings ctorBindings hcompile
+    hbind hconstructorBindings htxNormalized hcalldataSizeFits
+
+/-- Extract the compiled `fallback` entrypoint from `CompilationModel.compile`
+when `pickUniqueFunctionByName "fallback" model.functions = Except.ok (some ep)`. -/
+theorem compile_ok_yields_fallbackEntrypoint_some
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "fallback" model.functions = Except.ok (some ep))
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    ∃ irEp,
+      ir.fallbackEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp := by
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨_, _, ⟨fallbackSpec, hfbPick, hfbMap⟩, _⟩ :=
+    compileValidatedCore_ok_components model selectors ir hcore
+  rw [hpick] at hfbPick
+  injection hfbPick with hfbEq
+  subst hfbEq
+  rw [hnormalized, hnoAdtTypes,
+    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal] at hfbMap
+  exact option_mapM_some_ok_inv hfbMap
+
+/-- Extract `ir.fallbackEntrypoint = none` from `CompilationModel.compile`
+when `pickUniqueFunctionByName "fallback" model.functions = Except.ok none`. -/
+theorem compile_ok_yields_fallbackEntrypoint_none
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "fallback" model.functions = Except.ok none)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    ir.fallbackEntrypoint = none := by
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨_, _, ⟨fallbackSpec, hfbPick, hfbMap⟩, _⟩ :=
+    compileValidatedCore_ok_components model selectors ir hcore
+  rw [hpick] at hfbPick
+  injection hfbPick with hfbEq
+  subst hfbEq
+  rw [hnormalized, hnoAdtTypes,
+    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal] at hfbMap
+  exact option_mapM_none_ok_inv hfbMap
+
+/-- Extract the compiled `receive` entrypoint from `CompilationModel.compile`
+when `pickUniqueFunctionByName "receive" model.functions = Except.ok (some ep)`. -/
+theorem compile_ok_yields_receiveEntrypoint_some
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "receive" model.functions = Except.ok (some ep))
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    ∃ irEp,
+      ir.receiveEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp := by
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨_, _, _, ⟨receiveSpec, hrcPick, hrcMap⟩⟩ :=
+    compileValidatedCore_ok_components model selectors ir hcore
+  rw [hpick] at hrcPick
+  injection hrcPick with hrcEq
+  subst hrcEq
+  rw [hnormalized, hnoAdtTypes,
+    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal] at hrcMap
+  exact option_mapM_some_ok_inv hrcMap
+
+/-- Extract `ir.receiveEntrypoint = none` from `CompilationModel.compile`
+when `pickUniqueFunctionByName "receive" model.functions = Except.ok none`. -/
+theorem compile_ok_yields_receiveEntrypoint_none
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "receive" model.functions = Except.ok none)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir) :
+    ir.receiveEntrypoint = none := by
+  have hcore := ContractShape.compile_ok_yields_core model selectors ir hcompile
+  obtain ⟨_, _, _, ⟨receiveSpec, hrcPick, hrcMap⟩⟩ :=
+    compileValidatedCore_ok_components model selectors ir hcore
+  rw [hpick] at hrcPick
+  injection hrcPick with hrcEq
+  subst hrcEq
+  rw [hnormalized, hnoAdtTypes,
+    filterInternalFunctions_eq_nil_of_all_nonInternal model.functions hnoInternal] at hrcMap
+  exact option_mapM_none_ok_inv hrcMap
+
+/-- Whole-contract `fallback` entrypoint semantic preservation (statement-local
+mapping-write slot safety). -/
+theorem compile_preserves_fallback_entrypoint_stmtSafety
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "fallback" model.functions = Except.ok (some ep))
+    (hSupported : Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    ∃ irEp,
+      ir.fallbackEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+        (Function.execIREntrypoint irEp tx
+          (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using
+      validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨irEp, hirEp, hcompileEp⟩ :=
+    compile_ok_yields_fallbackEntrypoint_some model selectors ir ep
+      hnormalized hnoAdtTypes hnoInternal hpick hcompile
+  refine ⟨irEp, hirEp, hcompileEp, ?_⟩
+  exact Function.supported_special_entrypoint_correct_stmtSafety model ep helperFuel
+    hnormalized hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx
+    initialWorld hcompileEp htxNormalized hcalldataSizeFits
+
+/-- Whole-contract `fallback` entrypoint semantic preservation under
+contract-wide `SupportedStmtListMappingWriteSlotSafety`. -/
+theorem compile_preserves_fallback_entrypoint
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "fallback" model.functions = Except.ok (some ep))
+    (hSupported : Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    ∃ irEp,
+      ir.fallbackEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+        (Function.execIREntrypoint irEp tx
+          (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨irEp, hirEp, hcompileEp⟩ :=
+    compile_ok_yields_fallbackEntrypoint_some model selectors ir ep
+      hnormalized hnoAdtTypes hnoInternal hpick hcompile
+  refine ⟨irEp, hirEp, hcompileEp, ?_⟩
+  exact Function.supported_special_entrypoint_correct model ep helperFuel
+    hnormalized hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx
+    initialWorld hcompileEp htxNormalized hcalldataSizeFits
+
+/-- Whole-contract `receive` entrypoint semantic preservation (statement-local
+mapping-write slot safety). -/
+theorem compile_preserves_receive_entrypoint_stmtSafety
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "receive" model.functions = Except.ok (some ep))
+    (hSupported : Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    ∃ irEp,
+      ir.receiveEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+        (Function.execIREntrypoint irEp tx
+          (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using
+      validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨irEp, hirEp, hcompileEp⟩ :=
+    compile_ok_yields_receiveEntrypoint_some model selectors ir ep
+      hnormalized hnoAdtTypes hnoInternal hpick hcompile
+  refine ⟨irEp, hirEp, hcompileEp, ?_⟩
+  exact Function.supported_special_entrypoint_correct_stmtSafety model ep helperFuel
+    hnormalized hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx
+    initialWorld hcompileEp htxNormalized hcalldataSizeFits
+
+/-- Whole-contract `receive` entrypoint semantic preservation under
+contract-wide `SupportedStmtListMappingWriteSlotSafety`. -/
+theorem compile_preserves_receive_entrypoint
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpick : pickUniqueFunctionByName "receive" model.functions = Except.ok (some ep))
+    (hSupported : Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    ∃ irEp,
+      ir.receiveEntrypoint = some irEp ∧
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp ∧
+      FunctionBody.sourceResultMatchesIRResult
+        (Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+        (Function.execIREntrypoint irEp tx
+          (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  have hvalidateInputs := validateCompileInputs_ok_of_compile model selectors ir hcompile
+  have hnoConflict : firstFieldWriteSlotConflict model.fields = none := by
+    simpa [hnormalized] using validateCompileInputs_firstFieldWriteSlotConflict_eq_none hvalidateInputs
+  obtain ⟨irEp, hirEp, hcompileEp⟩ :=
+    compile_ok_yields_receiveEntrypoint_some model selectors ir ep
+      hnormalized hnoAdtTypes hnoInternal hpick hcompile
+  refine ⟨irEp, hirEp, hcompileEp, ?_⟩
+  exact Function.supported_special_entrypoint_correct model ep helperFuel
+    hnormalized hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx
+    initialWorld hcompileEp htxNormalized hcalldataSizeFits
+
+/-- Source-level fallback-or-revert dispatch helper. -/
+def interpretFallbackOrRevert
+    (model : CompilationModel) (helperFuel : Nat)
+    (fallbackSpec : Option FunctionSpec)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  match fallbackSpec with
+  | some ep =>
+      Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld
+  | none =>
+      SourceSemantics.revertedResult model
+        (SourceSemantics.withTransactionContext initialWorld tx)
+
+/-- IR-level fallback-or-revert dispatch helper. -/
+noncomputable def execIRFallbackOrRevert
+    (ir : IRContract) (tx : IRTransaction) (initialState : IRState) : IRResult :=
+  match ir.fallbackEntrypoint with
+  | some irEp => Function.execIREntrypoint irEp tx initialState
+  | none =>
+      { success := false
+        returnValue := none
+        finalStorage := initialState.storage
+        finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+        events := initialState.events }
+
+/-- Source-level selector-miss fallback/receive dispatch, mirroring the Yul
+runtime dispatcher (`Compiler/Codegen.lean`): on selector miss, empty calldata
+(`tx.args = []`) routes to `receive` when present (falling back to `fallback`
+if `receive` is absent), and non-empty calldata routes to `fallback` when
+present. -/
+def interpretSpecialEntrypointsOnMiss
+    (model : CompilationModel) (helperFuel : Nat)
+    (fallbackSpec receiveSpec : Option FunctionSpec)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  if tx.args.isEmpty then
+    match receiveSpec with
+    | some ep =>
+        Function.interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld
+    | none =>
+        interpretFallbackOrRevert model helperFuel fallbackSpec tx initialWorld
+  else
+    interpretFallbackOrRevert model helperFuel fallbackSpec tx initialWorld
+
+/-- IR-level selector-miss fallback/receive dispatch on `IRContract`. -/
+noncomputable def execIRSpecialEntrypointsOnMiss
+    (ir : IRContract) (tx : IRTransaction) (initialState : IRState) : IRResult :=
+  if tx.args.isEmpty then
+    match ir.receiveEntrypoint with
+    | some irEp => Function.execIREntrypoint irEp tx initialState
+    | none => execIRFallbackOrRevert ir tx initialState
+  else
+    execIRFallbackOrRevert ir tx initialState
+
+private theorem compile_preserves_fallback_dispatch_stmtSafety
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (fallbackSpec : Option FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpickFallback : pickUniqueFunctionByName "fallback" model.functions = Except.ok fallbackSpec)
+    (hFallbackSupported : ∀ ep, fallbackSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hFallbackSafety : ∀ ep, fallbackSpec = some ep → ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretFallbackOrRevert model helperFuel fallbackSpec tx initialWorld)
+      (execIRFallbackOrRevert ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  unfold interpretFallbackOrRevert execIRFallbackOrRevert
+  cases fallbackSpec with
+  | none =>
+      rw [compile_ok_yields_fallbackEntrypoint_none model selectors ir
+        hnormalized hnoAdtTypes hnoInternal hpickFallback hcompile]
+      simp [FunctionBody.sourceResultMatchesIRResult, SourceSemantics.revertedResult,
+        FunctionBody.initialIRStateForTx, FunctionBody.encodeEvents_withTransactionContext]
+  | some ep =>
+      obtain ⟨irEp, hirEp, _, hmatch⟩ := compile_preserves_fallback_entrypoint_stmtSafety
+        model selectors ir ep helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes
+        hnoInternal hpickFallback (hFallbackSupported ep rfl) (hFallbackSafety ep rfl)
+        tx initialWorld hcompile htxNormalized hcalldataSizeFits
+      rw [hirEp]
+      exact hmatch
+
+/-- Whole-contract selector-miss dispatch preservation for `fallback` and
+`receive` special entrypoints (statement-local mapping-write slot safety). -/
+theorem compile_preserves_special_entrypoints_on_selector_miss_stmtSafety
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (fallbackSpec receiveSpec : Option FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpickFallback : pickUniqueFunctionByName "fallback" model.functions = Except.ok fallbackSpec)
+    (hpickReceive : pickUniqueFunctionByName "receive" model.functions = Except.ok receiveSpec)
+    (hFallbackSupported : ∀ ep, fallbackSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hFallbackSafety : ∀ ep, fallbackSpec = some ep → ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (hReceiveSupported : ∀ ep, receiveSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hReceiveSafety : ∀ ep, receiveSpec = some ep → ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretSpecialEntrypointsOnMiss model helperFuel fallbackSpec receiveSpec tx initialWorld)
+      (execIRSpecialEntrypointsOnMiss ir tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  unfold interpretSpecialEntrypointsOnMiss execIRSpecialEntrypointsOnMiss
+  by_cases hempty : tx.args.isEmpty = true
+  · rw [if_pos hempty, if_pos hempty]
+    cases receiveSpec with
+    | none =>
+        rw [compile_ok_yields_receiveEntrypoint_none model selectors ir
+          hnormalized hnoAdtTypes hnoInternal hpickReceive hcompile]
+        exact compile_preserves_fallback_dispatch_stmtSafety model selectors ir fallbackSpec
+          helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hnoInternal hpickFallback
+          hFallbackSupported hFallbackSafety tx initialWorld hcompile htxNormalized hcalldataSizeFits
+    | some ep =>
+        obtain ⟨irEp, hirEp, _, hmatch⟩ := compile_preserves_receive_entrypoint_stmtSafety
+          model selectors ir ep helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes
+          hnoInternal hpickReceive (hReceiveSupported ep rfl) (hReceiveSafety ep rfl)
+          tx initialWorld hcompile htxNormalized hcalldataSizeFits
+        rw [hirEp]
+        exact hmatch
+  · rw [if_neg hempty, if_neg hempty]
+    exact compile_preserves_fallback_dispatch_stmtSafety model selectors ir fallbackSpec
+      helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hnoInternal hpickFallback
+      hFallbackSupported hFallbackSafety tx initialWorld hcompile htxNormalized hcalldataSizeFits
+
+private theorem compile_preserves_fallback_dispatch
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (fallbackSpec : Option FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpickFallback : pickUniqueFunctionByName "fallback" model.functions = Except.ok fallbackSpec)
+    (hFallbackSupported : ∀ ep, fallbackSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretFallbackOrRevert model helperFuel fallbackSpec tx initialWorld)
+      (execIRFallbackOrRevert ir tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  unfold interpretFallbackOrRevert execIRFallbackOrRevert
+  cases fallbackSpec with
+  | none =>
+      rw [compile_ok_yields_fallbackEntrypoint_none model selectors ir
+        hnormalized hnoAdtTypes hnoInternal hpickFallback hcompile]
+      simp [FunctionBody.sourceResultMatchesIRResult, SourceSemantics.revertedResult,
+        FunctionBody.initialIRStateForTx, FunctionBody.encodeEvents_withTransactionContext]
+  | some ep =>
+      obtain ⟨irEp, hirEp, _, hmatch⟩ := compile_preserves_fallback_entrypoint
+        model selectors ir ep helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes
+        hnoInternal hpickFallback (hFallbackSupported ep rfl) hsafety
+        tx initialWorld hcompile htxNormalized hcalldataSizeFits
+      rw [hirEp]
+      exact hmatch
+
+/-- Whole-contract selector-miss dispatch preservation for `fallback` and
+`receive` special entrypoints under contract-wide
+`SupportedStmtListMappingWriteSlotSafety`. -/
+theorem compile_preserves_special_entrypoints_on_selector_miss
+    (model : CompilationModel) (selectors : List Nat) (ir : IRContract)
+    (fallbackSpec receiveSpec : Option FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hnoInternal : ∀ fn ∈ model.functions, fn.isInternal = false)
+    (hpickFallback : pickUniqueFunctionByName "fallback" model.functions = Except.ok fallbackSpec)
+    (hpickReceive : pickUniqueFunctionByName "receive" model.functions = Except.ok receiveSpec)
+    (hFallbackSupported : ∀ ep, fallbackSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hReceiveSupported : ∀ ep, receiveSpec = some ep → Function.SupportedSpecialEntrypoint model ep)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : CompilationModel.compile model selectors = Except.ok ir)
+    (htxNormalized : Function.TxContextNormalized tx)
+    (hcalldataSizeFits : Function.TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretSpecialEntrypointsOnMiss model helperFuel fallbackSpec receiveSpec tx initialWorld)
+      (execIRSpecialEntrypointsOnMiss ir tx
+        (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  unfold interpretSpecialEntrypointsOnMiss execIRSpecialEntrypointsOnMiss
+  by_cases hempty : tx.args.isEmpty = true
+  · rw [if_pos hempty, if_pos hempty]
+    cases receiveSpec with
+    | none =>
+        rw [compile_ok_yields_receiveEntrypoint_none model selectors ir
+          hnormalized hnoAdtTypes hnoInternal hpickReceive hcompile]
+        exact compile_preserves_fallback_dispatch model selectors ir fallbackSpec
+          helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hnoInternal hpickFallback
+          hFallbackSupported hsafety tx initialWorld hcompile htxNormalized hcalldataSizeFits
+    | some ep =>
+        obtain ⟨irEp, hirEp, _, hmatch⟩ := compile_preserves_receive_entrypoint
+          model selectors ir ep helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes
+          hnoInternal hpickReceive (hReceiveSupported ep rfl) hsafety
+          tx initialWorld hcompile htxNormalized hcalldataSizeFits
+        rw [hirEp]
+        exact hmatch
+  · rw [if_neg hempty, if_neg hempty]
+    exact compile_preserves_fallback_dispatch model selectors ir fallbackSpec
+      helperFuel hnormalized hnoEvents hnoErrors hnoAdtTypes hnoInternal hpickFallback
+      hFallbackSupported hsafety tx initialWorld hcompile htxNormalized hcalldataSizeFits
+
 end Contract
 
 end Compiler.Proofs.IRGeneration

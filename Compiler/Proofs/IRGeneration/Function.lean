@@ -5073,3 +5073,347 @@ theorem supported_function_correct_with_helper_proofs
     (SourceSemantics.execStmtListWithHelpersConservativeExtensionGoal_of_helperSurfaceClosed
       model _ hSupported.helperFuel _ fn.body hclosed)
     hcalldataSizeFits
+
+/-- Support witness for a `fallback` or `receive` special entrypoint.
+Special entrypoints take no ABI parameters, declare no returns, do not use the
+`nonreentrant` transient-storage guard, use standard ABI decoding, and satisfy
+the weakened body interface (`SupportedBodyInterfaceExceptMappingWrites`). -/
+structure SupportedSpecialEntrypoint (spec : CompilationModel) (ep : FunctionSpec) where
+  noParams : ep.params = []
+  noReturnType : ep.returnType = none
+  noReturns : ep.returns = []
+  noNonReentrant : ep.nonReentrantLock = none
+  standardAbi : ep.abiDecoding = .standard
+  body : SupportedBodyInterfaceExceptMappingWrites spec ep
+
+/-- Execute a compiled `IREntrypoint` (`fallback` or `receive`) on `initialState`,
+mirroring the runtime Yul dispatcher's `callvalue()` check before running the
+entrypoint body. -/
+noncomputable def execIREntrypoint (ep : IREntrypoint) (tx : IRTransaction)
+    (initialState : IRState) : IRResult :=
+  if !ep.payable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
+    { success := false
+      returnValue := none
+      finalStorage := initialState.storage
+      finalMappings := Compiler.Proofs.storageAsMappings initialState.storage
+      events := initialState.events }
+  else
+    execResultToIRResult initialState
+      (execIRStmts (sizeOf ep.body + 1) initialState ep.body)
+
+/-- Source-level execution of a `fallback` or `receive` special entrypoint,
+including the `isPayable` guard on `tx.msgValue`. -/
+def interpretSpecialEntrypointWithHelpers
+    (model : CompilationModel) (helperFuel : Nat) (ep : FunctionSpec)
+    (tx : IRTransaction) (initialWorld : Verity.ContractState) :
+    SourceSemantics.SourceContractResult :=
+  if !ep.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0 then
+    SourceSemantics.revertedResult model
+      (SourceSemantics.withTransactionContext initialWorld tx)
+  else
+    SourceSemantics.interpretFunctionWithHelpers model helperFuel ep tx initialWorld
+
+/-- Component inversion for `compileSpecialEntrypoint` when `nonReentrantLock = none`. -/
+theorem compileSpecialEntrypoint_ok_body
+    (fields : List Field) (events : List EventDef) (errors : List ErrorDef)
+    (ep : FunctionSpec) (irEp : IREntrypoint)
+    (hnoLock : ep.nonReentrantLock = none)
+    (hcompile :
+      compileSpecialEntrypoint fields events errors [] .cancun [] ep = Except.ok irEp) :
+    compileStmtList fields events errors .calldata [] false [] [] ep.body =
+      Except.ok irEp.body ∧
+    irEp.payable = ep.isPayable := by
+  unfold compileSpecialEntrypoint at hcompile
+  rw [hnoLock] at hcompile
+  cases hbody : compileStmtList fields events errors .calldata [] false [] [] ep.body with
+  | error err =>
+      simp [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+        hbody, bind, Except.bind] at hcompile
+  | ok bodyStmts =>
+      simp only [FunctionBody.compileStmtListWithFork_cancun_eq_compileStmtList,
+        hbody, bind, Except.bind, pure, Except.pure, Except.ok.injEq] at hcompile
+      subst hcompile
+      exact ⟨rfl, rfl⟩
+
+private theorem supported_special_entrypoint_body_correct_of_helperFree
+    (model : CompilationModel) (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) (hnoAdtTypes : model.adtTypes = [])
+    (hSupported : SupportedSpecialEntrypoint model ep)
+    (hhelperFree : StmtListHelperFreeStepInterface model.fields (ep.params.map (·.name)) ep.body)
+    (irEp : IREntrypoint) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile : compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep = Except.ok irEp)
+    (htxNormalized : TxContextNormalized tx) (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretFunctionWithHelpers model helperFuel ep tx initialWorld)
+      (execResultToIRResult (FunctionBody.initialIRStateForTx model tx initialWorld)
+        (execIRStmts (sizeOf irEp.body + 1)
+          (FunctionBody.initialIRStateForTx model tx initialWorld) irEp.body)) := by
+  obtain ⟨hbody, _⟩ := compileSpecialEntrypoint_ok_body
+    model.fields model.events model.errors ep irEp hSupported.noNonReentrant hcompile
+  have hbind : SourceSemantics.bindSupportedParams ep.params tx.args = some [] := by
+    simp [hSupported.noParams, SourceSemantics.bindSupportedParams]
+  have hbodyCompile : compileStmtList model.fields model.events model.errors .calldata [] false
+      (ep.params.map (·.name)) [] ep.body = Except.ok irEp.body := by
+    simpa [hSupported.noParams] using hbody
+  rcases body_interface_body_goal model ep irEp.body helperFuel tx initialWorld []
+      (sizeOf irEp.body - irEp.body.length)
+      ⟨hnormalized, hnoEvents, hnoErrors, hnoAdtTypes⟩ (Nat.le_refl _)
+      (SourceSemantics.execStmtListWithHelpersConservativeExtensionGoal_of_helperSurfaceClosed
+        model _ helperFuel _ ep.body hSupported.body.helperSurfaceClosed)
+      hSupported.body.helperSurfaceClosed hhelperFree
+      (by simp [hSupported.noParams]) hbind htxNormalized hcalldataSizeFits hbodyCompile with
+    ⟨sourceResult, irExec, hsource, hbodyExec, hmatch⟩
+  have hfuel : irEp.body.length + (sizeOf irEp.body - irEp.body.length) + 1 = sizeOf irEp.body + 1 := by
+    have hle := yulStmtList_length_le_sizeOf irEp.body; omega
+  have hstate : bodyInterfaceParamState model ep tx initialWorld [] =
+      FunctionBody.initialIRStateForTx model tx initialWorld := by
+    simp [bodyInterfaceParamState, prebindRawArgs, ParamLoading.applyBindingsToIRState, hSupported.noParams]
+  rw [hfuel, hstate] at hbodyExec; rw [hbodyExec]
+  exact bodyGoal_source_match model ep (habi := hSupported.standardAbi) helperFuel tx
+    initialWorld [] sourceResult irExec hbind hsource hmatch
+
+/-- Body-level semantic preservation for a `SupportedSpecialEntrypoint`:
+the compiled entrypoint body `irEp.body` executed from `initialIRStateForTx`
+matches `SourceSemantics.interpretFunctionWithHelpers`. -/
+theorem supported_special_entrypoint_body_correct_stmtSafety
+    (model : CompilationModel) (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hSupported : SupportedSpecialEntrypoint model ep)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (irEp : IREntrypoint) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile :
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretFunctionWithHelpers model helperFuel ep tx initialWorld)
+      (execResultToIRResult
+        (FunctionBody.initialIRStateForTx model tx initialWorld)
+        (execIRStmts (sizeOf irEp.body + 1)
+          (FunctionBody.initialIRStateForTx model tx initialWorld) irEp.body)) :=
+  supported_special_entrypoint_body_correct_of_helperFree model ep helperFuel hnormalized
+    hnoEvents hnoErrors hnoAdtTypes hSupported
+    (hSupported.body.helperFreeStepInterface_stmtSafety hnoConflict hsafety)
+    irEp tx initialWorld hcompile htxNormalized hcalldataSizeFits
+
+/-- Body-level semantic preservation for a `SupportedSpecialEntrypoint` under
+contract-wide `SupportedStmtListMappingWriteSlotSafety`. -/
+theorem supported_special_entrypoint_body_correct
+    (model : CompilationModel) (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hSupported : SupportedSpecialEntrypoint model ep)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (irEp : IREntrypoint) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile :
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretFunctionWithHelpers model helperFuel ep tx initialWorld)
+      (execResultToIRResult
+        (FunctionBody.initialIRStateForTx model tx initialWorld)
+        (execIRStmts (sizeOf irEp.body + 1)
+          (FunctionBody.initialIRStateForTx model tx initialWorld) irEp.body)) :=
+  supported_special_entrypoint_body_correct_of_helperFree model ep helperFuel hnormalized
+    hnoEvents hnoErrors hnoAdtTypes hSupported
+    (hSupported.body.helperFreeStepInterface hnoConflict hsafety)
+    irEp tx initialWorld hcompile htxNormalized hcalldataSizeFits
+
+/-- Full entrypoint-level semantic preservation for a `SupportedSpecialEntrypoint`
+(with statement-local mapping-write slot safety): `execIREntrypoint` matches
+`interpretSpecialEntrypointWithHelpers`. -/
+theorem supported_special_entrypoint_correct_stmtSafety
+    (model : CompilationModel) (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hSupported : SupportedSpecialEntrypoint model ep)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : ∀ stmt ∈ ep.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (irEp : IREntrypoint) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile :
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+      (execIREntrypoint irEp tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  obtain ⟨_, hpayable⟩ :=
+    compileSpecialEntrypoint_ok_body model.fields model.events model.errors ep irEp
+      hSupported.noNonReentrant hcompile
+  unfold interpretSpecialEntrypointWithHelpers execIREntrypoint
+  rw [hpayable]
+  by_cases hguard : (!ep.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
+  · rw [if_pos hguard, if_pos hguard]
+    simp [FunctionBody.sourceResultMatchesIRResult, SourceSemantics.revertedResult,
+      FunctionBody.initialIRStateForTx, FunctionBody.encodeStorage_withTransactionContext,
+      FunctionBody.encodeEvents_withTransactionContext]
+  · rw [if_neg hguard, if_neg hguard]
+    exact supported_special_entrypoint_body_correct_stmtSafety model ep helperFuel hnormalized
+      hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx initialWorld
+      hcompile htxNormalized hcalldataSizeFits
+
+/-- Full entrypoint-level semantic preservation for a `SupportedSpecialEntrypoint`
+under contract-wide `SupportedStmtListMappingWriteSlotSafety`. -/
+theorem supported_special_entrypoint_correct
+    (model : CompilationModel) (ep : FunctionSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (hnoAdtTypes : model.adtTypes = [])
+    (hSupported : SupportedSpecialEntrypoint model ep)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (irEp : IREntrypoint) (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (hcompile :
+      compileSpecialEntrypoint model.fields model.events model.errors [] .cancun [] ep =
+        Except.ok irEp)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (interpretSpecialEntrypointWithHelpers model helperFuel ep tx initialWorld)
+      (execIREntrypoint irEp tx (FunctionBody.initialIRStateForTx model tx initialWorld)) := by
+  obtain ⟨_, hpayable⟩ :=
+    compileSpecialEntrypoint_ok_body model.fields model.events model.errors ep irEp
+      hSupported.noNonReentrant hcompile
+  unfold interpretSpecialEntrypointWithHelpers execIREntrypoint
+  rw [hpayable]
+  by_cases hguard : (!ep.isPayable && tx.msgValue % Compiler.Constants.evmModulus != 0) = true
+  · rw [if_pos hguard, if_pos hguard]
+    simp [FunctionBody.sourceResultMatchesIRResult, SourceSemantics.revertedResult,
+      FunctionBody.initialIRStateForTx, FunctionBody.encodeStorage_withTransactionContext,
+      FunctionBody.encodeEvents_withTransactionContext]
+  · rw [if_neg hguard, if_neg hguard]
+    exact supported_special_entrypoint_body_correct model ep helperFuel hnormalized
+      hnoEvents hnoErrors hnoAdtTypes hSupported hnoConflict hsafety irEp tx initialWorld
+      hcompile htxNormalized hcalldataSizeFits
+
+private theorem constructor_body_generic_of_helperFree
+    {model : CompilationModel} {ctor : ConstructorSpec}
+    (hnormalized : applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hSupported : SupportedConstructor model ctor)
+    (hhelperFree :
+      StmtListHelperFreeStepInterface model.fields
+        ((constructorAsFunctionSpec ctor).params.map (·.name)) ctor.body)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = []) :
+    StmtListGenericWithHelpers model (SourceSemantics.effectiveFields model)
+      (constructorBodyScope ctor.params) ctor.body := by
+  have hscopeEq :
+      (constructorAsFunctionSpec ctor).params.map (·.name) =
+        constructorBodyScope ctor.params := by
+    simp [constructorAsFunctionSpec, constructorBodyScope, constructorArgAliasNames,
+      Function.comp_apply, List.map_map, Param.toIRParam]
+  have hhelperFree' :
+      StmtListHelperFreeStepInterface (SourceSemantics.effectiveFields model)
+        (constructorBodyScope ctor.params) ctor.body := by
+    rw [show SourceSemantics.effectiveFields model = model.fields by
+      simp [SourceSemantics.effectiveFields, hnormalized], ← hscopeEq]
+    exact hhelperFree
+  exact stmtListGenericWithHelpers_of_helperFreeStepInterface_and_helperSurfaceClosed
+    (spec := model) (hhelperFree := hhelperFree') (hnoEvents := hnoEvents)
+    (hnoErrors := hnoErrors)
+    (hsurface := by simpa [constructorAsFunctionSpec] using hSupported.body.helperSurfaceClosed)
+
+/-- Constructor-body semantic preservation without the unused
+`hfunctionNamesNodup` premise (statement-local mapping-write slot safety). -/
+theorem supported_constructor_body_correct_stmtSafety
+    (model : CompilationModel) (ctor : ConstructorSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hSupported : SupportedConstructor model ctor)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : ∀ stmt ∈ ctor.body, StmtMappingWriteSlotSafe model.fields stmt)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat)) (ctorBindings : List (String × Nat))
+    (bodyStmts : List YulStmt)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .memory [] false
+        (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts)
+    (hbind :
+      SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) =
+        some bindings)
+    (hconstructorBindings :
+      SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxConstructorCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretConstructorWithHelpers model helperFuel ctor tx initialWorld)
+      (execResultToIRResult
+        (FunctionBody.initialIRStateForTx model tx initialWorld)
+        (execIRStmts
+          (sizeOf bodyStmts + 1)
+          (ParamLoading.applyBindingsToIRState
+            (FunctionBody.initialIRStateForTx model tx initialWorld)
+            ctorBindings)
+          bodyStmts)) := by
+  have haliases := constructor_body_aliases_of_executionBindings hbind hconstructorBindings
+  exact constructor_body_result_of_matches
+    (constructorTouchesUnsupportedRawCalldataSurface_eq_false hSupported) hconstructorBindings
+    (constructor_body_stmtResult_matches hnoEvents hnoErrors
+      (constructor_body_generic hnormalized hSupported hnoConflict hsafety hnoEvents hnoErrors)
+      (constructor_body_scope_present hbind hconstructorBindings)
+      (constructor_body_bindings_exact hSupported hbind haliases)
+      (bindConstructorArgAliases_bounded haliases
+        (FunctionBody.bindingsBounded_of_bindSupportedParams hbind))
+      (constructor_body_runtime_matches ctorBindings htxNormalized hcalldataSizeFits)
+      (constructor_body_compile_effective_of_memory hnormalized hSupported hbodyCompile))
+
+/-- Constructor-body semantic preservation under contract-wide
+`SupportedStmtListMappingWriteSlotSafety`. -/
+theorem supported_constructor_body_correct
+    (model : CompilationModel) (ctor : ConstructorSpec) (helperFuel : Nat)
+    (hnormalized :
+      applySlotAliasRanges model.fields model.slotAliasRanges = model.fields)
+    (hSupported : SupportedConstructor model ctor)
+    (hnoConflict : firstFieldWriteSlotConflict model.fields = none)
+    (hsafety : SupportedStmtListMappingWriteSlotSafety model.fields)
+    (hnoEvents : model.events = []) (hnoErrors : model.errors = [])
+    (tx : IRTransaction) (initialWorld : Verity.ContractState)
+    (bindings : List (String × Nat)) (ctorBindings : List (String × Nat))
+    (bodyStmts : List YulStmt)
+    (hbodyCompile :
+      compileStmtList model.fields model.events model.errors .memory [] false
+        (constructorBodyScope ctor.params) [] ctor.body = Except.ok bodyStmts)
+    (hbind :
+      SourceSemantics.bindSupportedParams ctor.params (tx.args.take ctor.params.length) =
+        some bindings)
+    (hconstructorBindings :
+      SourceSemantics.constructorExecutionBindings ctor tx.args = some ctorBindings)
+    (htxNormalized : TxContextNormalized tx)
+    (hcalldataSizeFits : TxConstructorCalldataSizeFitsEvm tx) :
+    FunctionBody.sourceResultMatchesIRResult
+      (SourceSemantics.interpretConstructorWithHelpers model helperFuel ctor tx initialWorld)
+      (execResultToIRResult
+        (FunctionBody.initialIRStateForTx model tx initialWorld)
+        (execIRStmts
+          (sizeOf bodyStmts + 1)
+          (ParamLoading.applyBindingsToIRState
+            (FunctionBody.initialIRStateForTx model tx initialWorld)
+            ctorBindings)
+          bodyStmts)) := by
+  have haliases := constructor_body_aliases_of_executionBindings hbind hconstructorBindings
+  exact constructor_body_result_of_matches
+    (constructorTouchesUnsupportedRawCalldataSurface_eq_false hSupported) hconstructorBindings
+    (constructor_body_stmtResult_matches hnoEvents hnoErrors
+      (constructor_body_generic_of_helperFree hnormalized hSupported
+        (hSupported.body.helperFreeStepInterface hnoConflict hsafety) hnoEvents hnoErrors)
+      (constructor_body_scope_present hbind hconstructorBindings)
+      (constructor_body_bindings_exact hSupported hbind haliases)
+      (bindConstructorArgAliases_bounded haliases
+        (FunctionBody.bindingsBounded_of_bindSupportedParams hbind))
+      (constructor_body_runtime_matches ctorBindings htxNormalized hcalldataSizeFits)
+      (constructor_body_compile_effective_of_memory hnormalized hSupported hbodyCompile))
