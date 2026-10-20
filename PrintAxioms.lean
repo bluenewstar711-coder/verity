@@ -130,6 +130,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Helpers
 import Compiler.Proofs.IRGeneration.GenericInduction.InterfaceAssembly
 import Compiler.Proofs.IRGeneration.GenericInduction.Loops
 import Compiler.Proofs.IRGeneration.GenericInduction.Main
+import Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt
 import Compiler.Proofs.IRGeneration.GenericInduction.ResultRelation
 import Compiler.Proofs.IRGeneration.GenericInduction.Scope
 import Compiler.Proofs.IRGeneration.GenericInduction.Storage
@@ -5130,6 +5131,36 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers_goal
   Compiler.Proofs.IRGeneration.supported_function_body_correct_from_exact_state_generic_with_helpers
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/MulDiv512AndAdt.lean
+  Compiler.Proofs.IRGeneration.mulDiv512Down_none_of_denom_zero
+  Compiler.Proofs.IRGeneration.mulDiv512Up_none_of_denom_zero
+  Compiler.Proofs.IRGeneration.mulDiv512Down_none_of_overflow
+  Compiler.Proofs.IRGeneration.mulDiv512Up_none_of_overflow
+  Compiler.Proofs.IRGeneration.mulDiv512Down_eq_div_of_valid
+  Compiler.Proofs.IRGeneration.mulDiv512Up_eq_ceil_div_of_valid
+  Compiler.Proofs.IRGeneration.mulDiv512Down_le_mulDiv512Up
+  Compiler.Proofs.IRGeneration.mulDiv512Down_zero_left
+  Compiler.Proofs.IRGeneration.mulDiv512Down_one_denom
+  Compiler.Proofs.IRGeneration.mulDiv512Up_one_denom
+  Compiler.Proofs.IRGeneration.compileExprWithInternals_mulDiv512Down_eq
+  Compiler.Proofs.IRGeneration.compileExprWithInternals_mulDiv512Up_eq
+  Compiler.Proofs.IRGeneration.MulDiv512ExprStepBridge.compile_down_sound
+  Compiler.Proofs.IRGeneration.MulDiv512ExprStepBridge.compile_up_sound
+  Compiler.Proofs.IRGeneration.decodeAdtTag_encodeAdtHeader
+  Compiler.Proofs.IRGeneration.decodeAdtField?_inbounds
+  Compiler.Proofs.IRGeneration.decodeAdtField?_out_of_bounds
+  Compiler.Proofs.IRGeneration.findAdtBranch?_none_of_nil
+  Compiler.Proofs.IRGeneration.findAdtBranch?_head_match
+  Compiler.Proofs.IRGeneration.findAdtBranch?_head_miss
+  Compiler.Proofs.IRGeneration.bindAdtPatternVars_nil
+  Compiler.Proofs.IRGeneration.bindAdtPatternVars_head
+  Compiler.Proofs.IRGeneration.compileExprWithInternals_adtTag_eq
+  Compiler.Proofs.IRGeneration.compileExprWithInternals_adtField_eq
+  Compiler.Proofs.IRGeneration.compileMatchAdtBranches_nil
+  Compiler.Proofs.IRGeneration.compileMatchAdtBranches_cons
+  Compiler.Proofs.IRGeneration.matchAdt_branches_preserve_of_all
+  Compiler.Proofs.IRGeneration.MatchAdtStepBridge.preserves
+
   -- Compiler/Proofs/IRGeneration/GenericInduction/ResultRelation.lean
   Compiler.Proofs.IRGeneration.stmtStepMatchesIRExecWithInternals_of_stmtStepMatchesIRExec
   Compiler.Proofs.IRGeneration.CompiledStmtStep.withHelpers_of_helperSurfaceClosed
@@ -9837,4 +9868,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9071 theorems/lemmas (5978 public, 3093 private, 0 sorry'd)
+-- Total: 9099 theorems/lemmas (6006 public, 3093 private, 0 sorry'd)
