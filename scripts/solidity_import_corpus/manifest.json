@@ -32,6 +32,16 @@
         "sha256": "c7effacf28b9d64495f81b75228fbf4266ac0ec87e8f1adc489ddd8a4dd06d89"
       }
     },
+    "0.8.26": {
+      "macosx-amd64": {
+        "path": "solc-macosx-amd64-v0.8.26+commit.8a97fa7a",
+        "sha256": "0ff016aef2396b12d1fc65429d8ea6cf53c2ee4b041bb8925644615ee1c30ab9"
+      },
+      "linux-amd64": {
+        "path": "solc-linux-amd64-v0.8.26+commit.8a97fa7a",
+        "sha256": "d5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef"
+      }
+    },
     "0.8.34": {
       "macosx-amd64": {
         "path": "solc-macosx-amd64-v0.8.34+commit.80d5c536",
@@ -90,6 +100,32 @@
         {
           "entry": "contracts/UniswapV3Factory.sol",
           "contract": "UniswapV3Factory"
+        }
+      ]
+    },
+    {
+      "id": "uniswap-v4",
+      "repository": "https://github.com/Uniswap/v4-core.git",
+      "commit": "46c6834698c48bc4a463a86d8420f4eb1d7f3b75",
+      "inventory_solc": "0.8.26",
+      "submodules": [
+        {
+          "path": "lib/solmate",
+          "repository": "https://github.com/transmissions11/solmate.git",
+          "commit": "4b47a19038b798b4a33d9749d25e570443520647"
+        }
+      ],
+      "contracts": [
+        {
+          "entry": "src/PoolManager.sol",
+          "contract": "PoolManager",
+          "profile": {
+            "solc": "0.8.26+commit.8a97fa7a",
+            "evmVersion": "cancun",
+            "viaIR": true,
+            "optimizerRuns": 44444444,
+            "bytecodeHash": "none"
+          }
         }
       ]
     },

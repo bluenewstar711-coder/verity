@@ -121,6 +121,7 @@ lean_lib «SolidityImportSmoke» where
     .one `Contracts.SolidityImportSmoke.Create2ClonesMsgDataDequeSequenceModel,
     .one `Contracts.SolidityImportSmoke.GovernorSliceProposerDelaySequenceModel,
     .one `Contracts.SolidityImportSmoke.AccessManagerTargetRoleSequenceModel,
+    .one `Contracts.SolidityImportSmoke.UniswapV4TypesAndTransientSequenceModel,
     .one `Compiler.SolidityImport.AbiByteLanes,
     .one `Compiler.SolidityImport.AbiMemory,
     .one `Contracts.SolidityImportSmoke.EnvironmentSequenceModel,

@@ -62,6 +62,20 @@ private def solcReleases : Array SolcRelease := #[
       "istanbul", "petersburg", "constantinople", "byzantium",
       "spuriousDragon", "tangerineWhistle", "homestead"],
     supportsViaIR := true },
+  { longVersion := "0.8.26+commit.8a97fa7a",
+    binaryName := "solc-0.8.26",
+    sha256s := #[
+      "d5f23436f443edb85d8e76906d12f0a86ce0490e7663a9e608efeb7a93f149ef",
+      "0ff016aef2396b12d1fc65429d8ea6cf53c2ee4b041bb8925644615ee1c30ab9"],
+    banners := #[
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.26+commit.8a97fa7a.Linux.g++",
+      "solc, the solidity compiler commandline interface\nVersion: 0.8.26+commit.8a97fa7a.Darwin.appleclang"],
+    hasNoImportCallbackFlag := true,
+    supportedEvmVersions := #[
+      "cancun", "shanghai", "paris", "london", "berlin", "istanbul",
+      "petersburg", "constantinople", "byzantium",
+      "spuriousDragon", "tangerineWhistle", "homestead"],
+    supportsViaIR := true },
   { longVersion := "0.8.10+commit.fc410830",
     binaryName := "solc-0.8.10",
     sha256s := #[
@@ -679,6 +693,12 @@ private def convertStructCalldataToMemory (descriptor : MemParam) (at_ : Json) :
         checks := checks.push (.ite
           (.lt (.calldataload (.add (.localVar descriptor.headBinding) (.literal (32*j)))) (.literal bound))
           [] [.revertEmpty])
+      if let .intN bits := ty then
+        if 0 < bits && bits < 256 && bits % 8 == 0 then
+          let rawWord := Expr.calldataload (.add (.localVar descriptor.headBinding) (.literal (32*j)))
+          checks := checks.push (.ite
+            (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+            [] [.revertEmpty])
     return (checks, { descriptor with calldataLocation := false })
   failAt at_ "struct reference has no supported complete ABI schema"
 
@@ -804,15 +824,15 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
   match j with
   | .arr xs => xs.any (fun child => statefulCallIn child env)
   | .obj o =>
+      let isStateful (fid : Nat) : Bool :=
+        match env.funs.find? fid with
+        | some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")
+        | none => false
       let own := if optStr j "nodeType" == some "FunctionCall" &&
           optStr j "kind" == some "functionCall" then
         match (field? j "expression").bind (fun callee =>
             (field? callee "referencedDeclaration").bind (fun id => id.getNat?.toOption)) with
         | some id =>
-          let isStateful (fid : Nat) : Bool :=
-            match env.funs.find? fid with
-            | some fn => ![some "pure", some "view"].contains (optStr fn "stateMutability")
-            | none => false
           let ptrStateful : Bool :=
             match env.fnPtrs.find? id with
             | some (.direct fid) => isStateful fid
@@ -820,6 +840,13 @@ private partial def statefulCallIn (j : Json) (env : Env) : Bool :=
             | none => false
           let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
           ptrStateful || isStateful id || isStateful targetId
+        | none => false
+      else if optStr j "nodeType" == some "BinaryOperation" ||
+          optStr j "nodeType" == some "UnaryOperation" then
+        match (field? j "function").bind (fun id => id.getNat?.toOption) with
+        | some id =>
+          let targetId := resolveInContracts env env.linearizedBases.toList id |>.getD id
+          isStateful id || isStateful targetId
         | none => false
       else false
       o.foldl (fun found _ child => found || statefulCallIn child env) own
@@ -846,6 +873,12 @@ mutual
                   let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
                   fnHasCustomRevert env targetId seen
                 else false
+            | none => false
+          else if kind == some "BinaryOperation" || kind == some "UnaryOperation" then
+            match (field? j "function").bind (fun v => v.getNat?.toOption) with
+            | some natId =>
+                let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+                fnHasCustomRevert env targetId seen
             | none => false
           else false
         o.foldl (fun found _ child => found || jsonHasCustomRevert env seen child) own
@@ -948,6 +981,14 @@ private def bitsOf (ty : String) : Option Nat :=
   else if ty.startsWith "uint" then (ty.drop 4).toNat?
   else none
 
+private def signedBitsOf (ty : String) : Option Nat :=
+  if ty == "int256" || ty == "int" then some 256
+  else if ty.startsWith "int" && !ty.startsWith "int_const" then
+    match (ty.drop 3).toNat? with
+    | some n => if 8 ≤ n && n ≤ 256 && n % 8 == 0 then some n else none
+    | none => none
+  else none
+
 private def paramType (ty : String) : Option ParamType :=
   match ty with
   | "uint256" | "uint" => some .uint256
@@ -960,9 +1001,12 @@ private def paramType (ty : String) : Option ParamType :=
   | _ =>
       if ty.startsWith "contract " then some .address
       else if ty.startsWith "enum " then some (.uintN 8)
-      else match bitsOf ty with
-      | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
-      | none => none
+      else match signedBitsOf ty with
+      | some n => if n < 256 then some (.intN n) else some .int256
+      | none =>
+          match bitsOf ty with
+          | some n => if n != 256 && ty.startsWith "uint" then some (.uintN n) else none
+          | none => none
 
 private def fixedBytesWidth? (ty : String) : Option Nat := do
   guard (ty.startsWith "bytes")
@@ -2591,10 +2635,13 @@ private def readAbiMember (id : Nat) (pre : Array Stmt) (member : String) (at_ :
       | _ => none
     let mut pre := pre
     if mem.calldataLocation then
+      let rawWord := Expr.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx)))
       if let some bound := limit then
-        pre := pre.push (.ite
-          (.lt (.calldataload (.add (.localVar mem.headBinding) (.literal (32*idx))))
-            (.literal bound)) [] [.revertEmpty])
+        pre := pre.push (.ite (.lt rawWord (.literal bound)) [] [.revertEmpty])
+      if let .intN bits := ty then
+        if 0 < bits && bits < 256 && bits % 8 == 0 then
+          pre := pre.push (.ite
+            (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord)) [] [.revertEmpty])
     return { pre, expr := .param modelParam }
   failAt at_ "struct member has no supported complete ABI schema"
 
@@ -3044,9 +3091,12 @@ private def cleanHelperResultExpr (ty : String) (v : Val) : Expr :=
         else
           v.expr
     | none =>
-        match bitsOf ty with
-        | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
-        | none => v.expr
+        match signedBitsOf ty with
+        | some width => if width < 256 then Expr.signextend (.literal (width / 8 - 1)) v.expr else v.expr
+        | none =>
+            match bitsOf ty with
+            | some width => if width < 256 then Expr.bitAnd v.expr (.literal (2^width-1)) else v.expr
+            | none => v.expr
 
 private def yulNatLit? (node : Json) : M (Option Nat) := do
   if (← mKind node) != "YulLiteral" then return none
@@ -3495,6 +3545,35 @@ private partial def lowerAssemblyStmts (j : Json) (retName : String) : M (Array 
   modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
   pure out
 
+private partial def lowerTailScratchReturnAssembly? (j : Json) : M (Option (Array Stmt)) := do
+  let ast ← mField j "AST"
+  if (← mKind ast) != "YulBlock" then return none
+  let stmts ← mArr (← mField ast "statements")
+  if stmts.size < 2 then return none
+  let last := stmts.back!
+  if (← mKind last) != "YulExpressionStatement" then return none
+  let expr ← mField last "expression"
+  if (← mKind expr) != "YulFunctionCall" then return none
+  let fnNode ← mField expr "functionName"
+  if (← mKind fnNode) != "YulIdentifier" || optStr fnNode "name" != some "return" then return none
+  let args ← mArr (← mField expr "arguments")
+  unless args.size == 2 do return none
+  unless (← yulNatLit? args[0]!) == some 0 && (← yulNatLit? args[1]!) == some 32 do return none
+  let assignedInAsm := bodyAssignedIds j
+  if !assignedInAsm.isEmpty then
+    modify fun e => { e with zeroInitLocals := e.zeroInitLocals.filter (!assignedInAsm.contains ·) }
+  let refs ← mArr (← mField j "externalReferences")
+  let savedYulNames := (← get).yulNames
+  let savedScratch0 := (← get).yulScratch0
+  let savedScratch32 := (← get).yulScratch32
+  modify fun e => { e with yulScratch0 := false, yulScratch32 := false }
+  let prefixStmts ← lowerYulStmtSlice j stmts.pop refs ""
+  let wroteScratch0 := (← get).yulScratch0
+  modify fun e => { e with yulNames := savedYulNames, yulScratch0 := savedScratch0, yulScratch32 := savedScratch32 }
+  unless wroteScratch0 do
+    failAt last "Yul return(0, 32) requires a preceding scratch write at offset 0"
+  return some (prefixStmts.push (.returnValues [.mload (.literal 0)]))
+
 private def isMsgDataNode (j : Json) : M Bool := do
   if (← mKind j) != "MemberAccess" then return false
   unless optStr j "memberName" == some "data" do return false
@@ -3507,6 +3586,14 @@ private def isMsgDataNode (j : Json) : M Bool := do
 private def argumentAt (call : Json) (i : Nat) : M Json := do
   -- `i` counts the receiver plus explicit arguments. The receiver is not in
   -- `arguments` when the call is `using for`.
+  let kind ← mKind call
+  if kind == "BinaryOperation" then
+    if i == 0 then return ← mField call "leftExpression"
+    else if i == 1 then return ← mField call "rightExpression"
+    else failAt call s!"unexpected binary operator argument index {i}"
+  if kind == "UnaryOperation" then
+    if i == 0 then return ← mField call "subExpression"
+    else failAt call s!"unexpected unary operator argument index {i}"
   let callee ← mField call "expression"
   let args ← mArr (← mField call "arguments")
   let hasReceiver ← match ← mKind callee with
@@ -3523,12 +3610,15 @@ private def argumentAt (call : Json) (i : Nat) : M Json := do
 private def convert (paramTy argTy : String) (v : Val) (at_ : Json) : M Val := do
   let argTy := if argTy.endsWith " storage ref" then (argTy.dropEnd 12).toString else argTy
   if argTy == paramTy then return v
-  if paramTy == "int256" || paramTy == "int" then
-    if argTy == "int256" || argTy == "int" || argTy.startsWith "int_const" then
+  if let some pb := signedBitsOf paramTy then
+    if argTy.startsWith "int_const" then
       return v
+    if let some sb := signedBitsOf argTy then
+      if sb ≤ pb then return v
+      else failAt at_ s!"implicit narrowing from {argTy} to {paramTy}"
     if argTy.startsWith "uint" then
       if let some sb := bitsOf argTy then
-        if sb < 256 then return v
+        if sb < pb then return v
     failAt at_ s!"unsupported implicit conversion from {argTy} to {paramTy}"
   if (paramTy == "address" || paramTy == "address payable" || paramTy.startsWith "contract ") &&
       (argTy == "address" || argTy == "address payable" || argTy.startsWith "contract ") then
@@ -3583,6 +3673,18 @@ private partial def stmtContainsPlaceholder (s : Json) : M Bool := do
 private partial def stmtAlwaysReverts (visited : List Nat) (s : Json) : M Bool := do
   match ← mKind s with
   | "RevertStatement" => pure true
+  | "InlineAssembly" =>
+      let ast := field? s "AST" |>.getD Json.null
+      if optStr ast "nodeType" != some "YulBlock" then return false
+      let stmts := match field? ast "statements" with
+        | some (.arr xs) => xs
+        | _ => #[]
+      let some last := stmts.back? | return false
+      if optStr last "nodeType" != some "YulExpressionStatement" then return false
+      let expr := field? last "expression" |>.getD Json.null
+      if optStr expr "nodeType" != some "YulFunctionCall" then return false
+      let fn := field? expr "functionName" |>.getD Json.null
+      pure (optStr fn "nodeType" == some "YulIdentifier" && optStr fn "name" == some "revert")
   | "Block" | "UncheckedBlock" =>
       let stmts ← mArr (← mField s "statements")
       stmts.anyM (stmtAlwaysReverts visited)
@@ -4144,6 +4246,11 @@ private partial def lowerExpr (j : Json) : M Val := do
         unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
           failAt j "unsupported unary operation"
         let sub ← mField j "subExpression"
+        if let some fnId := (field? j "function").bind (fun v => v.getNat?.toOption) then
+          let env ← get
+          let targetId := resolveInContracts env env.linearizedBases.toList fnId |>.getD fnId
+          let v ← lowerExpr sub
+          return ← inlineFn targetId #[.scalar v] j
         if op == some "!" then
           unless (← mType sub) == "bool" && (← mType j) == "bool" do
             failAt j "logical negation requires a bool operand"
@@ -4162,17 +4269,23 @@ private partial def lowerExpr (j : Json) : M Val := do
               pure { pre := #[], expr := .literal (2 ^ 256 - n) }
             else
               failAt j "negative constant out of int256 range"
-          else if (jTy == "int256" || jTy == "int") && (subTy == "int256" || subTy == "int") then
+          else if let some bits := signedBitsOf jTy then
+            unless signedBitsOf subTy == some bits do
+              failAt j s!"unary negation requires an {jTy} operand, found {subTy}"
             let a ← atom v
+            let negExpr :=
+              if bits < 256 then Expr.signextend (.literal (bits / 8 - 1)) (.sub (.literal 0) a.expr)
+              else .sub (.literal 0) a.expr
+            let minVal := 2 ^ 256 - 2 ^ (bits - 1)
             if (← get).unchecked then
-              pure { pre := a.pre, expr := .sub (.literal 0) a.expr }
+              pure { pre := a.pre, expr := negExpr }
             else
               let dest ← fresh
-              let ok := Stmt.assignVar dest (.sub (.literal 0) a.expr)
-              let ite := iteStmt (.eq a.expr (.literal (2 ^ 255))) overflowPanic ok
+              let ok := Stmt.assignVar dest negExpr
+              let ite := iteStmt (.eq a.expr (.literal minVal)) overflowPanic ok
               pure { pre := a.pre.push (.letVar dest (.literal 0)) |>.push ite, expr := .localVar dest }
           else
-            failAt j s!"unary negation requires an int256 operand, found {subTy}"
+            failAt j s!"unary negation requires a signed integer operand, found {subTy}"
         else if op == some "~" then
           let jTy ← mType j
           let subTy ← mType sub
@@ -4180,7 +4293,7 @@ private partial def lowerExpr (j : Json) : M Val := do
             failAt j s!"bitwise negation operand type {subTy} does not match {jTy}"
           let v ← lowerExpr sub
           let a ← atom v
-          if jTy == "int256" || jTy == "int" || jTy == "bytes32" then
+          if (signedBitsOf jTy).isSome || jTy == "bytes32" then
             pure { pre := a.pre, expr := .bitNot a.expr }
           else if jTy == "bytes4" then
             pure { pre := a.pre, expr := .bitAnd (.bitNot a.expr) (.literal ((2 ^ 32 - 1) * 16 ^ 56)) }
@@ -4425,7 +4538,7 @@ private partial def lowerRef (j : Json) : M Ref := do
               return .expr { pre := #[], expr := .literal aligned }
         unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
             declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
-            declared == "int256" || declared == "int" ||
+            (signedBitsOf declared).isSome ||
             declared == "address" || declared == "address payable" do
           failAt j s!"unsupported numeric constant type {declared}"
         modify fun e => { e with constantStack := n :: e.constantStack }
@@ -5069,8 +5182,8 @@ private partial def lowerTypeBound (at_ base : Json) (member : String) : M Ref :
   unless (← mKind arg) == "ElementaryTypeNameExpression" do
     failAt at_ "type() expects an elementary type"
   let tname ← mStr (← mField (← mField arg "typeName") "name")
-  if tname == "int256" || tname == "int" then
-    let bound := if member == "max" then 2 ^ 255 - 1 else 2 ^ 255
+  if let some bits := signedBitsOf tname then
+    let bound := if member == "max" then 2 ^ (bits - 1) - 1 else 2 ^ 256 - 2 ^ (bits - 1)
     pure (.expr { pre := #[], expr := .literal bound })
   else if tname.startsWith "uint" then
     let some bits := bitsOf tname | failAt at_ s!"unsupported type().{member} {tname}"
@@ -5165,12 +5278,15 @@ private partial def lowerBinary (j : Json) : M Val := do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
       failAt j "stateful helper operands require explicit evaluation-order support"
-  let left ← lowerExpr leftNode
-  let right ← lowerExpr rightNode
+  let mut left ← lowerExpr leftNode
+  let mut right ← lowerExpr rightNode
   unless op == "&&" || op == "||" do
     if (assignmentIn leftNode && (!right.pre.isEmpty || !isOrderIndependentSibling right.expr)) ||
         (assignmentIn rightNode && (!left.pre.isEmpty || !isOrderIndependentSibling left.expr)) then
       failAt j "assignment operand with non-atomic sibling requires explicit evaluation-order support"
+  if let some fnId := (field? j "function").bind (fun v => v.getNat?.toOption) then
+    let targetId := resolveInContracts env env.linearizedBases.toList fnId |>.getD fnId
+    return ← inlineFn targetId #[.scalar left, .scalar right] j
   let common ← mStr (← mField (← mField j "commonType") "typeString")
   -- Solidity folds literal sums in unbounded integer arithmetic. Admit only
   -- exact natural literals whose sum remains representable as an EVM word.
@@ -5228,12 +5344,17 @@ private partial def lowerBinary (j : Json) : M Val := do
           let shifted := if b >= 256 then 0 else a / 2 ^ b
           if shifted < 2 ^ 256 then return { pre := #[], expr := .literal shifted }
     failAt j s!"unsupported operand type {common}"
-  let isSigned := common == "int256" || common == "int"
+  let signedBits? := signedBitsOf common
+  let isSigned := signedBits?.isSome
+  let isSigned256 := signedBits? == some 256
   if common == "bytes4" then
     let leftTy ← mType (← mField j "leftExpression")
     let rightTy ← mType (← mField j "rightExpression")
-    unless leftTy == "bytes4" && rightTy == "bytes4" do
-      failAt j "implicit constant conversion to bytes4 is outside this slice"
+    if leftTy != "bytes4" || rightTy != "bytes4" then
+      unless op == "==" || op == "!=" do
+        failAt j "implicit constant conversion to bytes4 is outside this slice"
+      left ← convert "bytes4" leftTy left leftNode
+      right ← convert "bytes4" rightTy right rightNode
   else if let some bw := fixedBytesWidth? common then
     if bw < 32 then
       let leftTy ← mType (← mField j "leftExpression")
@@ -5255,13 +5376,29 @@ private partial def lowerBinary (j : Json) : M Val := do
       pure { pre := a.pre.push (.letVar dest a.expr) |>.push branch,
              expr := .localVar dest }
   | "+" =>
-      if isSigned then
-        if (← get).unchecked then
+      if let some bits := signedBits? then
+        if bits == 256 then
+          if (← get).unchecked then
+            let a ← atom left
+            let b ← atom right
+            pure { pre := a.pre ++ b.pre, expr := .add a.expr b.expr }
+          else
+            checkedSignedAdd left right
+        else
           let a ← atom left
           let b ← atom right
-          pure { pre := a.pre ++ b.pre, expr := .add a.expr b.expr }
-        else
-          checkedSignedAdd left right
+          let raw := Expr.add a.expr b.expr
+          let ext := Expr.signextend (.literal (bits / 8 - 1)) raw
+          if (← get).unchecked then
+            pure { pre := a.pre ++ b.pre, expr := ext }
+          else
+            let sumVar ← fresh
+            let dest ← fresh
+            let sum := Expr.localVar sumVar
+            let ok := Stmt.assignVar dest sum
+            let check := iteStmt (.eq sum (.signextend (.literal (bits / 8 - 1)) sum)) ok overflowPanic
+            pure { pre := a.pre ++ b.pre |>.push (.letVar sumVar raw) |>.push (.letVar dest (.literal 0)) |>.push check,
+                   expr := .localVar dest }
       else
         unless common.startsWith "uint" do failAt j s!"unsupported add type {common}"
         let some bits := bitsOf common | failAt j s!"unsupported add type {common}"
@@ -5273,13 +5410,29 @@ private partial def lowerBinary (j : Json) : M Val := do
         else
           checkedAdd bits left right
   | "-" =>
-      if isSigned then
-        if (← get).unchecked then
+      if let some bits := signedBits? then
+        if bits == 256 then
+          if (← get).unchecked then
+            let a ← atom left
+            let b ← atom right
+            pure { pre := a.pre ++ b.pre, expr := .sub a.expr b.expr }
+          else
+            checkedSignedSub left right
+        else
           let a ← atom left
           let b ← atom right
-          pure { pre := a.pre ++ b.pre, expr := .sub a.expr b.expr }
-        else
-          checkedSignedSub left right
+          let raw := Expr.sub a.expr b.expr
+          let ext := Expr.signextend (.literal (bits / 8 - 1)) raw
+          if (← get).unchecked then
+            pure { pre := a.pre ++ b.pre, expr := ext }
+          else
+            let diffVar ← fresh
+            let dest ← fresh
+            let diff := Expr.localVar diffVar
+            let ok := Stmt.assignVar dest diff
+            let check := iteStmt (.eq diff (.signextend (.literal (bits / 8 - 1)) diff)) ok overflowPanic
+            pure { pre := a.pre ++ b.pre |>.push (.letVar diffVar raw) |>.push (.letVar dest (.literal 0)) |>.push check,
+                   expr := .localVar dest }
       else
         unless common.startsWith "uint" do failAt j s!"unsupported sub type {common}"
         let some bits := bitsOf common | failAt j s!"unsupported sub type {common}"
@@ -5291,7 +5444,7 @@ private partial def lowerBinary (j : Json) : M Val := do
         else
           checkedSub left right
   | "*" =>
-      if isSigned then
+      if isSigned256 then
         if (← get).unchecked then
           let a ← atom left
           let b ← atom right
@@ -5330,8 +5483,11 @@ private partial def lowerBinary (j : Json) : M Val := do
         failAt j s!"shift amount must be unsigned, found {rightTy}"
       let a ← atom left
       let b ← atom right
-      if isSigned || common == "bytes32" then
+      if isSigned256 || common == "bytes32" then
         pure { pre := a.pre ++ b.pre, expr := .shl b.expr a.expr }
+      else if let some bits := signedBits? then
+        let shifted := Expr.signextend (.literal (bits / 8 - 1)) (.shl b.expr a.expr)
+        pure { pre := a.pre ++ b.pre, expr := shifted }
       else if common.startsWith "uint" then
         let some bits := bitsOf common | failAt j s!"unsupported shift type {common}"
         let shifted := if bits < 256 then Expr.bitAnd (.shl b.expr a.expr) (.literal (2 ^ bits - 1)) else .shl b.expr a.expr
@@ -5358,7 +5514,7 @@ private partial def lowerBinary (j : Json) : M Val := do
       let bitOp := if op == "&" then Expr.bitAnd else if op == "|" then Expr.bitOr else Expr.bitXor
       pure { pre := a.pre ++ b.pre, expr := bitOp a.expr b.expr }
   | "/" =>
-      if isSigned then
+      if isSigned256 then
         signedDiv (← get).unchecked left right
       else
         unless common.startsWith "uint" do failAt j s!"unsupported div type {common}"
@@ -5594,13 +5750,22 @@ private partial def lowerCast (j : Json) : M Val := do
           | none => failAt j s!"invalid {tname} literal hexValue"
         return { pre := #[], expr := .literal (word * 16 ^ (64 - hex.length)) }
   let v ← lowerExpr args[0]!
-  if src.startsWith "int" && src != "int256" && src != "int" && !src.startsWith "int_const" then
+  if src.startsWith "int" && !src.startsWith "int_const" && (signedBitsOf src).isNone then
     failAt j s!"unsupported cast source {src}"
-  if tname == "int256" || tname == "int" then
-    unless src == "int256" || src == "int" || src.startsWith "int_const" ||
+  if let some pb := signedBitsOf tname then
+    unless (signedBitsOf src).isSome || src.startsWith "int_const" ||
         (src.startsWith "uint" && (bitsOf src).isSome) do
       failAt j s!"unsupported cast source {src} for {tname}"
-    return v
+    let alreadySignExtended := pb == 256 || src.startsWith "int_const" ||
+      match signedBitsOf src with
+      | some sb => sb ≤ pb
+      | none => false
+    if alreadySignExtended then
+      return v
+    let a ← atom v
+    let dest ← fresh
+    let ext := Stmt.letVar dest (.signextend (.literal (pb / 8 - 1)) a.expr)
+    return { pre := a.pre.push ext, expr := .localVar dest }
   if tname == "bytes1" then
     if src == "bytes1" then
       return v
@@ -5754,14 +5919,31 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
       if optStr j "memberName" == some "interfaceId" || optStr j "memberName" == some "selector" then pure ()
       else checkEncodingScalar (← mField j "expression")
   | "UnaryOperation" =>
-      unless optStr j "operator" == some "-" && (← mType j).startsWith "int_const -" do
-        failAt j "effectful ABI encoding argument is unsupported"
-      checkEncodingScalar (← mField j "subExpression")
+      if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
+        unless (field? j "prefix").bind (fun v => v.getBool?.toOption) == some true do
+          failAt j "effectful ABI encoding argument is unsupported"
+        let env ← get
+        let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+        if fnHasCustomRevert env targetId then
+          failAt j "effectful ABI encoding argument is unsupported"
+        checkEncodingScalar (← mField j "subExpression")
+      else
+        unless optStr j "operator" == some "-" && (← mType j).startsWith "int_const -" do
+          failAt j "effectful ABI encoding argument is unsupported"
+        checkEncodingScalar (← mField j "subExpression")
   | "BinaryOperation" =>
-      unless (← mType j) == "int256" do
-        failAt j "effectful ABI encoding argument is unsupported"
-      checkEncodingScalar (← mField j "leftExpression")
-      checkEncodingScalar (← mField j "rightExpression")
+      if let some natId := (field? j "function").bind (fun v => v.getNat?.toOption) then
+        let env ← get
+        let targetId := resolveInContracts env env.linearizedBases.toList natId |>.getD natId
+        if fnHasCustomRevert env targetId then
+          failAt j "effectful ABI encoding argument is unsupported"
+        checkEncodingScalar (← mField j "leftExpression")
+        checkEncodingScalar (← mField j "rightExpression")
+      else
+        unless (← mType j) == "int256" do
+          failAt j "effectful ABI encoding argument is unsupported"
+        checkEncodingScalar (← mField j "leftExpression")
+        checkEncodingScalar (← mField j "rightExpression")
   | "FunctionCall" =>
       let args ← mArr (← mField j "arguments")
       if optStr j "kind" == some "typeConversion" then
@@ -8774,7 +8956,7 @@ private partial def bindYulExternalConstants (j : Json) (allowAllStateVarSlots :
                   continue
             unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
                 declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
-                declared == "int256" || declared == "int" ||
+                (signedBitsOf declared).isSome ||
                 declared == "address" || declared == "address payable" do
               failAt j s!"unsupported numeric constant type {declared}"
             modify fun e => { e with constantStack := n :: e.constantStack }
@@ -10051,8 +10233,21 @@ private partial def lowerModifier (modInv : Json) : M (Array Stmt × Array Stmt)
   let modId := refId.toNat
   if (← get).stack.contains modId then failAt modInv s!"recursive modifier {modId}"
   let some modDecl := (← get).modifiers.find? modId | failAt modInv s!"unresolved modifier {modId}"
-  if optStr modDecl "virtual" == some "true" || (field? modDecl "virtual").bind (fun v => v.getBool?.toOption) == some true then
-    failAt modDecl "virtual modifiers are outside this slice"
+  let isVirtual := optStr modDecl "virtual" == some "true" ||
+    (field? modDecl "virtual").bind (fun v => v.getBool?.toOption) == some true
+  let hasOverrides := (field? modDecl "overrides").filter (!·.isNull) |>.isSome
+  if isVirtual || hasOverrides then
+    let modName ← mStr (← mField modDecl "name")
+    let env ← get
+    let matchingModCount := env.modifiers.fold (init := 0) fun count mid mdecl =>
+      if optStr mdecl "name" == some modName &&
+          match env.funContractId.find? mid with
+          | some cid => env.linearizedBases.contains cid
+          | none => false
+      then count + 1
+      else count
+    if hasOverrides || matchingModCount > 1 then
+      failAt modDecl "virtual modifiers are outside this slice"
   let implemented := (field? modDecl "implemented").bind (fun v => v.getBool?.toOption) |>.getD true
   let some body := (field? modDecl "body").filter (!·.isNull)
     | failAt modDecl "modifier has no body"
@@ -12259,6 +12454,8 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
           failAt callee "discarded helper calls require an internal or private declaration"
         let rets ← mArr (← mField (← mField declaration "returnParameters") "parameters")
         if rets.isEmpty then
+          if let some revStmts ← lowerSelectorRevertCall? expression declaration then
+            return revStmts
           let (fnId, vals) ← resolveCallTargetAndArgs expression
           return ← inlineVoidFn fnId vals expression
         if rets.size == 1 then
@@ -13560,19 +13757,11 @@ private partial def lowerStructEmit (callee declaration : Json) (name : String)
     (topics.toList ++ [pointer.expr, size.expr])
   return (pre ++ pointer.pre ++ size.pre).push log
 
-private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
-  unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
-    failAt call "custom error must be a resolved constructor call"
-  unless (← mArr (← mField call "names")).isEmpty do
-    failAt call "named custom-error arguments are unsupported"
-  let callee ← mField call "expression"
-  let id ← refInt callee
-  let some declaration := (← get).errorDecls.find? id.toNat
-    | failAt callee "custom error does not resolve to an error declaration"
+private partial def lowerErrorArgumentsForDecl (callee declaration : Json) (arguments : Array Json) :
+    M (Array Stmt × String × List Expr) := do
   let name ← mStr (← mField declaration "name")
   let parameters ← mArr (← mField (← mField declaration "parameters") "parameters")
-  let arguments ← mArr (← mField call "arguments")
-  unless parameters.size == arguments.size do failAt call "custom-error argument count differs"
+  unless parameters.size == arguments.size do failAt callee "custom-error argument count differs"
   let mut types : List ParamType := []
   let mut values : List Expr := []
   let mut pre : Array Stmt := #[]
@@ -13678,6 +13867,55 @@ private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String 
   else
     modify fun e => { e with usedErrors := e.usedErrors ++ [definition] }
   return (pre, name, values)
+
+private partial def lowerErrorArguments (call : Json) : M (Array Stmt × String × List Expr) := do
+  unless (← mKind call) == "FunctionCall" && optStr call "kind" == some "functionCall" do
+    failAt call "custom error must be a resolved constructor call"
+  unless (← mArr (← mField call "names")).isEmpty do
+    failAt call "named custom-error arguments are unsupported"
+  let callee ← mField call "expression"
+  let id ← refInt callee
+  let some declaration := (← get).errorDecls.find? id.toNat
+    | failAt callee "custom error does not resolve to an error declaration"
+  let arguments ← mArr (← mField call "arguments")
+  lowerErrorArgumentsForDecl callee declaration arguments
+
+private partial def lowerSelectorRevertCall? (call declaration : Json) : M (Option (Array Stmt)) := do
+  unless optStr declaration "name" == some "revertWith" &&
+      optStr declaration "stateMutability" == some "pure" do
+    return none
+  unless (← mArr (← mField call "names")).isEmpty do
+    return none
+  let some body := (field? declaration "body").filter (!·.isNull)
+    | return none
+  unless ← stmtAlwaysReverts [] body do
+    return none
+  let fnParams ← mArr (← mField (← mField declaration "parameters") "parameters")
+  if fnParams.isEmpty then return none
+  unless (← mType fnParams[0]!) == "bytes4" do return none
+  let selArg ← stripParens (← argumentAt call 0)
+  unless (← mKind selArg) == "MemberAccess" && optStr selArg "memberName" == some "selector" do
+    return none
+  let selBase ← mField selArg "expression"
+  if (← mKind selBase) == "MemberAccess" then
+    let receiver ← mField selBase "expression"
+    unless ← isPureSelectorReceiver receiver do
+      return none
+  else unless (← mKind selBase) == "Identifier" do
+    return none
+  let errId ← refInt selBase
+  unless errId ≥ 0 do return none
+  let some errDecl := (← get).errorDecls.find? errId.toNat
+    | return none
+  let errParams ← mArr (← mField (← mField errDecl "parameters") "parameters")
+  unless errParams.size + 1 == fnParams.size do return none
+  let mut errArgs : Array Json := #[]
+  for i in [:errParams.size] do
+    unless (← mType errParams[i]!) == (← mType fnParams[i + 1]!) do
+      return none
+    errArgs := errArgs.push (← argumentAt call (i + 1))
+  let (pre, name, values) ← lowerErrorArgumentsForDecl selBase errDecl errArgs
+  return some (pre.push (.requireError (.literal 0) name values))
 
 /-- A single-variable declaration may admit its whole initializer as a
 typed-interface call; tuple declarations admit none. -/
@@ -14810,17 +15048,26 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
         let env ← get
         let savedAsmYul := env.yulNames
         let extPre ← bindYulExternalConstants s
-        let mut asmRetName := ""
-        let savedHelperResult := env.helperResult
-        let savedHelperReturnId := env.helperReturnId
-        if stmtIsTail && env.rootPost.isEmpty then
-          if let some (rid, rname, rty, rbinding) := env.rootNamedReturn then
-            if yulOnlyAssignsDecl s rid then
-              asmRetName := rname
-              modify fun e => { e with helperResult := some (rbinding, rty), helperReturnId := some rid }
-        let asmStmts ← lowerAssemblyStmts s asmRetName
-        modify fun e => { e with helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, yulNames := savedAsmYul }
-        out := out ++ extPre ++ asmStmts
+        let mut handledScratchReturn := false
+        if stmtIsTail && env.rootPost.isEmpty && env.rootReturnTypes.size == 1 &&
+            ["bytes32", "uint256", "uint", "int256", "int"].contains env.rootReturnTypes[0]! then
+          if let some scratchStmts ← lowerTailScratchReturnAssembly? s then
+            modify fun e => { e with yulNames := savedAsmYul }
+            out := out ++ extPre ++ scratchStmts
+            returned := true
+            handledScratchReturn := true
+        unless handledScratchReturn do
+          let mut asmRetName := ""
+          let savedHelperResult := env.helperResult
+          let savedHelperReturnId := env.helperReturnId
+          if stmtIsTail && env.rootPost.isEmpty then
+            if let some (rid, rname, rty, rbinding) := env.rootNamedReturn then
+              if yulOnlyAssignsDecl s rid then
+                asmRetName := rname
+                modify fun e => { e with helperResult := some (rbinding, rty), helperReturnId := some rid }
+          let asmStmts ← lowerAssemblyStmts s asmRetName
+          modify fun e => { e with helperResult := savedHelperResult, helperReturnId := savedHelperReturnId, yulNames := savedAsmYul }
+          out := out ++ extPre ++ asmStmts
     | "ForStatement" =>
         out := out ++ (← lowerFor s fun body => do
           let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
@@ -15039,7 +15286,7 @@ private def lowerPublicVarGetter (varDecl : Json) : M (Array Stmt × Array SrcPa
     discard (validateEnumTypeIfNeeded varDecl declared)
     unless (declared.startsWith "uint" && (bitsOf declared).isSome) ||
         declared == "bool" || declared == "bytes32" || declared == "bytes4" ||
-        declared == "int256" || declared == "int" ||
+        (signedBitsOf declared).isSome ||
         declared == "address" || declared == "address payable" ||
         declared.startsWith "contract " || declared.startsWith "enum " do
       failAt varDecl s!"unsupported public constant type {declared}"
@@ -15958,10 +16205,16 @@ private def importSlice
                 | .address => some (2^160)
                 | .bool => some 2
                 | _ => none
+              let rawWord := Expr.calldataload (.literal (offset + 32*j))
               if let some bound := limit then
                 abiGuards := abiGuards.push (.ite
-                  (.lt (.calldataload (.literal (offset + 32*j))) (.literal bound))
+                  (.lt rawWord (.literal bound))
                   [] [.revertEmpty])
+              if let .intN bits := ty then
+                if 0 < bits && bits < 256 && bits % 8 == 0 then
+                  abiGuards := abiGuards.push (.ite
+                    (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+                    [] [.revertEmpty])
       if let some cb := env.calldataBytes.find? p.id then
         let some i := modelParamNames.findIdx? (· == p.name)
           | throwError "missing calldata bytes model parameter {p.name}"
@@ -15988,6 +16241,8 @@ private def importSlice
         -- occupy one offset word. Compute scalar offsets from the full ABI.
         let some i := modelParamNames.findIdx? (· == p.name)
           | throwError "missing scalar model parameter {p.name}"
+        let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
+        let rawWord := Expr.calldataload (.literal offset)
         let limit := match env.enumBounds.find? p.id with
           | some enumMax => some enumMax
           | none => match ty with
@@ -16001,17 +16256,20 @@ private def importSlice
           -- Source scalar validation precedes every source statement and
           -- uses an explicit empty revert, independent of EIP-211 state.
           abiGuards := abiGuards.push (.ite
-            (.lt (.calldataload (.literal (4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0))) (.literal bound))
+            (.lt rawWord (.literal bound))
             [] [.revertEmpty])
+        if let .intN bits := ty then
+          if 0 < bits && bits < 256 && bits % 8 == 0 then
+            abiGuards := abiGuards.push (.ite
+              (.eq rawWord (.signextend (.literal (bits / 8 - 1)) rawWord))
+              [] [.revertEmpty])
         if env.bytes4Params.contains p.id then
-          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
           abiGuards := abiGuards.push (.ite
-            (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 224 - 1))) (.literal 0))
+            (.eq (.bitAnd rawWord (.literal (2 ^ 224 - 1))) (.literal 0))
             [] [.revertEmpty])
         if ty == .bytesN 1 then
-          let offset := 4 + (modelParams.toList.take i).foldl (fun n p => n + paramHeadSize p.ty) 0
           abiGuards := abiGuards.push (.ite
-            (.eq (.bitAnd (.calldataload (.literal offset)) (.literal (2 ^ 248 - 1))) (.literal 0))
+            (.eq (.bitAnd rawWord (.literal (2 ^ 248 - 1))) (.literal 0))
             [] [.revertEmpty])
         if let some binding := env.rawBindings.find? p.id then
           let some i := modelParamNames.findIdx? (· == p.name) | throwError "missing raw scalar parameter"

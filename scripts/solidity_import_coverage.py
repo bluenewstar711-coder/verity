@@ -30,7 +30,11 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'scripts/solidity_import_corpus/manifest.json'
 # The importer's pinned releases (`solcReleases` in Compiler/SolidityImport/Import.lean)
 # and its default (`Profile.solc`). The coverage tests keep these synchronized.
-IMPORTER_SOLC = {'0.8.34': '0.8.34+commit.80d5c536', '0.8.10': '0.8.10+commit.fc410830'}
+IMPORTER_SOLC = {
+    '0.8.34': '0.8.34+commit.80d5c536',
+    '0.8.26': '0.8.26+commit.8a97fa7a',
+    '0.8.10': '0.8.10+commit.fc410830',
+}
 IMPORTER_DEFAULT_SOLC = '0.8.34+commit.80d5c536'
 VERSION_MISMATCH = 'Source file requires different compiler version'
 
@@ -84,6 +88,26 @@ def checkout(project, cache, fetch):
         checked(['git', 'checkout', '--detach', 'FETCH_HEAD'], cwd=path)
     if checked(['git', 'rev-parse', 'HEAD'], cwd=path).strip() != revision:
         raise MeasurementError(f'wrong corpus revision: {path}')
+    for sub in project.get('submodules', []):
+        sub_revision = sub['commit']
+        if not re.fullmatch(r'[0-9a-f]{40}', sub_revision):
+            raise MeasurementError('submodule revision must be a full commit SHA')
+        rel = Path(sub['path'])
+        if rel.is_absolute() or '..' in rel.parts:
+            raise MeasurementError('unsafe submodule path')
+        sub_path = path / rel
+        if not (sub_path / '.git').exists():
+            if not fetch:
+                raise MeasurementError(f'missing corpus submodule: {sub_path}; run with --fetch')
+            sub_path.mkdir(parents=True, exist_ok=True)
+            checked(['git', 'init', '-q', sub_path])
+            checked(['git', 'remote', 'add', 'origin', sub['repository']], cwd=sub_path)
+            checked(['git', 'fetch', '--depth', '1', 'origin', sub_revision], cwd=sub_path, timeout=300)
+            checked(['git', 'checkout', '--detach', 'FETCH_HEAD'], cwd=sub_path)
+        if checked(['git', 'rev-parse', 'HEAD'], cwd=sub_path).strip() != sub_revision:
+            raise MeasurementError(f'wrong submodule revision: {sub_path}')
+        if checked(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=sub_path).strip():
+            raise MeasurementError(f'dirty submodule checkout: {sub_path}')
     if checked(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=path).strip():
         raise MeasurementError(f'dirty corpus checkout: {path}')
     return path

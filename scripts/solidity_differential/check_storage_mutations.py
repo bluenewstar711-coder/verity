@@ -285,7 +285,7 @@ MUTANTS.update({
     'import-struct-mapping-bytes4-interfaceid-xor-zero': ('      acc := Nat.xor acc word', '      let _ := word\n      acc := 0'),
     'import-struct-mapping-bytes4-interfaceid-uint32-shift-drop': ('    let shifted := Stmt.letVar dest (.shr (.literal 224) a.expr)', '    let shifted := Stmt.letVar dest a.expr'),
     'import-struct-mapping-bytes4-interfaceid-calldata-guard-drop': ('        if env.bytes4Params.contains p.id then', '        if false && env.bytes4Params.contains p.id then'),
-    'import-struct-mapping-bytes4-interfaceid-int-const-cmp-guard': ('    unless leftTy == "bytes4" && rightTy == "bytes4" do\n      failAt j "implicit constant conversion to bytes4 is outside this slice"', '    unless true do\n      failAt j "implicit constant conversion to bytes4 is outside this slice"'),
+    'import-struct-mapping-bytes4-interfaceid-int-const-cmp-guard': ('      unless op == "==" || op == "!=" do\n        failAt j "implicit constant conversion to bytes4 is outside this slice"', '      unless true do\n        failAt j "implicit constant conversion to bytes4 is outside this slice"'),
     'import-erc2981-holders-arrays-msghash-whole-struct-write-zero': ('    let stored := if info.booleanMembers.contains mName then Expr.logicalNot (.logicalNot mExpr) else mExpr\n    out := out.push (writeMember mName stored)', '    let _ := mExpr\n    out := out.push (writeMember mName (.literal 0))'),
     'import-erc2981-holders-arrays-msghash-selector-zero': ('      word := word * 16 + digit\n    return .expr { pre := #[], expr := .literal (word * 16 ^ 56) }', '      word := word * 16 + digit\n    let _ := word\n    return .expr { pre := #[], expr := .literal 0 }'),
     'import-erc2981-holders-arrays-msghash-yul-array-load-index-zero': ('  return some {\n    pre := posVal.pre,\n    expr := .mload (.add (.add (.localVar arrayPtr) (.literal 32)) (.mul posVal.expr (.literal 32)))\n  }', '  return some {\n    pre := posVal.pre,\n    expr := .mload (.add (.localVar arrayPtr) (.literal 32))\n  }'),
@@ -884,7 +884,7 @@ contract C {
 contract C {
  function checked(uint256 x) external pure returns (uint256) {
   bytes4 sel = bytes4(uint32(x));
-  return sel == 0x01ffc9a7 ? 1 : 0;
+  return (sel ^ 0x01ffc9a7) != bytes4(0) ? 1 : 0;
  }
 }
 ''')

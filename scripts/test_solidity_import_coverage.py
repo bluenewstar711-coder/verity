@@ -16,7 +16,7 @@ from solidity_import_coverage import classify, position, spelling, summarize, ch
 from solidity_import_coverage import IMPORTER_SOLC, IMPORTER_DEFAULT_SOLC, importer_compiler, pragma_at, matrix_entry, compiler_matrix, measure
 
 REPO = Path(__file__).resolve().parents[1]
-V34, V10 = '0.8.34+commit.80d5c536', '0.8.10+commit.fc410830'
+V34, V26, V10 = '0.8.34+commit.80d5c536', '0.8.26+commit.8a97fa7a', '0.8.10+commit.fc410830'
 
 
 class CoverageTests(unittest.TestCase):
@@ -407,7 +407,24 @@ class CompilerMatrixTests(unittest.TestCase):
         text = markdown(report)
         self.assertIn(f'| p:C | 0.5.16 | {V34} (importer default) | {V10} |', text)
         self.assertIn('| p:D | unavailable | unavailable | unavailable |', text)
-        self.assertIn(f'Importer-pinned solc releases: {V34}, {V10}.', text)
+        self.assertIn(f'Importer-pinned solc releases: {V34}, {V26}, {V10}.', text)
+
+    def test_submodule_checkout_rejects_unpinned_or_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / 'sources' / 'test' / '.git').mkdir(parents=True)
+            project = {
+                'id': 'test',
+                'commit': '46c6834698c48bc4a463a86d8420f4eb1d7f3b75',
+                'submodules': [{'path': 'lib/solmate', 'commit': 'main'}],
+            }
+            with patch('solidity_import_coverage.checked', return_value=project['commit'] + '\n'):
+                with self.assertRaisesRegex(MeasurementError, 'submodule revision must be a full commit SHA'):
+                    checkout(project, root, False)
+            project['submodules'] = [{'path': '../escape', 'commit': '4b47a19038b798b4a33d9749d25e570443520647'}]
+            with patch('solidity_import_coverage.checked', return_value=project['commit'] + '\n'):
+                with self.assertRaisesRegex(MeasurementError, 'unsafe submodule path'):
+                    checkout(project, root, False)
 
 
 if __name__ == '__main__':
