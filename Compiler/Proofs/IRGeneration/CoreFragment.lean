@@ -1,5 +1,6 @@
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
+import Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
 import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
 
