@@ -14030,7 +14030,7 @@ private theorem nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_ok_exi
     Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryStorePrefixStateForId,
     Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemoryState,
     Compiler.Proofs.YulGeneration.Backends.Native.nativeSwitchPostInitFreeMemorySharedState,
-    EvmYul.Yul.State.insert, EvmYul.Yul.State.reviveJump, EvmYul.Yul.State.revive]
+    EvmYul.Yul.State.insert, EvmYul.Yul.State.reviveJump]
 
 /-- Reviving a `setLeave` checkpoint on the store-marked prefix state yields an `.Ok` state. -/
 private theorem nativeSwitchPostInitFreeMemoryStoreMarkedPrefixStateForId_setLeave_reviveJump_ok_exists
