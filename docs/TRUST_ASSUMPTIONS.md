@@ -1857,15 +1857,28 @@ not establish byte-exact EVMYulLean equivalence. General byte-call agreement and
 broader proof consumers still require migration and full exact-head validation
 before release; the unchanged golden and boundary tests are not that gate.
 
-### Imported typed-interface `uint256` staticcall
+### Imported typed-interface word staticcall
 
-`solidity_import` now admits exactly one external-call form: `I(a).f()` where
-`f` is a parameterless `view` function declared in an interface returning one
-`uint256`, `a` has type `address`, and the call is a whole single-variable
-initializer, the right-hand side of `=` to an identifier, or an expression
-statement. Every other external call, call option, receiver form or placement
-still fails closed with a located diagnostic. The call lowers to the closed
-`SolidityStaticCall.uint256Module` transport with solc's `functionSelector`; its
+`solidity_import` admits one typed external-call form: `I(a).f(args)` where `f`
+is a `view` function declared in an interface whose parameters are `address`,
+`uint256`, `bytes32` or `bool` and which returns one `uint256`, `bytes32` or
+`bool`, `a` has type `address`, every argument has its parameter's type (or is a
+non-negative integer constant for `uint256`) and lowers without prelude
+statements, and the call is a whole single-variable initializer, the right-hand
+side of `=` to an identifier, an expression statement, a builtin `require`
+condition, or (recursively) an operand of a short-circuit `&&`/`||` in one of
+those positions. Every other external call, call option, receiver form,
+argument or placement still fails closed with a located diagnostic. The call
+lowers to the closed `SolidityStaticCall.uint256Module` transport with solc's
+`functionSelector` and the arguments as ABI head words (`address` masked to 160
+bits and `bool` normalised to `0`/`1`, as solc's encoder does; importer values of
+those types are already clean, so the masks are defensive and have no
+differential witness). A `bool` result is followed by an importer-emitted
+`revertEmpty` when the decoded word exceeds `1`, mirroring solc's
+`validator_revert_t_bool`; `bytes32` and `uint256` results are the raw word.
+A root containing such a call starts from solc's free pointer `0x80`
+(`mstore(64, 128)`), so the transport's pre-call pointer bump never overlaps
+its own argument words in Denote. Its
 Denote arm (pinned by `execStmt_ecm_staticUint256_arm` and admitted by the
 `staticUint256Covered` coverage predicate) runs the byte request against the
 explicit adversary and reports instrumentation failures as a payload-free
@@ -1875,8 +1888,11 @@ Trust boundary changes:
 - The callee is arbitrary: no interface behavior is assumed (`axioms := []`).
   Denote is parameterised by the adversary; validation uses explicit mocks
   (`checked-static-oracle-v1`, whose bytes, status and accesses are compared with
-  real EVM by `check_checked_static_oracle_mock.py`) and one account without
-  code. The mocks do not establish behavior of any deployed oracle.
+  real EVM by `check_checked_static_oracle_mock.py`, and `word-static-oracle-v1`,
+  whose response folds the calldata size, selector and every argument word in
+  order and is compared with `WordStaticOracle` through the A/B/C campaign) and
+  one account without code. The mocks do not establish behavior of any deployed
+  oracle.
 - Gas is not modelled. Solidity forwards `gas()` (all but 1/64); Denote passes
   the instrument's explicit allowance. Callee out-of-gas, call-depth and
   memory-expansion failures are outside the validated domain.
@@ -1886,7 +1902,13 @@ Trust boundary changes:
 - Evaluation order is only admitted where it is source order by construction
   (whole statement values); helper composition such as `q(a) + q(b)` relies on
   left-to-right inlining, which matches via-IR and is exercised by the fixture's
-  failing/overflowing oracle pairs in both orders.
+  failing/overflowing oracle pairs in both orders. Short-circuit operands reuse
+  the importer's `&&`/`||` lowering, which places the right operand's call inside
+  the branch Solidity evaluates. A `require` condition containing a call is
+  lowered before the custom-error arguments, matching solc 0.8.34 via-IR, which
+  evaluates those arguments unconditionally after the condition. Arguments
+  without prelude statements cannot revert or write, so their order relative
+  to the receiver is unobservable.
 - Verity's CEI checker counts every ECM as an interaction barrier. Imported
   functions whose only barriers are these closed staticcalls (erasing them leaves
   a CEI-clean body) carry `allowPostInteractionWrites` and the unchecked local
@@ -1896,7 +1918,8 @@ Trust boundary changes:
   staticcall-summarised ECMs and is unchanged.
 - The transport's compilation `proofStatus` remains `.assumed`; agreement of the
   compiled model with solc and Denote is differential evidence
-  (`InterfaceStaticCallSequence`, three equivalent variants), not a proof.
+  (`InterfaceStaticCallSequence` and `InterfaceWordStaticCallSequence`, three
+  equivalent variants each), not a proof.
 
 ### Imported SSTORE2-style `create2` and struct event parameters
 

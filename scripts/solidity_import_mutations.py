@@ -21,6 +21,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from solidity_differential.check_interface_static_call_mutations import MUTANTS as INTERFACE_MUTANTS
+from solidity_differential.check_interface_word_static_call_mutations import (
+    MUTANTS as INTERFACE_WORD_MUTANTS)
 from solidity_differential.check_create2_struct_emit_mutations import MUTANTS as CREATE2_STRUCT_EMIT_MUTANTS
 from solidity_differential.check_external_code_and_low_level_call_mutations import (
     MUTANTS as LOW_LEVEL_CALL_MUTANTS)
@@ -750,6 +752,22 @@ def interface_static_call_mutant(mutant: str) -> None:
     print(f"pass {mutant}", flush=True)
 
 
+def interface_word_static_call_rejections() -> None:
+    module_campaign_output("check_interface_word_static_call_rejections",
+                           "interface-word-static-call-rejections", MUTANT_TIMEOUT)
+    print("pass interface word staticcall located rejections", flush=True)
+
+
+def interface_word_static_call_mutant(mutant: str) -> None:
+    result = module_campaign("check_interface_word_static_call_mutations", mutant,
+                             MUTANT_TIMEOUT, "--only", mutant)
+    if (result["exit"] != 0 or result["selected"] != [mutant]
+            or [r["mutant"] for r in result["results"]] != [mutant]
+            or not all(r["detected"] and r["baselinePassed"] for r in result["results"])):
+        raise SystemExit(f"interface word staticcall mutant {mutant} was not detected")
+    print(f"pass {mutant}", flush=True)
+
+
 def create2_struct_emit_rejections() -> None:
     module_campaign_output("check_create2_struct_emit_rejections",
                            "create2-struct-emit-rejections", MUTANT_TIMEOUT)
@@ -819,6 +837,7 @@ def tasks(update_golden: bool) -> list:
              ("create2-opcode", 1, create2_opcode_mutations),
              ("account-storage", 1, account_storage_mutations),
              ("interface-static-call-rejections", 1, interface_static_call_rejections),
+             ("interface-word-static-call-rejections", 1, interface_word_static_call_rejections),
              ("create2-struct-emit-rejections", 1, create2_struct_emit_rejections),
              ("external-code-low-level-call-rejections", 1, low_level_call_rejections),
              ("extcodecopy-struct-decode-rejections", 1, extcodecopy_struct_decode_rejections)]
@@ -826,6 +845,8 @@ def tasks(update_golden: bool) -> list:
     items += [(m, 1, (lambda m=m: differential_mutant(m))) for m in DIFFERENTIAL_MUTANTS]
     items += [(m, 1, (lambda m=m: guard_mutant(m))) for m in GUARD_MUTANTS]
     items += [(m, 1, (lambda m=m: interface_static_call_mutant(m))) for m in INTERFACE_MUTANTS]
+    items += [(m, 1, (lambda m=m: interface_word_static_call_mutant(m)))
+              for m in INTERFACE_WORD_MUTANTS]
     items += [(m, 2, (lambda m=m: create2_struct_emit_mutant(m))) for m in CREATE2_STRUCT_EMIT_MUTANTS]
     items += [(m, 2, (lambda m=m: low_level_call_mutant(m))) for m in LOW_LEVEL_CALL_MUTANTS]
     items += [(m, 2, (lambda m=m: extcodecopy_struct_decode_mutant(m)))
