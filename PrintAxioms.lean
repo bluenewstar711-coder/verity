@@ -120,6 +120,7 @@ import Compiler.Proofs.IRGeneration.Function
 import Compiler.Proofs.IRGeneration.FunctionBody.Base
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
+import Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.CanonicalEcmCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
@@ -4546,6 +4547,53 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components_with_internals
   Compiler.Proofs.IRGeneration.FunctionShape.compiledFunctionIR_standard_body
   Compiler.Proofs.IRGeneration.FunctionShape.compileFunctionSpec_ok_components_standard
+
+  -- Compiler/Proofs/IRGeneration/GenericInduction/BitLoopsAndStorageArrays.lean
+  Compiler.Proofs.IRGeneration.setBitIndices_zero_bits
+  Compiler.Proofs.IRGeneration.setBitIndices_zero_bitmap
+  Compiler.Proofs.IRGeneration.setBitIndices_length_le_maxBits
+  Compiler.Proofs.IRGeneration.mem_setBitIndices_iff
+  Compiler.Proofs.IRGeneration.setBitIndices_lt_maxBits
+  Compiler.Proofs.IRGeneration.setBitIndices_bit_eq_one
+  Compiler.Proofs.IRGeneration.setBitIndices_pairwise_lt
+  Compiler.Proofs.IRGeneration.setBitIndicesDesc_length_le_maxBits
+  Compiler.Proofs.IRGeneration.mem_setBitIndicesDesc_iff
+  Compiler.Proofs.IRGeneration.mem_forEachSetBitBodyScope_varName
+  Compiler.Proofs.IRGeneration.mem_forEachSetBitFallbackBodyScope_varName
+  Compiler.Proofs.IRGeneration.subset_forEachSetBitBodyScope
+  Compiler.Proofs.IRGeneration.subset_forEachSetBitFallbackBodyScope
+  Compiler.Proofs.IRGeneration.execForEachSetBit_nil
+  Compiler.Proofs.IRGeneration.execForEachSetBit_cons
+  Compiler.Proofs.IRGeneration.execForEachSetBit_append
+  Compiler.Proofs.IRGeneration.execForEachSetBitStep_preserves_invariant
+  Compiler.Proofs.IRGeneration.execForEachSetBitStep_preserves_simulation
+  Compiler.Proofs.IRGeneration.forEachSetBit_preserves_simulation
+  Compiler.Proofs.IRGeneration.execForEachSetBitStep_forward_simulation
+  Compiler.Proofs.IRGeneration.forEachSetBit_forward_simulation
+  Compiler.Proofs.IRGeneration.execForEachSetBitStep_optionRel_simulation
+  Compiler.Proofs.IRGeneration.forEachSetBit_optionRel_simulation
+  Compiler.Proofs.IRGeneration.elementSlot_inj
+  Compiler.Proofs.IRGeneration.baseSlot_ne_elementSlot
+  Compiler.Proofs.IRGeneration.StorageArrayModel.length_push
+  Compiler.Proofs.IRGeneration.StorageArrayModel.getElem?_push_last
+  Compiler.Proofs.IRGeneration.StorageArrayModel.getElem?_push_lt
+  Compiler.Proofs.IRGeneration.StorageArrayModel.pop?_none_of_nil
+  Compiler.Proofs.IRGeneration.StorageArrayModel.length_pop?_of_cons
+  Compiler.Proofs.IRGeneration.StorageArrayModel.pop?_push_cancel
+  Compiler.Proofs.IRGeneration.StorageArrayModel.setElem?_isSome_iff
+  Compiler.Proofs.IRGeneration.StorageArrayModel.length_setElem?
+  Compiler.Proofs.IRGeneration.StorageArrayModel.getElem?_setElem?_same
+  Compiler.Proofs.IRGeneration.StorageArrayModel.getElem?_setElem?_other
+  Compiler.Proofs.IRGeneration.evalStorageArrayLengthSlots_eq_length
+  Compiler.Proofs.IRGeneration.evalStorageArrayElementSlots_eq_getElem?
+  Compiler.Proofs.IRGeneration.storageArrayPush_preserves_slotRefines
+  Compiler.Proofs.IRGeneration.storageArrayPop_preserves_slotRefines
+  Compiler.Proofs.IRGeneration.setStorageArrayElement_preserves_slotRefines
+  Compiler.Proofs.IRGeneration.storageArrayPush_preserves_slotRefines_default
+  Compiler.Proofs.IRGeneration.storageArrayPop_preserves_slotRefines_default
+  Compiler.Proofs.IRGeneration.setStorageArrayElement_preserves_slotRefines_default
+  Compiler.Proofs.IRGeneration.compileStorageArrayPush_eq
+  Compiler.Proofs.IRGeneration.compileStorageArrayPop_eq
 
   -- Compiler/Proofs/IRGeneration/GenericInduction/Calls.lean
   -- Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_singleton  -- private
@@ -9868,4 +9916,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9099 theorems/lemmas (6006 public, 3093 private, 0 sorry'd)
+-- Total: 9144 theorems/lemmas (6051 public, 3093 private, 0 sorry'd)
