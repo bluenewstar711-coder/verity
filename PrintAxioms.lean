@@ -185,6 +185,7 @@ import Compiler.Proofs.SolidityImport.Solcore.Primitives
 import Compiler.Proofs.SolidityImport.Solcore.Runtime
 import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
 import Compiler.Proofs.SolidityImport.SolcoreBridge
+import Compiler.Proofs.SolidityImport.SolcoreFullBridge
 import Compiler.Proofs.SolidityImport.SolcoreGeneric
 import Compiler.Proofs.SolidityImport.TranslationValidation
 import Compiler.Proofs.SpecHarness
@@ -6885,6 +6886,25 @@ end Verity.AxiomAudit
   Compiler.Proofs.SolidityImport.SolcoreBridge.certifiedTranslationWitness_denote_reverted_soundness
   Compiler.Proofs.SolidityImport.SolcoreBridge.certifiedTranslationWitness_endToEnd_soundness
 
+  -- Compiler/Proofs/SolidityImport/SolcoreFullBridge.lean
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.execStmtList_append_of_continue  -- private
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.execIter_preserves_stateRefines
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.word_add_no_overflow_iff_le
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.decide_word_add_le_eq_decide_lt_modulus
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.mstoreWord_preserves_stateRefines  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.evalExpr_ge_add_toVerity  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.evalExpr_ge_sub_toVerity  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_sloadLocal  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_tloadLocal  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_mstoreWord  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_addChecked  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_subChecked  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_requireGuard  -- private
+  -- Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_iteBranch  -- private
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.compileSolcoreCheckedStmt_preserves_semantics
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.solcore_to_verity_quadrangular_preservation
+  Compiler.Proofs.SolidityImport.SolcoreFullBridge.solcore_to_verity_quadrangular_revert_preservation
+
   -- Compiler/Proofs/SolidityImport/SolcoreGeneric.lean
   Compiler.Proofs.SolidityImport.SolcoreGeneric.compileSolcorePureExpr_refines_verity
   -- Compiler.Proofs.SolidityImport.SolcoreGeneric.exprRefines_of_evalExpr_eq  -- private
@@ -9663,4 +9683,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8882 theorems/lemmas (6135 public, 2747 private, 0 sorry'd)
+-- Total: 8899 theorems/lemmas (6141 public, 2758 private, 0 sorry'd)
