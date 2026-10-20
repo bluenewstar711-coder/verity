@@ -57,6 +57,8 @@ TRUST_BOUNDARY_FILES = [
     ROOT / "Contracts" / "SolidityImportSmoke" / "AbiLoweringChecks.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "AbiCoverageChecks.lean",
     ROOT / "Contracts" / "SolidityImportSmoke" / "ExplicitAbiChecks.lean",
+    ROOT / "Compiler" / "SolidityImport" / "AstIndex.lean",
+    ROOT / "Compiler" / "SolidityImport" / "TypeClassifier.lean",
 ]
 
 def _collect_contract_proof_dirs() -> list[Path]:
