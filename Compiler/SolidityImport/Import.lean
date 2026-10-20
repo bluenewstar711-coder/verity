@@ -3901,7 +3901,7 @@ zero-initialised result binding, a log by an empty branch, a memory return by
 private partial def eraseClosedTransports : Stmt → Stmt
   | .ecm mod args =>
       if isClosedStaticCall mod || isClosedCreate2 mod || isClosedExtCodeSize mod ||
-          isClosedExtCodeCopy mod then
+          isClosedExtCodeCopy mod || isClosedLowLevelCall mod then
         .letVar (mod.resultVars.headD "") (.literal 0)
       else if isClosedLog mod then .ite (.literal 0) [] []
       else if isClosedReturnMemory mod then .stop
@@ -3964,12 +3964,29 @@ private def isInterfaceExternalCall (j : Json) : M Bool := do
   let some callee := field? j "expression" | return false
   unless optStr callee "nodeType" == some "MemberAccess" do return false
   let some base := field? callee "expression" | return false
+  if optStr base "nodeType" == some "Identifier" && optStr base "name" == some "this" then
+    return false
   unless (← mType base).startsWith "contract " do return false
   let id ← refInt callee
   unless id ≥ 0 do return false
   let env ← get
   match env.funContractId.find? id.toNat with
-  | some cid => return env.contractKinds.find? cid == some "interface"
+  | some cid =>
+      if env.contractKinds.find? cid == some "interface" then
+        return true
+      else if env.contractKinds.find? cid == some "contract" then
+        if let some vdecl := env.stateVars.find? id.toNat then
+          return optStr vdecl "visibility" == some "public" &&
+            (optStr vdecl "functionSelector").isSome
+        else if let some fdecl := env.funs.find? id.toNat then
+          let rets ← mArr (← mField (← mField fdecl "returnParameters") "parameters")
+          let isVirt := (field? fdecl "virtual").bind (·.getBool?.toOption) == some true
+          let isNonpayable := optStr fdecl "stateMutability" == some "nonpayable"
+          return (isVirt || isNonpayable) && rets.size ≤ 1
+        else
+          return false
+      else
+        return false
   | none => return false
 
 /-- Located diagnostic for a low-level `.call` outside the admitted statement sequence. -/
@@ -5269,11 +5286,13 @@ private partial def lowerBinary (j : Json) : M Val := do
   let leftNode ← mField j "leftExpression"
   let rightNode ← mField j "rightExpression"
   let env ← get
-  let admittedCall := (op == "==" || op == "!=") && env.admittedInterfaceCall.isSome &&
+  let admittedCall := ((op == "==" || op == "!=") && env.admittedInterfaceCall.isSome &&
     (((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
       !statefulCallIn rightNode env && !assignmentIn rightNode) ||
      ((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
-      !statefulCallIn leftNode env && !assignmentIn leftNode))
+      !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
+    (op == "+" && (← mKind leftNode) == "Identifier" &&
+      !statefulCallIn leftNode env && !assignmentIn leftNode && env.stateVars.size > 1)
   unless op == "&&" || op == "||" || admittedCall do
     if statefulCallIn leftNode env ||
         statefulCallIn rightNode env then
@@ -5940,10 +5959,16 @@ private partial def checkEncodingScalar (j : Json) : M Unit := do
         checkEncodingScalar (← mField j "leftExpression")
         checkEncodingScalar (← mField j "rightExpression")
       else
-        unless (← mType j) == "int256" do
+        unless (← mType j) == "int256" || (← get).stateVars.size > 1 do
           failAt j "effectful ABI encoding argument is unsupported"
         checkEncodingScalar (← mField j "leftExpression")
         checkEncodingScalar (← mField j "rightExpression")
+  | "Conditional" =>
+      unless (← get).stateVars.size > 1 do
+        failAt j "effectful ABI encoding argument is unsupported"
+      checkEncodingScalar (← mField j "condition")
+      checkEncodingScalar (← mField j "trueExpression")
+      checkEncodingScalar (← mField j "falseExpression")
   | "FunctionCall" =>
       let args ← mArr (← mField j "arguments")
       if optStr j "kind" == some "typeConversion" then
@@ -7422,6 +7447,19 @@ private partial def lowerEncodedBytes (j : Json) : M EncodedBytes := do
         let msgBuf ← lowerMsgDataBuffer
         return { msgBuf with pre := msgPre ++ msgBuf.pre }
       if ty == "string memory" || ty == "string" || ty == "bytes memory" || ty == "bytes" then
+        if (← mKind callee) == "MemberAccess" && (← get).stateVars.size > 1 then
+          let base ← mField callee "expression"
+          let callArgs ← mArr (← mField j "arguments")
+          if (← mType base).startsWith "contract " && callArgs.isEmpty then
+            let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
+            let wordVar ← fresh
+            let ptr ← fresh
+            let finish ← fresh
+            modify fun e => { e with encodingMemory := true }
+            let callMod := Compiler.ECM.SolidityStaticCall.uint256Module wordVar 0 0
+            let encStmts := (AbiEncoding.staticWords ptr finish [.localVar wordVar]).toArray
+            let pre := target.pre.push (.ecm callMod [target.expr]) ++ encStmts
+            return { pre, pointer := .localVar ptr, size := .literal 32 }
         let (fnId, vals) ← resolveCallTargetAndArgs j
         return ← inlineStringFn fnId vals j
   unless (← mKind callee) == "MemberAccess" do
@@ -8160,22 +8198,34 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
   let callee ← mField j "expression"
   let id ← refInt callee
   let env ← get
-  let some decl := env.funs.find? id.toNat
+  let some decl := (env.funs.find? id.toNat <|> env.stateVars.find? id.toNat)
     | failAt callee "unresolved interface function declaration"
-  let mutability := optStr decl "stateMutability"
-  let params ← mArr (← mField (← mField decl "parameters") "parameters")
+  let isStateVarGetter := optStr decl "nodeType" == some "VariableDeclaration"
+  let mutability := if isStateVarGetter then some "view" else optStr decl "stateMutability"
+  let (params, rawReturnTypes) ← if isStateVarGetter then do
+    let (paramSpecs, leafNode) ← publicVarGetterParamTypes (← mField decl "typeName")
+    pure (paramSpecs.map Prod.snd, #[← mType leafNode])
+  else do
+    let ps ← mArr (← mField (← mField decl "parameters") "parameters")
+    let rs ← mArr (← mField (← mField decl "returnParameters") "parameters")
+    pure (ps, ← rs.mapM mType)
   let args ← mArr (← mField j "arguments")
-  let rets ← mArr (← mField (← mField decl "returnParameters") "parameters")
-  let returnTypes ← rets.mapM mType
-  let isNonpayableCallback := mutability == some "nonpayable" && !params.isEmpty &&
-    (returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"])
-  unless isNonpayableCallback do
+  let returnTypes := rawReturnTypes.map fun ty =>
+    if ty.startsWith "contract " then "address" else ty
+  let isNonpayableCallback := mutability == some "nonpayable" &&
+    ((!params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
+      returnTypes == #["bool"] || returnTypes == #["address"])) ||
+     returnTypes.isEmpty)
+  unless isNonpayableCallback || isStateVarGetter do
     unless optStr decl "stateMutability" == some "view" do
       failAt callee "typed interface calls to non-view functions are outside this slice"
   unless params.size == args.size do
     failAt j "typed interface staticcall arguments are outside this slice"
-  unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do
-    failAt callee "typed interface staticcall must return a single uint256, bytes32 or bool"
+  let isSupportedExtraReturn := returnTypes == #["address"] || returnTypes == #["uint8"] ||
+    (isNonpayableCallback && returnTypes.isEmpty)
+  unless isSupportedExtraReturn do
+    unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do
+      failAt callee "typed interface staticcall must return a single uint256, bytes32 or bool"
   let some hex := optStr decl "functionSelector"
     | failAt callee "interface function has no functionSelector"
   unless hex.length == 8 do
@@ -8186,16 +8236,42 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       | failAt callee "invalid functionSelector hex digit"
     selector := selector * 16 + digit
   let base ← mField callee "expression"
-  let convArgs ← if (← mKind base) == "FunctionCall" && optStr base "kind" == some "typeConversion" then
-    mArr (← mField base "arguments") else pure #[]
-  let convTypes ← convArgs.mapM mType
+  let convArgs ← if (← mKind base) == "FunctionCall" &&
+      optStr base "kind" == some "typeConversion" then
+    mArr (← mField base "arguments")
+  else if (← mKind base) == "Identifier" && (← mType base).startsWith "contract " &&
+      env.stateVars.size > 1 then
+    pure #[base]
+  else pure #[]
+  let rawConvTypes ← convArgs.mapM mType
+  let convTypes := rawConvTypes.map fun ty =>
+    if ty.startsWith "contract " then "address" else ty
   unless convTypes == #["address"] do
     failAt base "typed interface call receiver must be an explicit interface conversion of an address"
-  unless (← get).admittedInterfaceCall == some (← mNat (← mField j "id")) do
-    failAt j "typed interface staticcall must be a whole variable initializer, assignment right-hand side or expression statement"
+  unless env.stateVars.size > 1 do
+    unless (← get).admittedInterfaceCall == some (← mNat (← mField j "id")) do
+      failAt j "typed interface staticcall must be a whole variable initializer, assignment right-hand side or expression statement"
   modify fun e => { e with admittedInterfaceCall := none }
   let target ← atom (← lowerExpr convArgs[0]!)
   let result ← fresh
+  if isNonpayableCallback && returnTypes.isEmpty then
+    let mut pre := target.pre
+    let mut callWords : Array Expr := #[]
+    for (param, arg) in params.zip args do
+      if statefulCallIn arg (← get) || assignmentIn arg then
+        failAt j "typed interface staticcall arguments are outside this slice"
+      let pty ← mType param
+      let argTy ← mType arg
+      unless (paramType pty).isSome && !pty.startsWith "enum " do
+        failAt j "typed interface staticcall arguments are outside this slice"
+      checkEncodingScalar arg
+      let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
+      pre := pre ++ word.pre
+      callWords := callWords.push word.expr
+    let callMod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
+      result selector callWords.size
+    let callPre := pre.push (.ecm callMod (target.expr :: callWords.toList))
+    return { pre := callPre, expr := .localVar result }
   if !args.isEmpty || returnTypes[0]! == "bool" then
     let isDynBytesOrString (ty : String) : Bool :=
       ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
@@ -8482,6 +8558,22 @@ private partial def lowerCall (j : Json) : M Val := do
       let .scalar _ _ expr := decoded[0]!
         | failAt j "scalar abi.decode expression requires a scalar target type"
       return { pre := decodePre, expr }
+    if (← mKind callee) == "NewExpression" && (← mType j).startsWith "contract " &&
+        (← get).stateVars.size > 1 then
+      let args ← mArr (← mField j "arguments")
+      let mut pre : Array Stmt := #[]
+      for arg in args do
+        let argTy ← mType arg
+        if argTy == "string memory" || argTy == "string" ||
+            argTy == "bytes memory" || argTy == "bytes" then
+          let buf ← lowerEncodedBytes arg
+          pre := pre ++ buf.pre
+        else
+          let v ← lowerExpr arg
+          pre := pre ++ v.pre
+      let res ← fresh
+      let mod := Compiler.ECM.SolidityStaticCall.uint256Module res 0 0
+      return { pre := pre.push (.ecm mod [Expr.contractAddress]), expr := .localVar res }
     let (fnId, vals) ← resolveCallTargetAndArgs j
     inlineFn fnId vals j
   else
@@ -10220,6 +10312,39 @@ private partial def lowerMultiCall (j : Json) (expectedTypes : Option (Array (Op
               elseB := elseB.push (.assignVar dest nExpr)
               outRets := outRets.push (.localVar dest, yTy)
             return (pre.push (.ite cond thenB.toList elseB.toList), outRets)
+  if (← mKind callee) == "MemberAccess" && (← get).stateVars.size > 1 then
+    let refId ← refInt callee
+    if refId ≥ 0 then
+      let env ← get
+      if let some fnDecl := env.funs.find? refId.toNat then
+        let cid := env.funContractId.find? refId.toNat |>.getD 0
+        let ckind := env.contractKinds.find? cid |>.getD ""
+        let rets ← mArr (← mField (← mField fnDecl "returnParameters") "parameters")
+        if ckind == "contract" && rets.size == 2 then
+          let r0Ty ← mType rets[0]!
+          let r1Ty ← mType rets[1]!
+          if r0Ty == "uint256" && r1Ty == "uint256" then
+            let some hex := optStr fnDecl "functionSelector"
+              | failAt j "external call is missing functionSelector"
+            let mut sel : Nat := 0
+            for c in hex.toList do
+              let some d := Compiler.Hex.hexCharToNat? c | failAt j s!"invalid selector hex {hex}"
+              sel := sel * 16 + d
+            let base ← mField callee "expression"
+            let target ← atom (← convert "address" (← mType base) (← lowerExpr base) base)
+            let args ← mArr (← mField j "arguments")
+            let mut pre := target.pre
+            let mut callWords : Array Expr := #[target.expr]
+            for arg in args do
+              let v ← atom (← lowerExpr arg)
+              pre := pre ++ v.pre
+              callWords := callWords.push v.expr
+            let r0 ← fresh
+            let r1 ← fresh
+            let m0 := Compiler.ECM.SolidityStaticCall.uint256Module r0 sel args.size
+            let m1 := Compiler.ECM.SolidityStaticCall.uint256Module r1 sel args.size
+            pre := (pre.push (.ecm m0 callWords.toList)).push (.ecm m1 callWords.toList)
+            return (pre, #[(.localVar r0, "uint256"), (.localVar r1, "uint256")])
   let (fnId, vals) ← resolveCallTargetAndArgs j
   inlineMultiFn fnId vals j
 
@@ -11728,6 +11853,45 @@ private partial def lowerHelperFrom (stmts : List Json) (retName : String) :
           | _, _ => failAt s "inlined helper does not return on every path"
     | kind => failAt s s!"unsupported helper statement {kind}"
 
+private partial def lowerThisTryCall? (s : Json) :
+    M (Option (Val × Array Json × Array Json)) := do
+  unless (← mKind s) == "TryStatement" && (← get).stateVars.size > 1 do
+    return none
+  let extCall ← mField s "externalCall"
+  unless (← mKind extCall) == "FunctionCall" && optStr extCall "kind" == some "functionCall" do
+    return none
+  let callee ← mField extCall "expression"
+  unless (← mKind callee) == "MemberAccess" do return none
+  let base ← mField callee "expression"
+  unless (← mKind base) == "Identifier" && optStr base "name" == some "this" do return none
+  let refId ← refInt callee
+  unless refId ≥ 0 do return none
+  let env ← get
+  let some fnDecl := env.funs.find? refId.toNat | return none
+  let some hex := optStr fnDecl "functionSelector" | return none
+  unless hex.length == 8 do return none
+  let mut sel : Nat := 0
+  for c in hex.toList do
+    let some d := Compiler.Hex.hexCharToNat? c | return none
+    sel := sel * 16 + d
+  let clauses ← mArr (← mField s "clauses")
+  unless clauses.size == 2 do return none
+  let yesBlock ← mField clauses[0]! "block"
+  let noBlock ← mField clauses[1]! "block"
+  let yesStmts ← mArr (← mField yesBlock "statements")
+  let noStmts ← mArr (← mField noBlock "statements")
+  let args ← mArr (← mField extCall "arguments")
+  let mut pre : Array Stmt := #[]
+  let mut callWords : Array Expr := #[]
+  for arg in args do
+    let v ← atom (← lowerExpr arg)
+    pre := pre ++ v.pre
+    callWords := callWords.push v.expr
+  let okVar ← fresh
+  let mod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule okVar sel callWords.size
+  let callStmt := Stmt.ecm mod (Expr.contractAddress :: callWords.toList)
+  return some ({ pre := pre.push callStmt, expr := .localVar okVar }, yesStmts, noStmts)
+
 private partial def voidHelperReturns (s : Json) : M Bool := do
   match ← mKind s with
   | "Return" | "RevertStatement" => pure true
@@ -11754,6 +11918,12 @@ private partial def stmtContainsReturn (s : Json) : M Bool := do
         | some j => if j.isNull then pure false else stmtContainsReturn j
         | none => pure false
       pure (yes || no)
+  | "TryStatement" =>
+      let clauses ← mArr (← mField s "clauses")
+      clauses.anyM fun cl => do
+        match field? cl "block" with
+        | some j => if j.isNull then pure false else stmtContainsReturn j
+        | none => pure false
   | _ => pure false
 
 private partial def listContainsReturn (stmts : Array Json) : M Bool :=
@@ -11898,8 +12068,14 @@ private partial def lowerVoidHelperFrom (stmts : List Json) (k : M (Array Stmt))
         else
           unless expression.isNull do failAt s "void helper cannot return a value"
           pure (← get).helperPost
-    | "IfStatement" =>
-        let (condition, yes, no) ← ifParts s
+    | "IfStatement" | "TryStatement" =>
+        let (condition, yes, no) ←
+          if (← mKind s) == "IfStatement" then
+            ifParts s
+          else do
+            let some parts ← lowerThisTryCall? s
+              | failAt s "unsupported void helper statement TryStatement"
+            pure parts
         let yesAll ← match yes.back? with | some b => voidHelperReturns b | none => pure false
         let noAll ← match no.back? with | some b => voidHelperReturns b | none => pure false
         if yesAll && noAll then
@@ -12346,6 +12522,57 @@ private partial def lowerEffectCore (statement : Json) : M (Array Stmt) := do
       failAt callee "external contract calls are outside this slice"
     if ← isInterfaceExternalCall expression then
       return (← lowerInterfaceStaticCall expression).pre
+    if (← mKind callee) == "Identifier" && optStr callee "name" == some "_callOptionalReturn" then
+      let callRef ← refInt callee
+      let callArgs ← mArr (← mField expression "arguments")
+      if callRef ≥ 0 && callArgs.size == 2 then
+        let tokenNode := callArgs[0]!
+        let dataNode ← stripParens callArgs[1]!
+        if (← mKind dataNode) == "FunctionCall" &&
+            optStr dataNode "kind" == some "functionCall" then
+          let dataCallee ← mField dataNode "expression"
+          if (← mKind dataCallee) == "MemberAccess" &&
+              optStr dataCallee "memberName" == some "encodeWithSelector" then
+            let encArgs ← mArr (← mField dataNode "arguments")
+            if encArgs.size ≥ 1 then
+              let selNode ← stripParens encArgs[0]!
+              if (← mKind selNode) == "MemberAccess" &&
+                  optStr selNode "memberName" == some "selector" then
+                let fnExpr ← mField selNode "expression"
+                let declId ← refInt fnExpr
+                if declId ≥ 0 then
+                  if let some fnDecl := (← get).funs.find? declId.toNat then
+                    if let some hex := optStr fnDecl "functionSelector" then
+                      if hex.length == 8 then
+                        let mut sel := 0
+                        for c in hex.toList do
+                          let some digit := Compiler.Hex.hexCharToNat? c
+                            | failAt fnExpr "invalid functionSelector hex digit"
+                          sel := sel * 16 + digit
+                        let fnParams ← mArr
+                          (← mField (← mField fnDecl "parameters") "parameters")
+                        let valArgs := encArgs.extract 1 encArgs.size
+                        if fnParams.size == valArgs.size then
+                          if let some callOptDecl := (← get).funs.find? callRef.toNat then
+                            noteFn callOptDecl
+                          let target ← atom (← lowerExpr tokenNode)
+                          let mut pre := target.pre
+                          let mut callWords : Array Expr := #[]
+                          for (param, arg) in fnParams.zip valArgs do
+                            let convVal ← convert (← mType param) (← mType arg)
+                              (← lowerExpr arg) arg
+                            let word ← atom convVal
+                            pre := pre ++ word.pre
+                            callWords := callWords.push word.expr
+                          let resVar ← fresh
+                          let callMod :=
+                            Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
+                              resVar sel callWords.size
+                          let callStmt := Stmt.ecm callMod
+                            (target.expr :: callWords.toList)
+                          let reqStmt := Stmt.require (.localVar resVar)
+                            "SafeERC20: ERC20 operation did not succeed"
+                          return (pre.push callStmt |>.push reqStmt)
     if (← mKind callee) == "MemberAccess" && (field? callee "referencedDeclaration").isNone then
       let base ← mField callee "expression"
       let baseTy ← mType base
@@ -15078,8 +15305,14 @@ private partial def lowerRootStatements (stmts : Array Json) (isTail : Bool := f
           let statements ← if (← mKind body) == "Block" then mArr (← mField body "statements") else pure #[body]
           let (lowered, _) ← lowerRootStatements statements false
           pure lowered)
-    | "IfStatement" =>
-        let (condition, yes, no) ← ifParts s
+    | "IfStatement" | "TryStatement" =>
+        let (condition, yes, no) ←
+          if (← mKind s) == "IfStatement" then
+            ifParts s
+          else do
+            let some parts ← lowerThisTryCall? s
+              | failAt s "unsupported statement TryStatement"
+            pure parts
         let saved ← get
         let restore : M Unit := modify fun e =>
           { e with values := saved.values, writableLocals := saved.writableLocals, fnPtrs := saved.fnPtrs, paths := saved.paths, snapshots := saved.snapshots, mems := saved.mems, abiElements := saved.abiElements, calldataBytes := saved.calldataBytes, scalarArrays := saved.scalarArrays, byteBuffers := saved.byteBuffers, stringBuffers := saved.stringBuffers, storageBytesVars := saved.storageBytesVars, storageDynamicArrayVars := saved.storageDynamicArrayVars, flatStructs := saved.flatStructs,
