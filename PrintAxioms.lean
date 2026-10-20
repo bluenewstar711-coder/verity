@@ -7022,6 +7022,18 @@ end Verity.AxiomAudit
   Compiler.Proofs.MetaSpecs.calldataGuard_satisfies_metaSpec
   Compiler.Proofs.MetaSpecs.reentrancyLockGuard_satisfies_metaSpec
   Compiler.Proofs.MetaSpecs.overflowGuard_satisfies_metaSpec
+  Compiler.Proofs.MetaSpecs.stmtListRequiresFreePointerInit_ecm_staticcall_uint256
+  Compiler.Proofs.MetaSpecs.stmtListRequiresFreePointerInit_ecm_staticcall_bool
+  Compiler.Proofs.MetaSpecs.withFreePointerPrologue_head_mstore64_of_requires
+  Compiler.Proofs.MetaSpecs.freePointerPrologue_satisfies_metaSpec
+  Compiler.Proofs.MetaSpecs.EffectSummary.merge_writesStorage_eq_false_iff
+  Compiler.Proofs.MetaSpecs.EffectSummary.merge_hasExternalInteraction_eq_false_iff
+  Compiler.Proofs.MetaSpecs.view_frame_preserves_storage_of_writesStorage_false
+  Compiler.Proofs.MetaSpecs.EffectSoundness.seq
+  Compiler.Proofs.MetaSpecs.internal_helper_not_cei_interaction_of_effectSummary
+  Compiler.Proofs.MetaSpecs.internal_helper_assign_not_cei_interaction_of_effectSummary
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.obs_eq
+  Compiler.Proofs.MetaSpecs.VerifiedCompilerShim.denote_frame_sound
 
   -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
@@ -7238,6 +7250,10 @@ end Verity.AxiomAudit
   Compiler.Proofs.SpecHarness.canonicalCompilerFeatureSuite_length
   Compiler.Proofs.SpecHarness.checkCompilerInvariantSuite_canonical_eq_true
   Compiler.Proofs.SpecHarness.canonicalCompilerFeatureSuite_all_hold
+  Compiler.Proofs.SpecHarness.canonicalEffectAndPrologueSuite_length
+  Compiler.Proofs.SpecHarness.checkCompilerInvariantSuite_effectAndPrologue_eq_true
+  Compiler.Proofs.SpecHarness.canonicalEffectAndPrologueSuite_all_hold
+  Compiler.Proofs.SpecHarness.checkVerifiedCompilerShimSuite_eq_true
 
   -- Compiler/Proofs/StateLenses.lean
   Compiler.Proofs.StateLenses.StorageWordsFrame.refl
@@ -9989,4 +10005,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9208 theorems/lemmas (6115 public, 3093 private, 0 sorry'd)
+-- Total: 9224 theorems/lemmas (6131 public, 3093 private, 0 sorry'd)
