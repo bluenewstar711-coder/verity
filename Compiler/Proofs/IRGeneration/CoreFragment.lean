@@ -4,6 +4,8 @@ import Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
 import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
 import Compiler.Proofs.EndToEnd.DispatchConfig
+import Compiler.Proofs.MetaSpecs
+import Compiler.Proofs.SpecHarness
 
 namespace Compiler.Proofs.IRGeneration.CoreFragment
 
@@ -216,5 +218,22 @@ theorem parametric_runtime_dispatch_matches_ir
       (EndToEnd.evalParametricIRRuntimeDispatch cfg ir tx
         revertIR execIRFn execIREp) := by
   exact EndToEnd.evalParametricRuntimeDispatch_matches_ir cfg hAlign
+
+/-- **Universal Trust-Boundary Partition Facade (`M2`)**:
+Re-exports `MetaSpecs.trust_boundary_partition_complete` certifying that every
+`spec : CompilationModel` and `allowedMask : SurfaceMask` is partitioned with
+zero silent fallthrough. -/
+theorem core_fragment_trust_boundary_partition
+    (spec : CompilationModel) (allowedMask : SurfaceMask) :
+    MetaSpecs.CertifiedOrExplicitlyFlagged spec allowedMask :=
+  MetaSpecs.trust_boundary_partition_complete spec allowedMask
+
+/-- **Canonical 12-Feature Invariant Suite Facade (`M2`)**:
+Re-exports `SpecHarness.canonicalCompilerFeatureSuite_all_hold` certifying all 12
+representative Core Fragment feature invariants via a single `by decide` check. -/
+theorem core_fragment_canonical_feature_suite_holds :
+    ∀ c ∈ SpecHarness.canonicalCompilerFeatureSuite,
+      SpecHarness.CompilerInvariantCaseHolds c :=
+  SpecHarness.canonicalCompilerFeatureSuite_all_hold
 
 end Compiler.Proofs.IRGeneration.CoreFragment

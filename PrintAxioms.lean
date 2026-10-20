@@ -180,12 +180,14 @@ import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
 import Compiler.Proofs.LoopSimulation
 import Compiler.Proofs.MappingSlot
+import Compiler.Proofs.MetaSpecs
 import Compiler.Proofs.SolidityImport.Solcore.Primitives
 import Compiler.Proofs.SolidityImport.Solcore.Runtime
 import Compiler.Proofs.SolidityImport.Solcore.WordAlignment
 import Compiler.Proofs.SolidityImport.SolcoreBridge
 import Compiler.Proofs.SolidityImport.SolcoreGeneric
 import Compiler.Proofs.SolidityImport.TranslationValidation
+import Compiler.Proofs.SpecHarness
 import Compiler.Proofs.StateLenses
 import Compiler.Proofs.Storage.FieldCoherence
 import Compiler.Proofs.Storage.FieldEncode
@@ -3394,6 +3396,8 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_full_contract_lifecycle
   Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_helper_rich_contract_semantics
   Compiler.Proofs.IRGeneration.CoreFragment.parametric_runtime_dispatch_matches_ir
+  Compiler.Proofs.IRGeneration.CoreFragment.core_fragment_trust_boundary_partition
+  Compiler.Proofs.IRGeneration.CoreFragment.core_fragment_canonical_feature_suite_holds
 
   -- Compiler/Proofs/IRGeneration/CustomErrorPayloadIR.lean
   Compiler.Proofs.IRGeneration.execIRStmts_cons_continue'
@@ -6991,6 +6995,34 @@ end Verity.AxiomAudit
   Compiler.Proofs.foldl_solidityMappingSlot_lt_evmModulus
   Compiler.Proofs.mappingChainSlotLocation_zero
 
+  -- Compiler/Proofs/MetaSpecs.lean
+  Compiler.Proofs.MetaSpecs.triangular_obs_eq
+  Compiler.Proofs.MetaSpecs.triangular_commutes
+  Compiler.Proofs.MetaSpecs.DenoteRefinesSource.iterate
+  Compiler.Proofs.MetaSpecs.SourceRefinesIR.iterate
+  Compiler.Proofs.MetaSpecs.triangular_compose_multi_step
+  Compiler.Proofs.MetaSpecs.triangular_revert_equivalence
+  Compiler.Proofs.MetaSpecs.NonVacuousSpec.satisfiablePre
+  Compiler.Proofs.MetaSpecs.NonVacuousSpec.of_sound_and_satisfiable
+  Compiler.Proofs.MetaSpecs.not_nonVacuous_of_unsat_pre
+  Compiler.Proofs.MetaSpecs.not_nonVacuous_false_pre
+  Compiler.Proofs.MetaSpecs.NonVacuousSpec.comp
+  Compiler.Proofs.MetaSpecs.NonVacuousSpec.weakenPre
+  Compiler.Proofs.MetaSpecs.NonVacuousSpec.strengthenPost
+  Compiler.Proofs.MetaSpecs.hasMask_compl_eq_not_maskSubset
+  Compiler.Proofs.MetaSpecs.hasMask_compl_eq_true_iff_maskSubset_eq_false
+  Compiler.Proofs.MetaSpecs.maskSubset_eq_true_iff_hasMask_compl_eq_false
+  Compiler.Proofs.MetaSpecs.trust_boundary_no_silent_gap
+  Compiler.Proofs.MetaSpecs.trust_boundary_surface_dichotomy
+  Compiler.Proofs.MetaSpecs.trust_boundary_partition_complete
+  Compiler.Proofs.MetaSpecs.trust_boundary_not_certified_imp_flagged
+  Compiler.Proofs.MetaSpecs.DifferentialGuardMetaSpec.txOk_ne_txBlocked
+  Compiler.Proofs.MetaSpecs.DifferentialGuardMetaSpec.toNonVacuousSpec
+  Compiler.Proofs.MetaSpecs.payableGuard_satisfies_metaSpec
+  Compiler.Proofs.MetaSpecs.calldataGuard_satisfies_metaSpec
+  Compiler.Proofs.MetaSpecs.reentrancyLockGuard_satisfies_metaSpec
+  Compiler.Proofs.MetaSpecs.overflowGuard_satisfies_metaSpec
+
   -- Compiler/Proofs/SolidityImport/Solcore/Primitives.lean
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_eq_uint256_modulus
   Compiler.Proofs.SolidityImport.Solcore.Core.wordModulus_pos
@@ -7198,6 +7230,14 @@ end Verity.AxiomAudit
   Compiler.Proofs.SolidityImport.TranslationValidation.certifiedTranslationWitness_endToEnd_reverted_soundness
   Compiler.Proofs.SolidityImport.TranslationValidation.certifiedContractTranslationWitness_returned_soundness
   Compiler.Proofs.SolidityImport.TranslationValidation.certifiedContractTranslationWitness_reverted_soundness
+
+  -- Compiler/Proofs/SpecHarness.lean
+  Compiler.Proofs.SpecHarness.differentialGuardMetaSpec_of_checkGuardBoundary_eq_true
+  Compiler.Proofs.SpecHarness.compilerInvariantCaseHolds_of_check_eq_true
+  Compiler.Proofs.SpecHarness.all_cases_hold_of_checkCompilerInvariantSuite_eq_true
+  Compiler.Proofs.SpecHarness.canonicalCompilerFeatureSuite_length
+  Compiler.Proofs.SpecHarness.checkCompilerInvariantSuite_canonical_eq_true
+  Compiler.Proofs.SpecHarness.canonicalCompilerFeatureSuite_all_hold
 
   -- Compiler/Proofs/StateLenses.lean
   Compiler.Proofs.StateLenses.StorageWordsFrame.refl
@@ -9949,4 +9989,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9174 theorems/lemmas (6081 public, 3093 private, 0 sorry'd)
+-- Total: 9208 theorems/lemmas (6115 public, 3093 private, 0 sorry'd)
