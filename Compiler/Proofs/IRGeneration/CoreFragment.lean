@@ -3,6 +3,7 @@ import Compiler.Proofs.IRGeneration.GenericInduction.Calls
 import Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
 import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
+import Compiler.Proofs.EndToEnd.DispatchConfig
 
 namespace Compiler.Proofs.IRGeneration.CoreFragment
 
@@ -189,5 +190,31 @@ theorem compile_preserves_helper_rich_contract_semantics
   Contract.compile_preserves_semantics_with_helper_rich_support_of_body_goals
     model selectors hSupported ir irFuelSlack tx initialWorld
     htxNormalized hcalldataSizeFits hcompile hbodyGoals
+
+/-- **Parametric Runtime Dispatch Facade (`M1`)**:
+Specializes `EndToEnd.evalParametricRuntimeDispatch_matches_ir` to the Layer 2
+observation relation `FunctionBody.sourceResultMatchesIRResult` for any
+`cfg : EndToEnd.DispatchConfig`. -/
+theorem parametric_runtime_dispatch_matches_ir
+    (cfg : EndToEnd.DispatchConfig)
+    (model : CompilationModel) (selectors : List Nat)
+    (fallbackSpec receiveSpec : Option FunctionSpec)
+    (ir : IRContract) (tx : IRTransaction)
+    (initialWorld : Verity.ContractState)
+    (revertSrc : SourceSemantics.SourceContractResult) (revertIR : IRResult)
+    (execFn execEp : FunctionSpec → SourceSemantics.SourceContractResult)
+    (execIRFn : IRFunction → IRResult)
+    (execIREp : IREntrypoint → IRResult)
+    (hAlign :
+      EndToEnd.ParametricDispatchAlignment
+        FunctionBody.sourceResultMatchesIRResult
+        model selectors fallbackSpec receiveSpec ir tx
+        revertSrc revertIR execFn execEp execIRFn execIREp) :
+    FunctionBody.sourceResultMatchesIRResult
+      (EndToEnd.evalParametricRuntimeDispatch cfg model selectors
+        fallbackSpec receiveSpec tx revertSrc execFn execEp)
+      (EndToEnd.evalParametricIRRuntimeDispatch cfg ir tx
+        revertIR execIRFn execIREp) := by
+  exact EndToEnd.evalParametricRuntimeDispatch_matches_ir cfg hAlign
 
 end Compiler.Proofs.IRGeneration.CoreFragment
