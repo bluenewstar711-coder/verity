@@ -510,47 +510,36 @@ private theorem compileSolcoreCheckedStmt_iteBranch
       `sFinal.resolveFrame (.reverted revWord)` rolls back storage and events to refine
       `Denote.revertedResult oracle spec initialWorld`. -/
 theorem compileSolcoreCheckedStmt_preserves_semantics
-    {TrapReason : Type}
-    (stmt : SolcoreCheckedStmt)
-    {sState : SolcoreExecState} {dState : DenoteState}
-    {initialWorld : Verity.ContractState}
+    {TrapReason : Type} (stmt : SolcoreCheckedStmt)
+    {sState : SolcoreExecState} {dState : DenoteState} {initialWorld : Verity.ContractState}
     (hRef : StateRefines sState dState initialWorld)
     (oracle : DenoteOracle) (spec : CompilationModel)
     (hAligned : stmt.StmtAligned spec.fields dState)
     (hEncodeInit : ∀ slot : Word,
-      Denote.encodeStorage oracle spec initialWorld slot.val =
-        (initialWorld.readSlot slot.val).val) :
+      Denote.encodeStorage oracle spec initialWorld slot.val = (initialWorld.readSlot slot.val).val) :
     match stmt.execSolcore sState with
     | .continued sFinal =>
         Denote.execStmtList oracle spec.fields dState stmt.toVerity =
           .continue (stmt.execDenote sState dState) ∧
         StateRefines sFinal (stmt.execDenote sState dState) initialWorld
     | .reverted sFinal revWord =>
-        (∃ bytes, Denote.execStmtList oracle spec.fields dState stmt.toVerity =
-          .revertWithData bytes) ∧
+        (∃ bytes, Denote.execStmtList oracle spec.fields dState stmt.toVerity = .revertWithData bytes) ∧
         ∃ snap : SolcoreFrameSnapshot,
-          sFinal.resolveFrame (FrameOutcome.reverted (TrapReason := TrapReason) revWord) =
-            some snap ∧
+          sFinal.resolveFrame (FrameOutcome.reverted (TrapReason := TrapReason) revWord) = some snap ∧
           SnapshotRefinesResult sState.contractAddress snap
             (Denote.revertedResult oracle spec initialWorld) := by
+  change CheckedStmtPreservesSemantics (TrapReason := TrapReason)
+    stmt sState dState initialWorld oracle spec
   cases stmt with
   | straight s => exact compileSolcoreStmt_preserves_stateRefines s hRef oracle spec.fields hAligned
-  | sloadLocal dst fieldName slot =>
-      exact compileSolcoreCheckedStmt_sloadLocal (TrapReason := TrapReason) dst fieldName slot hRef oracle spec hAligned
-  | tloadLocal dst slot =>
-      exact compileSolcoreCheckedStmt_tloadLocal (TrapReason := TrapReason) dst slot hRef oracle spec
-  | mstoreWord offset valExpr =>
-      exact compileSolcoreCheckedStmt_mstoreWord (TrapReason := TrapReason) offset valExpr hRef oracle spec hAligned
-  | addChecked dst a b =>
-      exact compileSolcoreCheckedStmt_addChecked (TrapReason := TrapReason) dst a b hRef oracle spec hEncodeInit
-  | subChecked dst a b =>
-      exact compileSolcoreCheckedStmt_subChecked (TrapReason := TrapReason) dst a b hRef oracle spec hEncodeInit
-  | requireGuard cond errWord =>
-      exact compileSolcoreCheckedStmt_requireGuard (TrapReason := TrapReason) cond errWord hRef oracle spec hEncodeInit
-  | iteBranch cond thenBr elseBr =>
-      exact compileSolcoreCheckedStmt_iteBranch (TrapReason := TrapReason) cond thenBr elseBr hRef oracle spec hAligned
-  | boundedIter fuel body =>
-      exact execIter_preserves_stateRefines fuel body hRef oracle spec.fields hAligned
+  | sloadLocal d f s => exact compileSolcoreCheckedStmt_sloadLocal d f s hRef oracle spec hAligned
+  | tloadLocal d s => exact compileSolcoreCheckedStmt_tloadLocal d s hRef oracle spec
+  | mstoreWord o v => exact compileSolcoreCheckedStmt_mstoreWord o v hRef oracle spec hAligned
+  | addChecked d a b => exact compileSolcoreCheckedStmt_addChecked d a b hRef oracle spec hEncodeInit
+  | subChecked d a b => exact compileSolcoreCheckedStmt_subChecked d a b hRef oracle spec hEncodeInit
+  | requireGuard c e => exact compileSolcoreCheckedStmt_requireGuard c e hRef oracle spec hEncodeInit
+  | iteBranch c t e => exact compileSolcoreCheckedStmt_iteBranch c t e hRef oracle spec hAligned
+  | boundedIter k b => exact execIter_preserves_stateRefines k b hRef oracle spec.fields hAligned
 
 /-! ## 5. Quadrangular Preservation (`Solcore → Denote → SourceSemantics → IR`) -/
 

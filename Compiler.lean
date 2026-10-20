@@ -16,6 +16,8 @@ import Compiler.CompilationModel
 import Compiler.ModuleInput
 import Compiler.CompileDriver
 import Compiler.CheckContract
+import Compiler.SolidityImport.TypesAndRecords
+import Compiler.SolidityImport.TransportBarriers
 import Compiler.Modules.Calls
 import Compiler.Modules.Callbacks
 import Compiler.Modules.ERC4626
