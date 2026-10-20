@@ -1,5 +1,7 @@
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
+import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
+import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
 
 namespace Compiler.Proofs.IRGeneration.CoreFragment
 
