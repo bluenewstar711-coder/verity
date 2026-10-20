@@ -607,4 +607,105 @@ def runPatchPassOnObject
     (obj : YulObject) : ObjectPatchPassReport :=
   runPatchPassWithObjects config exprRules stmtRules blockRules [] obj
 
+open Lean (Name)
+
+/-- Unified Yul patch rule sum type spanning expression, statement, block, and object rewrites. -/
+inductive PatchRule where
+  | expr (rule : ExprPatchRule)
+  | stmt (rule : StmtPatchRule)
+  | block (rule : BlockPatchRule)
+  | object (rule : ObjectPatchRule)
+
+instance : Coe ExprPatchRule PatchRule := ⟨PatchRule.expr⟩
+instance : Coe StmtPatchRule PatchRule := ⟨PatchRule.stmt⟩
+instance : Coe BlockPatchRule PatchRule := ⟨PatchRule.block⟩
+instance : Coe ObjectPatchRule PatchRule := ⟨PatchRule.object⟩
+
+/-- Underlying patch name of a unified `PatchRule`. -/
+def PatchRule.patchName : PatchRule → String
+  | .expr r => r.patchName
+  | .stmt r => r.patchName
+  | .block r => r.patchName
+  | .object r => r.patchName
+
+/-- Underlying kernel proof reference of a unified `PatchRule`. -/
+def PatchRule.proofId : PatchRule → Name
+  | .expr r => r.proofId
+  | .stmt r => r.proofId
+  | .block r => r.proofId
+  | .object r => r.proofId
+
+/-- Fail-closed auditability check for a unified `PatchRule`. -/
+def PatchRule.isAuditable : PatchRule → Bool
+  | .expr r => r.isAuditable
+  | .stmt r => r.isAuditable
+  | .block r => r.isAuditable
+  | .object r => r.isAuditable
+
+/-- Lightweight descriptor coupling a `ShimArena`-certified compiler runtime shim
+with its kernel proof reference, verified per-call gas savings, and executable
+`PatchRule` for direct registration as a `PatchPass` in the Yul pipeline. -/
+structure VerifiedShimPatchDescriptor where
+  shimName : String
+  proofRef : Name
+  gasSavedPerCall : Nat
+  rule : PatchRule
+
+/-- Fail-closed check ensuring a `VerifiedShimPatchDescriptor` has a non-empty name,
+a non-anonymous proof reference matching its underlying rule, and an auditable rule. -/
+def VerifiedShimPatchDescriptor.isAuditable (d : VerifiedShimPatchDescriptor) : Bool :=
+  !d.shimName.isEmpty &&
+    proofRefPresent d.proofRef &&
+    d.rule.isAuditable &&
+    d.rule.proofId == d.proofRef
+
+/-- Partition a list of unified `PatchRule`s into typed rule lists for pass execution. -/
+def partitionPatchRules
+    (rules : List PatchRule) :
+    List ExprPatchRule × List StmtPatchRule × List BlockPatchRule × List ObjectPatchRule :=
+  rules.foldr
+    (fun rule (exprs, stmts, blocks, objs) =>
+      match rule with
+      | .expr r => (r :: exprs, stmts, blocks, objs)
+      | .stmt r => (exprs, r :: stmts, blocks, objs)
+      | .block r => (exprs, stmts, r :: blocks, objs)
+      | .object r => (exprs, stmts, blocks, r :: objs))
+    ([], [], [], [])
+
+/-- Register verified shim descriptors into a `PatchPassConfig`'s proof allowlist. -/
+def registerVerifiedShimDescriptors
+    (config : PatchPassConfig)
+    (descriptors : List VerifiedShimPatchDescriptor) : PatchPassConfig :=
+  let validRefs :=
+    (descriptors.filter VerifiedShimPatchDescriptor.isAuditable).map (·.proofRef)
+  let mergedRefs :=
+    validRefs.foldl
+      (fun acc ref => if acc.any (· = ref) then acc else acc ++ [ref])
+      config.requiredProofRefs
+  { config with requiredProofRefs := mergedRefs }
+
+/-- Execute a deterministic Yul `PatchPass` over statements using `ShimArena`-certified
+`VerifiedShimPatchDescriptor`s. -/
+def runVerifiedShimPatchPass
+    (config : PatchPassConfig)
+    (descriptors : List VerifiedShimPatchDescriptor)
+    (stmts : List YulStmt)
+    (scope : RewriteScope := .runtime) : PatchPassReport :=
+  let auditable := descriptors.filter VerifiedShimPatchDescriptor.isAuditable
+  let (exprRules, stmtRules, blockRules, _) := partitionPatchRules (auditable.map (·.rule))
+  let config' := registerVerifiedShimDescriptors config auditable
+  runPatchPassWithBlocks config' exprRules stmtRules blockRules stmts scope
+
+/-- Execute a deterministic Yul `PatchPass` over a full `YulObject` using `ShimArena`-certified
+`VerifiedShimPatchDescriptor`s. -/
+def runVerifiedShimObjectPatchPass
+    (config : PatchPassConfig)
+    (descriptors : List VerifiedShimPatchDescriptor)
+    (obj : YulObject) : ObjectPatchPassReport :=
+  let auditable := descriptors.filter VerifiedShimPatchDescriptor.isAuditable
+  let (exprRules, stmtRules, blockRules, objectRules) :=
+    partitionPatchRules (auditable.map (·.rule))
+  let config' := registerVerifiedShimDescriptors config auditable
+  runPatchPassWithObjects config' exprRules stmtRules blockRules objectRules obj
+
 end Compiler.Yul
