@@ -121,6 +121,7 @@ import Compiler.Proofs.IRGeneration.FunctionBody.Base
 import Compiler.Proofs.IRGeneration.FunctionBody.Stmt
 import Compiler.Proofs.IRGeneration.FunctionShape
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
+import Compiler.Proofs.IRGeneration.GenericInduction.CanonicalEcmCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.DenoteSound
 import Compiler.Proofs.IRGeneration.GenericInduction.ErrorRevert
 import Compiler.Proofs.IRGeneration.GenericInduction.EventBridge
@@ -169,6 +170,8 @@ import Compiler.Proofs.IRGeneration.SourceSemantics
 import Compiler.Proofs.IRGeneration.SourceSemanticsFeatureTest
 import Compiler.Proofs.IRGeneration.SpliceSimulation
 import Compiler.Proofs.IRGeneration.SupportedFragment
+import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
+import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
 import Compiler.Proofs.IRGeneration.SupportedSpec
 import Compiler.Proofs.IRGeneration.TypedRevertStep
 import Compiler.Proofs.KeccakBound
@@ -4632,6 +4635,41 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_of_ecmBridge
   Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIR_ecm
 
+  -- Compiler/Proofs/IRGeneration/GenericInduction/CanonicalEcmCalls.lean
+  Compiler.Proofs.IRGeneration.canonicalTypedExternalCallModule_resultVars
+  Compiler.Proofs.IRGeneration.canonicalTypedExternalCallModule_numArgs
+  Compiler.Proofs.IRGeneration.canonicalTypedExternalCallModule_writesState
+  Compiler.Proofs.IRGeneration.canonicalTryExternalCallModule_resultVars
+  Compiler.Proofs.IRGeneration.canonicalTryExternalCallModule_numArgs
+  Compiler.Proofs.IRGeneration.canonicalTryExternalCallModule_writesState
+  Compiler.Proofs.IRGeneration.canonicalLowLevelCallModule_resultVars
+  Compiler.Proofs.IRGeneration.canonicalLowLevelCallModule_numArgs
+  Compiler.Proofs.IRGeneration.canonicalLowLevelCallModule_writesState_iff
+  Compiler.Proofs.IRGeneration.canonicalLowLevelCallModule_writesState_eq_false_iff
+  -- Compiler.Proofs.IRGeneration.canonicalizeExternalCallStmt_canonicalizeLowLevelCallLet  -- private
+  Compiler.Proofs.IRGeneration.canonicalizeExternalCallStmt_idempotent
+  Compiler.Proofs.IRGeneration.canonicalizeExternalCallStmtList_idempotent
+  -- Compiler.Proofs.IRGeneration.isRawExternalCallBindHead_canonicalizeLowLevelCallLet  -- private
+  Compiler.Proofs.IRGeneration.canonicalizeExternalCallStmt_eliminates_raw_externalCallBind
+  -- Compiler.Proofs.IRGeneration.isRawLowLevelCallLetHead_canonicalizeLowLevelCallLet  -- private
+  Compiler.Proofs.IRGeneration.canonicalizeExternalCallStmt_eliminates_raw_lowLevelCallLet
+  -- Compiler.Proofs.IRGeneration.collectStmtBindNames_canonicalizeLowLevelCallLet  -- private
+  Compiler.Proofs.IRGeneration.collectStmtBindNames_canonicalizeExternalCallStmt
+  Compiler.Proofs.IRGeneration.stmtNextScope_canonicalizeExternalCallStmt
+  Compiler.Proofs.IRGeneration.compileCanonical_canonicalTypedExternalCallModule
+  Compiler.Proofs.IRGeneration.compileCanonical_canonicalTryExternalCallModule
+  Compiler.Proofs.IRGeneration.compileCanonical_canonicalLowLevelCallModule
+  Compiler.Proofs.IRGeneration.compileStmt_canonical_ecm_shape_with_internals
+  Compiler.Proofs.IRGeneration.compileStmt_ecm_ok_of_compileCanonical
+  Compiler.Proofs.IRGeneration.canonicalCompiledStmtStepWithInternals_ecm
+  Compiler.Proofs.IRGeneration.canonicalCompiledStmtStepWithInternals_of_ecmBridge
+  Compiler.Proofs.IRGeneration.ecmHeadStepBridgeWithInternals_canonicalTypedExternalCallModule
+  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalTypedExternalCallModule
+  Compiler.Proofs.IRGeneration.ecmHeadStepBridgeWithInternals_canonicalTryExternalCallModule
+  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalTryExternalCallModule
+  Compiler.Proofs.IRGeneration.ecmHeadStepBridgeWithInternals_canonicalLowLevelCallModule
+  Compiler.Proofs.IRGeneration.compiledStmtStepWithHelpersAndHelperIRWithInternals_canonicalLowLevelCallModule
+
   -- Compiler/Proofs/IRGeneration/GenericInduction/DenoteSound.lean
   -- Compiler.Proofs.IRGeneration.denote_toStmtResult_of_source  -- private
   Compiler.Proofs.IRGeneration.denote_sound
@@ -6445,6 +6483,58 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.SupportedStmtList.mstoreSingle
   Compiler.Proofs.IRGeneration.SupportedStmtList.tstoreSingle
   Compiler.Proofs.IRGeneration.SupportedStmtList.forEachLiteralEmpty
+
+  -- Compiler/Proofs/IRGeneration/SupportedSpec/SupportProfile.lean
+  Compiler.Proofs.IRGeneration.SupportProfile.le_refl
+  Compiler.Proofs.IRGeneration.SupportProfile.le_trans
+  Compiler.Proofs.IRGeneration.SupportProfile.minimal_le
+  Compiler.Proofs.IRGeneration.SupportProfile.le_full
+  Compiler.Proofs.IRGeneration.SupportProfile.minimal_le_withHelpers
+  Compiler.Proofs.IRGeneration.SupportProfile.withHelpers_le_full
+  Compiler.Proofs.IRGeneration.SupportProfile.minimal_le_scalarEvents
+  Compiler.Proofs.IRGeneration.SupportProfile.minimal_le_uncheckedMapping
+  Compiler.Proofs.IRGeneration.SupportedSpecAt.mono
+  Compiler.Proofs.IRGeneration.SupportedSpecAt.invariants
+  Compiler.Proofs.IRGeneration.supportedSpecAt_minimal_iff_supportedSpec
+  Compiler.Proofs.IRGeneration.supportedSpecAt_withHelpers_iff_supportedSpecWithHelpers
+  Compiler.Proofs.IRGeneration.supportedSpecAt_scalarEvents_iff
+  Compiler.Proofs.IRGeneration.supportedSpecAt_uncheckedMapping_iff
+  Compiler.Proofs.IRGeneration.stmtTouchesEventSurface_eq_stmtIsEventEmit
+  Compiler.Proofs.IRGeneration.stmtTouchesEventSurface_eq_false_of_no_eventEmitMask
+  Compiler.Proofs.IRGeneration.stmtTouchesDirectInternalHelperSurface_eq_stmtIsDirectInternalCall
+  Compiler.Proofs.IRGeneration.stmtListTouchesDirectInternalHelperSurface_eq_false_of_no_internalCallMask
+  Compiler.Proofs.IRGeneration.stmtTouchesUnsupportedStateSurface_eq_of_no_mappingWriteMask
+  Compiler.Proofs.IRGeneration.stmtListTouchesUnsupportedStateSurface_eq_of_no_mappingWriteMask
+
+  -- Compiler/Proofs/IRGeneration/SupportedSpec/SurfaceMask.lean
+  Compiler.Proofs.IRGeneration.hasMask_zero
+  Compiler.Proofs.IRGeneration.hasMask_or
+  Compiler.Proofs.IRGeneration.surfaceMask_or_assoc
+  Compiler.Proofs.IRGeneration.surfaceMask_zero_or
+  Compiler.Proofs.IRGeneration.surfaceMask_or_zero
+  Compiler.Proofs.IRGeneration.maskSubset_zero
+  Compiler.Proofs.IRGeneration.maskSubset_refl
+  Compiler.Proofs.IRGeneration.maskSubset_or
+  Compiler.Proofs.IRGeneration.maskSubset_mono
+  Compiler.Proofs.IRGeneration.hasMask_eq_false_of_maskSubset
+  Compiler.Proofs.IRGeneration.hasMask_bitEventEmit_self
+  Compiler.Proofs.IRGeneration.hasMask_bitInternalCall_self
+  Compiler.Proofs.IRGeneration.hasMask_bitMappingWrite_self
+  Compiler.Proofs.IRGeneration.hasMask_bitMulDiv512_self
+  Compiler.Proofs.IRGeneration.hasMask_bitForEachSetBit_self
+  Compiler.Proofs.IRGeneration.hasMask_bitInlineYul_self
+  Compiler.Proofs.IRGeneration.stmtListSurfaceMask_nil
+  Compiler.Proofs.IRGeneration.stmtListSurfaceMask_cons
+  Compiler.Proofs.IRGeneration.stmtListSurfaceMask_append
+  Compiler.Proofs.IRGeneration.exprSurfaceMask_subset_of_exprCompileCore
+  Compiler.Proofs.IRGeneration.hasMask_exprSurfaceMask_eq_false_of_exprCompileCore
+  Compiler.Proofs.IRGeneration.stmtListSurfaceMask_subset_of_stmtListCompileCore
+  Compiler.Proofs.IRGeneration.stmtIsEventEmit_eq_false_of_no_eventEmitMask
+  Compiler.Proofs.IRGeneration.stmtIsDirectInternalCall_eq_false_of_no_internalCallMask
+  Compiler.Proofs.IRGeneration.stmtIsMappingWrite_eq_false_of_no_mappingWriteMask
+  Compiler.Proofs.IRGeneration.exprIsMulDiv512_eq_false_of_no_mulDiv512Mask
+  Compiler.Proofs.IRGeneration.stmtIsForEachSetBit_eq_false_of_no_forEachSetBitMask
+  Compiler.Proofs.IRGeneration.stmtIsInlineYul_eq_false_of_no_inlineYulMask
 
   -- Compiler/Proofs/IRGeneration/SupportedSpec.lean
   Compiler.Proofs.IRGeneration.SupportedExternalParamType_of_scalar
@@ -9747,4 +9837,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8990 theorems/lemmas (5901 public, 3089 private, 0 sorry'd)
+-- Total: 9071 theorems/lemmas (5978 public, 3093 private, 0 sorry'd)
