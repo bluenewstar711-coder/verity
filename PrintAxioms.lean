@@ -87,6 +87,7 @@ import Compiler.Proofs.AbiEventObservable
 import Compiler.Proofs.AbiMemoryLayout
 import Compiler.Proofs.ArithmeticProfile
 import Compiler.Proofs.EndToEnd.Base
+import Compiler.Proofs.EndToEnd.DispatchConfig
 import Compiler.Proofs.EndToEnd.SimpleStorage
 import Compiler.Proofs.EventSemantics
 import Compiler.Proofs.ExecutionSummary
@@ -2603,6 +2604,37 @@ end Verity.AxiomAudit
   -- Compiler.Proofs.EndToEnd.layers2_3_ir_matches_native_evmYulLean_of_generated_lowered_runtime_dispatcherStmts_project_body_closure_mapping_reserved_ofIR_environment  -- private
   -- Compiler.Proofs.EndToEnd.layers2_3_ir_matches_native_evmYulLean_of_generated_lowered_runtime_dispatcherStmts_project_body_closure_mapping_reserved_ofIR_globalDefaults  -- private
 
+  -- Compiler/Proofs/EndToEnd/DispatchConfig.lean
+  Compiler.Proofs.EndToEnd.DispatchConfig.stricterThan_refl
+  Compiler.Proofs.EndToEnd.DispatchConfig.stricterThan_trans
+  Compiler.Proofs.EndToEnd.DispatchConfig.strictFull_stricterThan_withSwitchIds
+  Compiler.Proofs.EndToEnd.DispatchConfig.legacyNoSpecialMiss_stricterThan_standard
+  Compiler.Proofs.EndToEnd.DispatchConfig.standard_stricterThan_payableUnchecked
+  Compiler.Proofs.EndToEnd.evalSourceSpecialEntrypointsOnMiss_matches_ir
+  Compiler.Proofs.EndToEnd.evalParametricRuntimeDispatch_matches_ir
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_0000
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_0001
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_0010
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_payableUnchecked
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_0100
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_0101
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_legacyNoSpecialMiss
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_standard
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1000
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1001
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1010
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1011
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1100
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_1101
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_strictFull
+  Compiler.Proofs.EndToEnd.evalRuntimeDispatch_matches_ir_withSwitchIds
+  Compiler.Proofs.EndToEnd.payable_guard_reverts_nonzero_value
+  Compiler.Proofs.EndToEnd.calldata_size_guard_reverts_short_input
+  Compiler.Proofs.EndToEnd.selector_hit_bypasses_special_entrypoints
+  Compiler.Proofs.EndToEnd.selector_miss_routes_receive_on_empty_calldata
+  Compiler.Proofs.EndToEnd.selector_miss_routes_fallback_on_nonempty_calldata
+  Compiler.Proofs.EndToEnd.stricter_config_preserves_revert
+
   -- Compiler/Proofs/EndToEnd/SimpleStorage.lean
   -- Compiler.Proofs.EndToEnd.simpleStorage_functions_bridged  -- private
   -- Compiler.Proofs.EndToEnd.simpleStorage_functions_loop_free  -- private
@@ -3361,6 +3393,7 @@ end Verity.AxiomAudit
   Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_full_contract_lifecycle_stmtSafety
   Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_full_contract_lifecycle
   Compiler.Proofs.IRGeneration.CoreFragment.compile_preserves_helper_rich_contract_semantics
+  Compiler.Proofs.IRGeneration.CoreFragment.parametric_runtime_dispatch_matches_ir
 
   -- Compiler/Proofs/IRGeneration/CustomErrorPayloadIR.lean
   Compiler.Proofs.IRGeneration.execIRStmts_cons_continue'
@@ -9916,4 +9949,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 9144 theorems/lemmas (6051 public, 3093 private, 0 sorry'd)
+-- Total: 9174 theorems/lemmas (6081 public, 3093 private, 0 sorry'd)
