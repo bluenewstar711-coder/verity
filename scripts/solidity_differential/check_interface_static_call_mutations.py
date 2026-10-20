@@ -20,12 +20,12 @@ DENOTE = 'Verity/Core/Model/Denote.lean'
 # name: (file, anchor, replacement, kind, rejection case)
 MUTANTS = {
     'import-interface-static-selector': (IMPORT,
-        '(.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector 0) [target.expr]),',
-        '(.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result (selector + 1) 0) [target.expr]),',
+        'pre := pre.push (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size)',
+        'pre := pre.push (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result (selector + 1) words.size)',
         'runtime', None),
     'import-interface-static-result': (IMPORT,
-        '         expr := .localVar result }\n',
-        '         expr := .literal 0 }\n', 'runtime', None),
+        '  pure { pre, expr := .localVar result }\n',
+        '  pure { pre, expr := .literal 0 }\n', 'runtime', None),
     'import-interface-static-drop-discarded': (IMPORT,
         'return (← lowerInterfaceStaticCall expression).pre\n',
         'return (← lowerInterfaceStaticCall expression).pre.pop\n', 'runtime', None),
@@ -38,7 +38,7 @@ MUTANTS = {
         'if !observed.success then return (.revertWithData [], observed.touched)',
         'runtime', None),
     'import-interface-static-placement-guard': (IMPORT,
-        'unless (← get).admittedInterfaceCall == some (← mNat (← mField j "id")) do',
+        'unless (← get).admittedInterfaceCalls.contains callId do',
         'unless true do', 'admission', 'return-placement'),
     'import-interface-static-view-guard': (IMPORT,
         'unless optStr decl "stateMutability" == some "view" do',
@@ -47,7 +47,7 @@ MUTANTS = {
         'unless convTypes == #["address"] do',
         'unless convTypes.size == 1 do', 'admission', 'payable-receiver'),
     'import-interface-static-return-guard': (IMPORT,
-        'unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do',
+        'unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do',
         'unless returnTypes.size == 1 do', 'admission', 'narrow-return'),
 }
 

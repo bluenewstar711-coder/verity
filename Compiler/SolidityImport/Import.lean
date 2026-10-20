@@ -243,9 +243,10 @@ private structure Env where
   yulMemoryStructs : RBMap String Nat compare := RBMap.empty
   yulScratch0 : Bool := false
   yulScratch32 : Bool := false
-  /-- AST id of the one typed-interface staticcall the current statement may
-      lower: its whole initializer, right-hand side or expression statement. -/
-  admittedInterfaceCall : Option Nat := none
+  /-- AST ids of the typed-interface staticcalls the current statement may
+      lower (`admittedInterfaceCallIds` of its whole initializer, right-hand
+      side or expression statement). Each id is consumed when lowered. -/
+  admittedInterfaceCalls : List Nat := []
   /-- `bytes memory` locals whose initializer begins with a checked CREATE2
       initcode template literal (`DenoteCreate2.templateCost`). -/
   initcodeTemplates : Array Nat := #[]
@@ -3606,22 +3607,47 @@ private def abiDecodeScalarGuard? (ty : String) (enumBound? : Option Nat) (word 
   else
     none
 
-/-- Run one statement lowering with `node` as its only admissible typed-interface
-staticcall. Restoring the previous admission keeps inlined helper statements
-from widening the enclosing statement's admission. -/
+/-- A call of the builtin `require` (solc declaration id `-18`). -/
+private def isBuiltinRequireCall (node : Json) : Bool :=
+  match field? node "expression" with
+  | some callee =>
+      optStr callee "nodeType" == some "Identifier" && optStr callee "name" == some "require" &&
+        (field? callee "referencedDeclaration").bind (·.getInt?.toOption) == some (-18)
+  | none => false
+
+/-- AST ids of the function calls a statement value admits as typed-interface
+staticcalls: the value itself, both operands of a short-circuit `&&`/`||` (its
+lowering evaluates the right operand only in the branch Solidity selects), and
+the condition of a builtin `require`, which solc evaluates before the error
+arguments. Any other enclosing expression admits no call. -/
+private partial def admittedInterfaceCallIds (node : Json) : List Nat :=
+  match optStr node "nodeType" with
+  | some "FunctionCall" =>
+      if isBuiltinRequireCall node then
+        match field? node "arguments" with
+        | some (.arr args) => (args[0]?.map admittedInterfaceCallIds).getD []
+        | _ => []
+      else ((field? node "id").bind (·.getNat?.toOption)).toList
+  | some "BinaryOperation" =>
+      if optStr node "operator" == some "&&" || optStr node "operator" == some "||" then
+        ((field? node "leftExpression").map admittedInterfaceCallIds).getD [] ++
+          ((field? node "rightExpression").map admittedInterfaceCallIds).getD []
+      else []
+  | _ => []
+
+/-- Run one statement lowering with the calls admitted by `node` as its only
+admissible typed-interface staticcalls. Restoring the previous admission keeps
+inlined helper statements from widening the enclosing statement's admission. -/
 private def withAdmittedInterfaceCall (node? : Option Json) (k : M α) : M α := do
-  let saved := (← get).admittedInterfaceCall
-  let admitted := node?.bind fun node =>
-    if optStr node "nodeType" == some "FunctionCall" then
-      (field? node "id").bind (·.getNat?.toOption)
-    else none
-  modify fun e => { e with admittedInterfaceCall := admitted }
+  let saved := (← get).admittedInterfaceCalls
+  let admitted := (node?.map admittedInterfaceCallIds).getD []
+  modify fun e => { e with admittedInterfaceCalls := admitted }
   try
     let result ← k
-    modify fun e => { e with admittedInterfaceCall := saved }
+    modify fun e => { e with admittedInterfaceCalls := saved }
     return result
   catch error =>
-    modify fun e => { e with admittedInterfaceCall := saved }
+    modify fun e => { e with admittedInterfaceCalls := saved }
     throw error
 
 /-- A function call whose callee is a member of an interface-typed receiver and
@@ -4912,10 +4938,10 @@ private partial def lowerBinary (j : Json) : M Val := do
   let leftNode ← mField j "leftExpression"
   let rightNode ← mField j "rightExpression"
   let env ← get
-  let admittedCall := ((op == "==" || op == "!=") && env.admittedInterfaceCall.isSome &&
-    (((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
+  let admittedCall := ((op == "==" || op == "!=") && !env.admittedInterfaceCalls.isEmpty &&
+    ((((field? (unparenJson leftNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn rightNode env && !assignmentIn rightNode) ||
-     ((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption) == env.admittedInterfaceCall &&
+     (((field? (unparenJson rightNode) "id").bind (·.getNat?.toOption)).any env.admittedInterfaceCalls.contains &&
       !statefulCallIn leftNode env && !assignmentIn leftNode))) ||
     (op == "+" && (← mKind leftNode) == "Identifier" &&
       !statefulCallIn leftNode env && !assignmentIn leftNode && env.stateVars.size > 1)
@@ -7835,23 +7861,39 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     let ps ← mArr (← mField (← mField decl "parameters") "parameters")
     let rs ← mArr (← mField (← mField decl "returnParameters") "parameters")
     pure (ps, ← rs.mapM mType)
+  let rawParamTypes ← params.mapM mType
+  let paramTypes := rawParamTypes.map fun ty =>
+    if env.stateVars.size > 1 && ty.startsWith "contract " then "address" else ty
   let args ← mArr (← mField j "arguments")
   let returnTypes := rawReturnTypes.map fun ty =>
     if ty.startsWith "contract " then "address" else ty
-  let isNonpayableCallback := mutability == some "nonpayable" &&
+  let isNonpayableCallback := !env.stateVars.isEmpty && mutability == some "nonpayable" &&
     ((!params.isEmpty && (returnTypes == #["uint256"] || returnTypes == #["bytes32"] ||
       returnTypes == #["bool"] || returnTypes == #["address"])) ||
      returnTypes.isEmpty)
   unless isNonpayableCallback || isStateVarGetter do
     unless optStr decl "stateMutability" == some "view" do
       failAt callee "typed interface calls to non-view functions are outside this slice"
-  unless params.size == args.size do
-    failAt j "typed interface staticcall arguments are outside this slice"
-  let isSupportedExtraReturn := returnTypes == #["address"] || returnTypes == #["uint8"] ||
-    (isNonpayableCallback && returnTypes.isEmpty)
+  let hasDynamicOrStructParam := !env.stateVars.isEmpty && paramTypes.any fun pty =>
+    pty == "bytes" || pty == "string" || (pty.startsWith "struct " && !pty.contains "[") ||
+    (scalarArrayElement? pty).isSome
+  let hasExtendedScalarParam := env.stateVars.size > 1 &&
+    !paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) &&
+    paramTypes.all fun pty => (paramType pty).isSome && !pty.startsWith "enum "
+  -- Each parameter is one ABI head word; solc cleans `address` to 160 bits and
+  -- `bool` to `0`/`1` before encoding.
+  unless isNonpayableCallback || isStateVarGetter || hasDynamicOrStructParam || hasExtendedScalarParam do
+    unless paramTypes.all (["address", "uint256", "bytes32", "bool"].contains ·) do
+      failAt j "typed interface staticcall parameters must be address, uint256, bytes32 or bool"
+  unless args.size == params.size do
+    failAt j "typed interface staticcall argument count differs from its declaration"
+  let isSupportedExtraReturn := env.stateVars.size > 1 &&
+    (returnTypes == #["address"] || returnTypes == #["uint8"] ||
+     (isNonpayableCallback && returnTypes.isEmpty))
+  let returnType := returnTypes.getD 0 "uint256"
   unless isSupportedExtraReturn do
-    unless returnTypes == #["uint256"] || returnTypes == #["bytes32"] || returnTypes == #["bool"] do
-      failAt callee "typed interface staticcall must return a single uint256, bytes32 or bool"
+    unless returnTypes.size == 1 && ["uint256", "bytes32", "bool"].contains returnType do
+      failAt callee "typed interface staticcall must return exactly one uint256, bytes32 or bool"
   let some hex := optStr decl "functionSelector"
     | failAt callee "interface function has no functionSelector"
   unless hex.length == 8 do
@@ -7874,13 +7916,15 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
     if ty.startsWith "contract " then "address" else ty
   unless convTypes == #["address"] do
     failAt base "typed interface call receiver must be an explicit interface conversion of an address"
+  let callId ← mNat (← mField j "id")
   unless env.stateVars.size > 1 do
-    unless (← get).admittedInterfaceCall == some (← mNat (← mField j "id")) do
-      failAt j "typed interface staticcall must be a whole variable initializer, assignment right-hand side or expression statement"
-  modify fun e => { e with admittedInterfaceCall := none }
-  let target ← atom (← lowerExpr convArgs[0]!)
-  let result ← fresh
+    unless (← get).admittedInterfaceCalls.contains callId do
+      failAt j ("typed interface staticcall must be a whole variable initializer, assignment " ++
+        "right-hand side, expression statement, require condition or short-circuit operand of one")
+  modify fun e => { e with admittedInterfaceCalls := e.admittedInterfaceCalls.erase callId }
   if isNonpayableCallback && returnTypes.isEmpty then
+    let target ← atom (← lowerExpr convArgs[0]!)
+    let result ← fresh
     let mut pre := target.pre
     let mut callWords : Array Expr := #[]
     for (param, arg) in params.zip args do
@@ -7894,11 +7938,21 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
       pre := pre ++ word.pre
       callWords := callWords.push word.expr
+    modify fun env => { env with encodingMemory := true }
     let callMod := Compiler.ECM.SolidityLowLevelCall.optionalBoolModule
       result selector callWords.size
     let callPre := pre.push (.ecm callMod (target.expr :: callWords.toList))
     return { pre := callPre, expr := .localVar result }
-  if !args.isEmpty || returnTypes[0]! == "bool" then
+  let hasExtendedArg ← if env.stateVars.size > 1 then
+    (args.zip paramTypes).anyM fun (arg, ty) => do
+      let argTy ← mType arg
+      let k ← mKind arg
+      pure (argTy != ty && !(ty == "uint256" && argTy.startsWith "int_const " && !argTy.startsWith "int_const -") ||
+        k == "BinaryOperation" || k == "FunctionCall")
+  else pure false
+  if isNonpayableCallback || hasDynamicOrStructParam || hasExtendedScalarParam || hasExtendedArg then
+    let target ← atom (← lowerExpr convArgs[0]!)
+    let result ← fresh
     let isDynBytesOrString (ty : String) : Bool :=
       ty == "bytes" || ty == "bytes memory" || ty == "bytes calldata" ||
       ty == "bytes storage ref" || ty == "bytes storage pointer" ||
@@ -7950,12 +8004,13 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
       let payload ← lowerAbiEncodeArgs args (some params)
       let payloadPtr ← atom { pre := payload.pre, expr := payload.pointer }
       let payloadSize ← atom { pre := #[], expr := payload.size }
+      modify fun env => { env with encodingMemory := true }
       let mod := if isNonpayableCallback then
-        if returnTypes[0]! == "bool" then
+        if returnType == "bool" then
           Compiler.ECM.SolidityLowLevelCall.bytesBoolModule result selector
         else
           Compiler.ECM.SolidityLowLevelCall.bytesUint256Module result selector
-      else if returnTypes[0]! == "bool" then
+      else if returnType == "bool" then
         Compiler.ECM.SolidityStaticCall.bytesBoolModule result selector
       else
         Compiler.ECM.SolidityStaticCall.bytesUint256Module result selector
@@ -7976,15 +8031,42 @@ private partial def lowerInterfaceStaticCall (j : Json) : M Val := do
         let word ← atom (← convert pty argTy (← lowerExpr arg) arg)
         pre := pre ++ word.pre
         words := words.push word.expr
-    let mod := if returnTypes[0]! == "bool" then
+    modify fun env => { env with encodingMemory := true }
+    let mod := if returnType == "bool" then
       Compiler.ECM.SolidityStaticCall.boolModule result selector words.size
     else
       Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size
     let callPre := pre.push (.ecm mod (target.expr :: words.toList))
     return { pre := callPre, expr := .localVar result }
-  pure { pre := target.pre.push
-           (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector 0) [target.expr]),
-         expr := .localVar result }
+  for (arg, ty) in args.zip paramTypes do
+    let argTy ← mType arg
+    unless argTy == ty ||
+        (ty == "uint256" && argTy.startsWith "int_const " && !argTy.startsWith "int_const -") do
+      failAt arg s!"typed interface staticcall argument type {argTy} differs from parameter type {ty}"
+  let target ← atom (← lowerExpr convArgs[0]!)
+  let mut words : Array Expr := #[]
+  let mut pre := target.pre
+  for (arg, ty) in args.zip paramTypes do
+    let value ← lowerExpr arg
+    unless value.pre.isEmpty do
+      failAt arg "typed interface staticcall arguments must lower without side effects"
+    let cleaned := match ty with
+      | "address" => Expr.bitAnd value.expr (.literal (2 ^ 160 - 1))
+      | "bool" => Expr.logicalNot (.logicalNot value.expr)
+      | _ => value.expr
+    let word ← atom { pre := #[], expr := cleaned }
+    pre := pre ++ word.pre
+    words := words.push word.expr
+  let result ← fresh
+  -- The transport writes its scratch at the free pointer and bumps it before the
+  -- call, so the root must start from solc's `mload(64) = 0x80` like every other
+  -- free-pointer user; a zero pointer would let the bump overlap argument words.
+  modify fun e => { e with encodingMemory := true }
+  pre := pre.push (.ecm (Compiler.ECM.SolidityStaticCall.uint256Module result selector words.size)
+    (target.expr :: words.toList))
+  if returnType == "bool" then
+    pre := pre.push (.ite (.gt (.localVar result) (.literal 1)) [.revertEmpty] [])
+  pure { pre, expr := .localVar result }
 
 /-- `<address>.code.length` of an address-typed account other than the executing
 contract: `EXTCODESIZE` through the closed code-length transport, which Denote
@@ -13356,10 +13438,9 @@ private partial def isPureEqualityPeer (j : Json) : M Bool := do
   | _ => return false
 
 private partial def admittedRequireInterfaceCall? (cond : Json) : M (Option Json) := do
+  unless !(← get).stateVars.isEmpty do return none
   let cond := unparenJson cond
   match ← mKind cond with
-  | "FunctionCall" =>
-      if ← isInterfaceExternalCall cond then return some cond else return none
   | "BinaryOperation" =>
       let op ← mStr (← mField cond "operator")
       let left ← mField cond "leftExpression"
@@ -13383,8 +13464,10 @@ private partial def admittedRequireInterfaceCall? (cond : Json) : M (Option Json
 
 private partial def lowerRequire (statement : Json) : M (Array Stmt) :=
   lowerRequireWith statement fun cond => do
-    let admitted ← admittedRequireInterfaceCall? cond
-    withAdmittedInterfaceCall admitted (lowerExpr cond)
+    let extra ← admittedRequireInterfaceCall? cond
+    let extraIds := (extra.bind fun n => (field? n "id").bind (·.getNat?.toOption)).toList
+    modify fun e => { e with admittedInterfaceCalls := (e.admittedInterfaceCalls ++ extraIds).eraseDups }
+    lowerExpr cond
 
 /-- A builtin `require` whose condition is lowered by `lowerCondition`. -/
 private partial def lowerRequireWith (statement : Json) (lowerCondition : Json → M Val) :

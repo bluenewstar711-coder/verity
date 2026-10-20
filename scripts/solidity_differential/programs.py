@@ -317,6 +317,55 @@ def stateful_interface_static_call_source(original, variant):
     raise ValueError('unknown interface staticcall program variant')
 
 
+def stateful_interface_word_static_call_source(original, variant):
+    """Equivalent typed-interface word staticcall programs over one call sequence.
+
+    Observable names stay fixed: root functions and the custom error. The
+    expanded variant moves each call between whole-statement, short-circuit and
+    `require`-condition placements without changing Solidity's evaluation order.
+    """
+    if variant == 'baseline':
+        return original
+    if variant == 'renamed':
+        renamed = original
+        for old, new in (('IWordOracle', 'IWordSource'), ('oracle', 'feed'), ('value', 'answer'),
+                         ('saved', 'stash'), ('label', 'mark'), ('ok', 'pass'),
+                         ('pick', 'choose'), ('first', 'left'), ('second', 'right'),
+                         ('account', 'who'), ('next', 'given'), ('flag', 'toggle')):
+            renamed = re.sub(rf'\b{old}\b', new, renamed)
+        return renamed
+    if variant == 'expanded':
+        replacements = [
+            ("""        bool ok = IWordOracle(oracle).allowed(account);
+        return ok;""", """        address target = oracle;
+        bool ok;
+        ok = IWordOracle(target).allowed(account);
+        return ok;"""),
+            ("require(oracle == address(0) || IWordOracle(oracle).allowed(msg.sender), Gated(next));",
+             """if (oracle != address(0)) {
+            require(IWordOracle(oracle).allowed(msg.sender), Gated(next));
+        }"""),
+            ("bool ok = next % 2 == 0 && IWordOracle(oracle).allowed(account);", """bool ok = false;
+        if (next % 2 == 0) {
+            ok = IWordOracle(oracle).allowed(account);
+        }"""),
+            ("        IWordOracle(oracle).quote(7, tag);", "        uint256 ignored = IWordOracle(oracle).quote(7, tag);"),
+            ("IWordOracle(oracle).tagOf(account, flag);", "IWordOracle(oracle).tagOf(account, flag == true);"),
+            ("bool ok = IWordOracle(first).allowed(second) || IWordOracle(second).allowed(first);",
+             """bool ok = IWordOracle(first).allowed(second);
+        if (!ok) {
+            ok = IWordOracle(second).allowed(first);
+        }"""),
+        ]
+        expanded = original
+        for old, new in replacements:
+            if expanded.count(old) != 1:
+                raise ValueError('nonunique interface word staticcall variant anchor')
+            expanded = expanded.replace(old, new)
+        return expanded
+    raise ValueError('unknown interface word staticcall program variant')
+
+
 def stateful_create2_struct_emit_source(original, variant):
     """Equivalent CREATE2 code-storage and struct-event programs over one sequence.
 
