@@ -1,4 +1,6 @@
 import Compiler.Proofs.SolidityImport.SolcoreBridge
+import Compiler.SolidityImport.AstIndex
+import Compiler.SolidityImport.TypeClassifier
 
 set_option autoImplicit false
 

@@ -39,6 +39,8 @@ import Contracts.SolidityImportSmoke.SolidityAbiPrimitiveChecks
 import Contracts.SolidityImportSmoke.AbiLoweringChecks
 import Contracts.SolidityImportSmoke.AbiCoverageChecks
 import Contracts.SolidityImportSmoke.ExplicitAbiChecks
+import Compiler.SolidityImport.AstIndex
+import Compiler.SolidityImport.TypeClassifier
 import Contracts.Counter.Proofs.Basic
 import Contracts.Counter.Proofs.Correctness
 import Contracts.Counter.Proofs.Preview
@@ -832,6 +834,48 @@ end Verity.AxiomAudit
   SolidityImportSmoke.ExplicitAbiChecks.explicit_loader_has_no_automatic_bindings
   SolidityImportSmoke.ExplicitAbiChecks.public_denote_accepts_overlap
   SolidityImportSmoke.ExplicitAbiChecks.standard_loader_still_rejects_overlap
+
+  -- Compiler/SolidityImport/AstIndex.lean
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.empty_findById?
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.insert_findById?_self
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.insert_findById?_of_ne
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.indexJson_zero
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.ofRootJson_fuel_zero
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findById?_ofRootJson_fuel_zero
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findByIdWithNodeType?_eq_some_iff
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findStructDef?_eq_some_iff
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findEnumDef?_eq_some_iff
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findUdvtDef?_eq_some_iff
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findFunctionDef?_eq_some_iff
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findStructDef?_disjoint_findEnumDef?
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.empty_findStructDef?
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.findById?_deterministic
+  Compiler.CompilationModel.SolidityImport.AstNodeIndex.resolveReferencedDeclaration?_deterministic
+
+  -- Compiler/SolidityImport/TypeClassifier.lean
+  Compiler.CompilationModel.SolidityImport.isValueType_implies_not_dynamic
+  Compiler.CompilationModel.SolidityImport.isDynamicAbiType_implies_not_valueType
+  Compiler.CompilationModel.SolidityImport.storageWordCount_pos_of_valueType
+  Compiler.CompilationModel.SolidityImport.storageWordCount_value
+  Compiler.CompilationModel.SolidityImport.storageWordCount_fixedArray_pos
+  Compiler.CompilationModel.SolidityImport.storageWordCount_structRef_pos
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_uint256
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_t_uint256
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_address
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_t_address
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_bytes32
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_t_bytes32
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_bool
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_int256
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_bytes_memory
+  Compiler.CompilationModel.SolidityImport.classifyTypeIdentifier_string_calldata
+  Compiler.CompilationModel.SolidityImport.isValueType_classifyTypeIdentifier_uint256
+  Compiler.CompilationModel.SolidityImport.isValueType_classifyTypeIdentifier_address
+  Compiler.CompilationModel.SolidityImport.isValueType_classifyTypeIdentifier_bytes32
+  Compiler.CompilationModel.SolidityImport.isDynamicAbiType_classifyTypeIdentifier_bytes_memory
+  Compiler.CompilationModel.SolidityImport.toParamType?_classifyTypeIdentifier_uint256
+  Compiler.CompilationModel.SolidityImport.toParamType?_classifyTypeIdentifier_address
+  Compiler.CompilationModel.SolidityImport.toParamType?_classifyTypeIdentifier_bytes32
 
   -- Contracts/Counter/Proofs/Basic.lean
   Contracts.Counter.Proofs.setStorage_updates_count
@@ -9668,4 +9712,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8920 theorems/lemmas (5831 public, 3089 private, 0 sorry'd)
+-- Total: 8958 theorems/lemmas (5869 public, 3089 private, 0 sorry'd)
