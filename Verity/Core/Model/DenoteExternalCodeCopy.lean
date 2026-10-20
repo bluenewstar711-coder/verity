@@ -22,8 +22,8 @@ theorem extCodeCopy_module_beq_self (resultVar : String) :
     (Compiler.ECM.SolidityExtCodeCopy.module resultVar ==
       Compiler.ECM.SolidityExtCodeCopy.module resultVar) = true := by
   simp [BEq.beq, Compiler.ECM.SolidityExtCodeCopy.module, List.beq]
-  exact ⟨⟨⟨rfl, rfl⟩, rfl⟩,
-    beq_self_eq_true (some (Compiler.ECM.ByteTransport.extCodeCopy resultVar))⟩
+  exact ⟨beq_self_eq_true (some (Compiler.ECM.ByteTransport.extCodeCopy resultVar)),
+    rfl, rfl, rfl, rfl⟩
 
 /-- The copied code is the account world's runtime code. -/
 abbrev copiedCode (state : DenoteState) (account : Nat) : List UInt8 :=
@@ -75,7 +75,8 @@ theorem returnMemory_module_beq_self :
     (Compiler.ECM.SolidityReturnMemory.module ==
       Compiler.ECM.SolidityReturnMemory.module) = true := by
   simp [BEq.beq, Compiler.ECM.SolidityReturnMemory.module]
-  exact ⟨⟨⟨rfl, rfl⟩, rfl⟩, beq_self_eq_true (some Compiler.ECM.ByteTransport.returnMemory)⟩
+  exact ⟨beq_self_eq_true (some Compiler.ECM.ByteTransport.returnMemory),
+    rfl, rfl, rfl, rfl⟩
 
 /-- A whole-word buffer stops the frame with exactly its words, in order. -/
 theorem executeByteReturnMemory_eq (oracle : DenoteOracle) (fields : List Field)
