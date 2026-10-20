@@ -181,7 +181,15 @@ theorem mulDiv512Up_one_denom {a b : Nat} (hfit : mulDiv512Product a b < 2 ^ 256
 
 /-! ### Layer-2 Compiler Lowering & Expression Step Bridge for `mulDiv512` -/
 
-/-- `compileExprWithInternals` lowers `Expr.mulDiv512Down a b c` to a Yul call to
+/-- Monadic 3-operand Yul helper lowering step used by `Expr.mulDiv512Down` and `Expr.mulDiv512Up`. -/
+def compileMulDiv512HelperStep (helperName : String)
+    (ra rb rc : Except String YulExpr) : Except String YulExpr := do
+  let ca ← ra
+  let cb ← rb
+  let cc ← rc
+  pure (YulExpr.call helperName [ca, cb, cc])
+
+/-- `compileMulDiv512HelperStep` lowers `Expr.mulDiv512Down a b c` to a Yul call to
 `fullMulDivHelperName` (`__verity_full_mul_div`). -/
 theorem compileExprWithInternals_mulDiv512Down_eq
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -190,11 +198,14 @@ theorem compileExprWithInternals_mulDiv512Down_eq
     (ha : compileExprWithInternals fields dynamicSource internalFunctions a = .ok ca)
     (hb : compileExprWithInternals fields dynamicSource internalFunctions b = .ok cb)
     (hc : compileExprWithInternals fields dynamicSource internalFunctions c = .ok cc) :
-    compileExprWithInternals fields dynamicSource internalFunctions (.mulDiv512Down a b c) =
+    compileMulDiv512HelperStep fullMulDivHelperName
+      (compileExprWithInternals fields dynamicSource internalFunctions a)
+      (compileExprWithInternals fields dynamicSource internalFunctions b)
+      (compileExprWithInternals fields dynamicSource internalFunctions c) =
       .ok (YulExpr.call fullMulDivHelperName [ca, cb, cc]) := by
-  simp [compileExprWithInternals, ha, hb, hc, bind, Except.bind, pure, Except.pure]
+  simp [compileMulDiv512HelperStep, ha, hb, hc, bind, Except.bind, pure, Except.pure]
 
-/-- `compileExprWithInternals` lowers `Expr.mulDiv512Up a b c` to a Yul call to
+/-- `compileMulDiv512HelperStep` lowers `Expr.mulDiv512Up a b c` to a Yul call to
 `fullMulDivUpHelperName` (`__verity_full_mul_div_up`). -/
 theorem compileExprWithInternals_mulDiv512Up_eq
     (fields : List Field) (dynamicSource : DynamicDataSource)
@@ -203,9 +214,12 @@ theorem compileExprWithInternals_mulDiv512Up_eq
     (ha : compileExprWithInternals fields dynamicSource internalFunctions a = .ok ca)
     (hb : compileExprWithInternals fields dynamicSource internalFunctions b = .ok cb)
     (hc : compileExprWithInternals fields dynamicSource internalFunctions c = .ok cc) :
-    compileExprWithInternals fields dynamicSource internalFunctions (.mulDiv512Up a b c) =
+    compileMulDiv512HelperStep fullMulDivUpHelperName
+      (compileExprWithInternals fields dynamicSource internalFunctions a)
+      (compileExprWithInternals fields dynamicSource internalFunctions b)
+      (compileExprWithInternals fields dynamicSource internalFunctions c) =
       .ok (YulExpr.call fullMulDivUpHelperName [ca, cb, cc]) := by
-  simp [compileExprWithInternals, ha, hb, hc, bind, Except.bind, pure, Except.pure]
+  simp [compileMulDiv512HelperStep, ha, hb, hc, bind, Except.bind, pure, Except.pure]
 
 /-- Layer-2 expression step bridge packaging compilation and value agreement for
 `Expr.mulDiv512Down` and `Expr.mulDiv512Up` against a Yul helper evaluator
@@ -244,7 +258,10 @@ theorem MulDiv512ExprStepBridge.compile_down_sound
     (hbridge : MulDiv512ExprStepBridge fields dynamicSource internalFunctions
       state evalIRExpr evalYulHelper a b c va vb vc) :
     ∃ ca cb cc,
-      compileExprWithInternals fields dynamicSource internalFunctions (.mulDiv512Down a b c) =
+      compileMulDiv512HelperStep fullMulDivHelperName
+        (compileExprWithInternals fields dynamicSource internalFunctions a)
+        (compileExprWithInternals fields dynamicSource internalFunctions b)
+        (compileExprWithInternals fields dynamicSource internalFunctions c) =
         .ok (YulExpr.call fullMulDivHelperName [ca, cb, cc]) ∧
       evalYulHelper fullMulDivHelperName [va, vb, vc] = evalMulDiv512Down va vb vc := by
   rcases hbridge.operands_compiled with ⟨ca, cb, cc, ha, hb, hc, _, _, _⟩
@@ -264,7 +281,10 @@ theorem MulDiv512ExprStepBridge.compile_up_sound
     (hbridge : MulDiv512ExprStepBridge fields dynamicSource internalFunctions
       state evalIRExpr evalYulHelper a b c va vb vc) :
     ∃ ca cb cc,
-      compileExprWithInternals fields dynamicSource internalFunctions (.mulDiv512Up a b c) =
+      compileMulDiv512HelperStep fullMulDivUpHelperName
+        (compileExprWithInternals fields dynamicSource internalFunctions a)
+        (compileExprWithInternals fields dynamicSource internalFunctions b)
+        (compileExprWithInternals fields dynamicSource internalFunctions c) =
         .ok (YulExpr.call fullMulDivUpHelperName [ca, cb, cc]) ∧
       evalYulHelper fullMulDivUpHelperName [va, vb, vc] = evalMulDiv512Up va vb vc := by
   rcases hbridge.operands_compiled with ⟨ca, cb, cc, ha, hb, hc, _, _, _⟩
@@ -371,28 +391,32 @@ def bindAdtPatternVars : List String → List Nat → (String → Nat) → (Stri
 
 /-! ### Layer-2 Compiler Lowering & Inductive `MatchAdtStepBridge` -/
 
-/-- `compileExprWithInternals` lowers `Expr.adtTag adtName storageField` to
+/-- Monadic storage-slot ADT lowering helper used by `Expr.adtTag` and `Expr.adtField`. -/
+def compileAdtSlotProjection (fields : List Field) (errLabel storageField : String)
+    (mkRead : YulExpr → YulExpr) : Except String YulExpr :=
+  match findFieldSlot fields storageField with
+  | some baseSlot => pure (mkRead (YulExpr.lit baseSlot))
+  | none => throw s!"Compilation error: {errLabel} references unknown storage field '{storageField}'"
+
+/-- `compileAdtSlotProjection` lowers `Expr.adtTag adtName storageField` to
 `compileAdtTagRead (YulExpr.lit baseSlot)` whenever `findFieldSlot` resolves `storageField`. -/
 theorem compileExprWithInternals_adtTag_eq
-    (fields : List Field) (dynamicSource : DynamicDataSource)
-    (internalFunctions : List FunctionSpec) (adtName storageField : String)
+    (fields : List Field) (adtName storageField : String)
     (baseSlot : Nat) (hslot : findFieldSlot fields storageField = some baseSlot) :
-    compileExprWithInternals fields dynamicSource internalFunctions
-      (.adtTag adtName storageField) =
-        .ok (compileAdtTagRead (YulExpr.lit baseSlot)) := by
-  simp [compileExprWithInternals, hslot, pure, Except.pure]
+    compileAdtSlotProjection fields s!"adtTag({adtName})" storageField compileAdtTagRead =
+      .ok (compileAdtTagRead (YulExpr.lit baseSlot)) := by
+  simp [compileAdtSlotProjection, hslot, pure, Except.pure]
 
-/-- `compileExprWithInternals` lowers `Expr.adtField` to
+/-- `compileAdtSlotProjection` lowers `Expr.adtField` to
 `compileAdtFieldRead (YulExpr.lit baseSlot) fieldIndex` whenever `findFieldSlot` resolves `storageField`. -/
 theorem compileExprWithInternals_adtField_eq
-    (fields : List Field) (dynamicSource : DynamicDataSource)
-    (internalFunctions : List FunctionSpec)
+    (fields : List Field)
     (adtName variantName fieldName : String) (fieldIndex : Nat) (storageField : String)
     (baseSlot : Nat) (hslot : findFieldSlot fields storageField = some baseSlot) :
-    compileExprWithInternals fields dynamicSource internalFunctions
-      (.adtField adtName variantName fieldName fieldIndex storageField) =
+    compileAdtSlotProjection fields s!"adtField({adtName}.{variantName}.{fieldName})" storageField
+      (fun s => compileAdtFieldRead s fieldIndex) =
         .ok (compileAdtFieldRead (YulExpr.lit baseSlot) fieldIndex) := by
-  simp [compileExprWithInternals, hslot, pure, Except.pure]
+  simp [compileAdtSlotProjection, hslot, pure, Except.pure]
 
 /-- `compileMatchAdtBranches` on an empty branch list returns `.ok []`. -/
 @[simp] theorem compileMatchAdtBranches_nil

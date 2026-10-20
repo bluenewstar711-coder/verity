@@ -1,8 +1,11 @@
 import Compiler.Proofs.IRGeneration.Contract
 import Compiler.Proofs.IRGeneration.GenericInduction.Calls
+import Compiler.Proofs.IRGeneration.GenericInduction.CanonicalEcmCalls
 import Compiler.Proofs.IRGeneration.GenericInduction.MulDiv512AndAdt
+import Compiler.Proofs.IRGeneration.GenericInduction.BitLoopsAndStorageArrays
 import Compiler.Proofs.IRGeneration.SupportedSpec.SurfaceMask
 import Compiler.Proofs.IRGeneration.SupportedSpec.SupportProfile
+import Compiler.Proofs.TrustSurface.LinearEquivalence
 import Compiler.Proofs.EndToEnd.DispatchConfig
 import Compiler.Proofs.MetaSpecs
 import Compiler.Proofs.SpecHarness
