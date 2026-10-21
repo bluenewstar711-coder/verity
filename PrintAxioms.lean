@@ -609,6 +609,7 @@ end Verity.AxiomAudit
   Compiler.CompilationModel.SolidityImport.evalExpr_smod_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_byte_arm
   Compiler.CompilationModel.SolidityImport.evalExpr_signextend_arm
+  Compiler.CompilationModel.SolidityImport.evalExpr_msgValue_arm
   Compiler.CompilationModel.SolidityImport.execStmt_mstore_arm
   Compiler.CompilationModel.SolidityImport.execStmt_tstore_arm
   Compiler.CompilationModel.SolidityImport.execStmt_panicCode_arm
@@ -9597,4 +9598,4 @@ end Verity.AxiomAudit
   Compiler.Proofs.YulGeneration.TempReuseSoundness.spillLetStep_eval_eq
 ]
 
--- Total: 8795 theorems/lemmas (6315 public, 2480 private, 0 sorry'd)
+-- Total: 8796 theorems/lemmas (6316 public, 2480 private, 0 sorry'd)
