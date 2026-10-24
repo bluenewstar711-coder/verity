@@ -19,6 +19,9 @@ DEFAULT_SOURCE = ROOT / "Contracts" / "Counter" / "Counter.lean"
 DEFAULT_SOURCE_DIR = ROOT / "Contracts"
 DEFAULT_OUTPUT_DIR = ROOT / "artifacts" / "macro_property_tests"
 EXCLUDED_CONTRACTS = {
+    # Declarative clause headers wrap before `:=' and are not yet parsed by
+    # the single-line function matcher. The Lean smoke covers this syntax.
+    "DeclarativeVaultSmoke",
     # The property generator does not yet synthesize Solidity examples for
     # arrays of tuple/struct values with nested dynamic members. This smoke is
     # covered by Lean macro invariant and round-trip tests instead.
