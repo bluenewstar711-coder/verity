@@ -151,8 +151,8 @@ def applyDynamicTempReuseToObject
       reuseBlockTempsWithSpillBase maxStackLocals (computedSpillBase memoryHighWaterMark) [] obj.runtimeCode }
 
 /-- Profile-guided Yul emission wrapper around `emitYulWithOptionsReport`.
-    Wires `cfg.enableSlotCoalescingShim`, `cfg.activePlugins`, and
-    `cfg.enableDynamicSpillWatermark` (`computedSpillBase cfg.memoryHighWaterMark`).
+    Wires `cfg.enableSlotCoalescingShim`, `cfg.activePlugins` (`applyCertifiedAstPassesToObject`),
+    and `cfg.enableDynamicSpillWatermark` (`computedSpillBase cfg.memoryHighWaterMark`).
     When `cfg = PipelineConfig.unoptimized opts`, this reduces definitionally (`rfl`) to
     `emitYulWithOptionsReport model opts`. -/
 def emitYulWithProfile (model : IRContract) (cfg : PipelineConfig) :
@@ -164,10 +164,15 @@ def emitYulWithProfile (model : IRContract) (cfg : PipelineConfig) :
     else
       cfg.yulOptions
   let baseReport := emitYulWithOptionsReport model effectiveOpts
+  let astPatchedObj :=
+    if !cfg.activePlugins.isEmpty then
+      applyCertifiedAstPassesToObject baseReport.1
+    else
+      baseReport.1
   if cfg.enableDynamicSpillWatermark then
-    (applyDynamicTempReuseToObject cfg.maxStackLocals cfg.memoryHighWaterMark baseReport.1, baseReport.2)
+    (applyDynamicTempReuseToObject cfg.maxStackLocals cfg.memoryHighWaterMark astPatchedObj, baseReport.2)
   else
-    baseReport
+    (astPatchedObj, baseReport.2)
 
 /-- **Theorem C1.4 (Internal Unoptimized Definitional Bridge by `rfl`)**:
     Evaluating `emitYulWithProfile` under `PipelineConfig.unoptimized opts` is definitionally

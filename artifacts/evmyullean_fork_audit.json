@@ -234,7 +234,7 @@
       "file": "EvmYul/UInt256.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/JumpdestTotal.lean, EvmYul/EVM/PragueOsakaSpecs.lean, EvmYul/EVM/Proof/{Interpreter,Observation}.lean, EvmYul/Specs/*, EvmYul/MetaSpecs/*, EvmYul/Yul/{GasInterpreter,MessageCallCombinator,Interpreter}.lean",
       "rationale": "Consolidate EVMYulLean 2.0 Waves E1-E4 (BitVec 256, total multi-fork Gas.lean, 7 Specs, 4 MetaSpecs), F4b/F4c/Osaka proof layers, and Yul primCall EIP-214/frame restoration fixes.",
       "semantic_change": false,
-      "sha": "b615ceca315c63059461f7a7a3085be33d829928",
+      "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
       "title": "feat(evmyullean-2.0): consolidate Waves E1-E4, F4b/F4c/Osaka proofs, and Yul primCall fixes",
       "trust_impact": "Zero sorryAx, zero native_decide, 460/460 tight specs verified by turbo-lean audit-spec."
     }
@@ -243,7 +243,7 @@
   "fork_ahead_by": 23,
   "fork_behind_by": 0,
   "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
-  "pinned_commit": "b615ceca315c63059461f7a7a3085be33d829928",
+  "pinned_commit": "a132798069be50e8b03f88d6a96f2618c128ae7f",
   "reproduction": {
     "script": "scripts/generate_evmyullean_fork_audit.py",
     "steps": [

@@ -49,7 +49,7 @@ FORK_AUDIT = {
     "schema_version": 1,
     "fork_url": "https://github.com/lfglabs-dev/EVMYulLean",
     "upstream_url": "https://github.com/NethermindEth/EVMYulLean",
-    "pinned_commit": "b615ceca315c63059461f7a7a3085be33d829928",
+    "pinned_commit": "a132798069be50e8b03f88d6a96f2618c128ae7f",
     "upstream_base": "047f63070309f436b66c61e276ab3b6d1169265a",
     "fork_ahead_by": 23,
     "fork_behind_by": 0,
@@ -359,7 +359,7 @@ FORK_AUDIT = {
             "trust_impact": "Additive proof modules and byte-encoding lemmas; zero sorry, zero new axioms.",
         },
         {
-            "sha": "b615ceca315c63059461f7a7a3085be33d829928",
+            "sha": "a132798069be50e8b03f88d6a96f2618c128ae7f",
             "title": "feat(evmyullean-2.0): consolidate Waves E1-E4, F4b/F4c/Osaka proofs, and Yul primCall fixes",
             "file": "EvmYul/UInt256.lean, EvmYul/EVM/Gas.lean, EvmYul/EVM/JumpdestTotal.lean, EvmYul/EVM/PragueOsakaSpecs.lean, EvmYul/EVM/Proof/{Interpreter,Observation}.lean, EvmYul/Specs/*, EvmYul/MetaSpecs/*, EvmYul/Yul/{GasInterpreter,MessageCallCombinator,Interpreter}.lean",
             "category": "lemma-addition",

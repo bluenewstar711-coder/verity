@@ -27,6 +27,15 @@ structure FoundationEvaluatorLaws (eval : EvalExpr) : Prop where
   mul_one_left : ∀ rhs, eval (.call "mul" [.lit 1, rhs]) = eval rhs
   div_one_right : ∀ lhs, eval (.call "div" [lhs, .lit 1]) = eval lhs
   mod_one_right : ∀ lhs, eval (.call "mod" [lhs, .lit 1]) = eval (.lit 0)
+  and_mask_fuse : ∀ x m1 m2,
+    eval (.call "and" [.call "and" [x, .lit m1], .lit m2]) =
+      eval (.call "and" [x, .lit (m1 &&& m2)])
+  or_mask_fuse : ∀ x m1 m2,
+    eval (.call "or" [.call "or" [x, .lit m1], .lit m2]) =
+      eval (.call "or" [x, .lit (m1 ||| m2)])
+  double_iszero_eq : ∀ a b,
+    eval (.call "iszero" [.call "iszero" [.call "eq" [a, b]]]) =
+      eval (.call "eq" [a, b])
 
 /-- Obligation for `or(x, 0) -> x`. -/
 def or_zero_right_preserves (eval : EvalExpr) : Prop :=
@@ -76,6 +85,18 @@ def div_one_right_preserves (eval : EvalExpr) : Prop :=
 def mod_one_right_preserves (eval : EvalExpr) : Prop :=
   FoundationEvaluatorLaws eval → ExprPatchPreservesUnder eval Compiler.Yul.modOneRightRule
 
+/-- Obligation for `and(and(x, m1), m2) -> and(x, m1 &&& m2)`. -/
+def and_mask_fuse_preserves (eval : EvalExpr) : Prop :=
+  FoundationEvaluatorLaws eval → ExprPatchPreservesUnder eval Compiler.Yul.andMaskFuseRule
+
+/-- Obligation for `or(or(x, m1), m2) -> or(x, m1 ||| m2)`. -/
+def or_mask_fuse_preserves (eval : EvalExpr) : Prop :=
+  FoundationEvaluatorLaws eval → ExprPatchPreservesUnder eval Compiler.Yul.orMaskFuseRule
+
+/-- Obligation for `iszero(iszero(eq(a, b))) -> eq(a, b)`. -/
+def double_iszero_eq_preserves (eval : EvalExpr) : Prop :=
+  FoundationEvaluatorLaws eval → ExprPatchPreservesUnder eval Compiler.Yul.doubleIszeroEqRule
+
 /-- Registry hook: each shipped foundation patch has an explicit proof obligation. -/
 def foundation_patch_pack_obligations (eval : EvalExpr) : Prop :=
   or_zero_right_preserves eval ∧
@@ -89,6 +110,9 @@ def foundation_patch_pack_obligations (eval : EvalExpr) : Prop :=
   mul_one_right_preserves eval ∧
   mul_one_left_preserves eval ∧
   div_one_right_preserves eval ∧
-  mod_one_right_preserves eval
+  mod_one_right_preserves eval ∧
+  and_mask_fuse_preserves eval ∧
+  or_mask_fuse_preserves eval ∧
+  double_iszero_eq_preserves eval
 
 end Compiler.Proofs.YulGeneration.PatchRulesProofs
