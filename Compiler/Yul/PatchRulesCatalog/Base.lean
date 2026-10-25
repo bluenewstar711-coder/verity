@@ -182,7 +182,55 @@ def modOneRightRule : ExprPatchRule :=
       | .call "mod" [_lhs, .lit 1] => some (.lit 0)
       | _ => none }
 
-/-- Initial deterministic, proven-safe expression patch pack (Issue #583 expansion). -/
+/-- `and(and(x, m1), m2) -> and(x, m1 &&& m2)` -/
+def andMaskFuseRule : ExprPatchRule :=
+  { patchName := "and-mask-fuse"
+    pattern := "and(and(x, m1), m2)"
+    rewrite := "and(x, m1 &&& m2)"
+    sideConditions := ["inner and outer masks are literals"]
+    proofId := proofRefName "Compiler.Proofs.YulGeneration.PatchRulesProofs.and_mask_fuse_preserves"
+    scope := .runtime
+    passPhase := .postCodegen
+    priority := 68
+    applyExpr := fun _ expr =>
+      match expr with
+      | .call "and" [.call "and" [x, .lit m1], .lit m2] =>
+          some (.call "and" [x, .lit (m1 &&& m2)])
+      | _ => none }
+
+/-- `or(or(x, m1), m2) -> or(x, m1 ||| m2)` -/
+def orMaskFuseRule : ExprPatchRule :=
+  { patchName := "or-mask-fuse"
+    pattern := "or(or(x, m1), m2)"
+    rewrite := "or(x, m1 ||| m2)"
+    sideConditions := ["inner and outer masks are literals"]
+    proofId := proofRefName "Compiler.Proofs.YulGeneration.PatchRulesProofs.or_mask_fuse_preserves"
+    scope := .runtime
+    passPhase := .postCodegen
+    priority := 67
+    applyExpr := fun _ expr =>
+      match expr with
+      | .call "or" [.call "or" [x, .lit m1], .lit m2] =>
+          some (.call "or" [x, .lit (m1 ||| m2)])
+      | _ => none }
+
+/-- `iszero(iszero(eq(a, b))) -> eq(a, b)` -/
+def doubleIszeroEqRule : ExprPatchRule :=
+  { patchName := "double-iszero-eq"
+    pattern := "iszero(iszero(eq(a, b)))"
+    rewrite := "eq(a, b)"
+    sideConditions := ["inner expression is canonical boolean eq(a, b)"]
+    proofId := proofRefName "Compiler.Proofs.YulGeneration.PatchRulesProofs.double_iszero_eq_preserves"
+    scope := .runtime
+    passPhase := .postCodegen
+    priority := 66
+    applyExpr := fun _ expr =>
+      match expr with
+      | .call "iszero" [.call "iszero" [.call "eq" [a, b]]] =>
+          some (.call "eq" [a, b])
+      | _ => none }
+
+/-- Initial deterministic, proven-safe expression patch pack (Issue #583 + Verity 2.0 AST rewrites). -/
 def foundationExprPatchPack : List ExprPatchRule :=
   [ orZeroRightRule
   , orZeroLeftRule
@@ -196,6 +244,9 @@ def foundationExprPatchPack : List ExprPatchRule :=
   , mulOneLeftRule
   , divOneRightRule
   , modOneRightRule
+  , andMaskFuseRule
+  , orMaskFuseRule
+  , doubleIszeroEqRule
   ]
 
 /-- Initial deterministic statement patch pack.
